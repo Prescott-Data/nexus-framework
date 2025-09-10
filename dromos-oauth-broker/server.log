@@ -1,0 +1,11 @@
+2025/09/07 17:23:07 WARNING: Using generated encryption key. Set ENCRYPTION_KEY environment variable for production.
+2025/09/07 17:23:07 WARNING: Using generated state key. Set STATE_KEY environment variable for production.
+2025/09/07 17:23:07 Successfully connected to database
+2025/09/07 17:23:07 Starting OAuth Broker server on port 8080
+2025/09/07 17:23:07 Base URL: http://localhost:8080
+2025/09/07 17:23:07 Starting OAuth Broker server on port 8080
+2025/09/07 17:23:21 "POST http://localhost:8080/auth/consent-spec HTTP/1.1" from [::1]:36220 - 200 995B in 104.570519ms
+2025/09/07 17:24:32 "POST http://localhost:8080/auth/consent-spec HTTP/1.1" from [::1]:55540 - 200 995B in 9.404787ms
+2025/09/07 17:29:37 "POST http://localhost:8080/auth/consent-spec HTTP/1.1" from [::1]:46658 - 200 995B in 10.918222ms
+2025/09/07 17:32:01 "POST http://localhost:8080/auth/consent-spec HTTP/1.1" from [::1]:35326 - 200 996B in 60.890318ms
+2025/09/07 17:33:03 "GET http://localhost:8080/health HTTP/1.1" from [::1]:60822 - 200 21B in 176.386µs
