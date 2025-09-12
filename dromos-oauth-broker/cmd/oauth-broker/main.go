@@ -94,6 +94,8 @@ func main() {
 	router.Post("/auth/consent-spec", consentHandler.GetSpec)
 	router.Get("/auth/callback", callbackHandler.Handle)
 	router.Get("/connections/{connectionID}/token", callbackHandler.GetToken)
+	router.Post("/connections/{connectionID}/refresh", callbackHandler.Refresh)
+	router.Method("GET", "/metrics", server.MetricsHandler())
 
 	// Health check
 	router.Get("/health", server.HealthHandler)

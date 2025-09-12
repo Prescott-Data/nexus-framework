@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Server wraps the HTTP server
@@ -32,6 +33,7 @@ func (s *Server) setupMiddleware() {
 	s.router.Use(middleware.Recoverer)
 	s.router.Use(middleware.Timeout(30 * time.Second))
 	s.router.Use(middleware.RealIP)
+	s.router.Use(middleware.RequestID)
 }
 
 // Router returns the chi router for adding routes
@@ -50,4 +52,9 @@ func HealthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status": "healthy"}`))
+}
+
+// MetricsHandler exposes Prometheus metrics
+func MetricsHandler() http.Handler {
+	return promhttp.Handler()
 }
