@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"dromos-oauth-broker/internal/auth"
 	"dromos-oauth-broker/internal/vault"
@@ -20,17 +21,52 @@ import (
 
 // CallbackHandler handles OAuth callback and token exchange
 type CallbackHandler struct {
-	db            *sqlx.DB
-	encryptionKey []byte
-	stateKey      []byte
+	db                    *sqlx.DB
+	encryptionKey         []byte
+	stateKey              []byte
+	metricExchangeSuccess prometheus.Counter
+	metricExchangeError   prometheus.Counter
+	histogramExchangeDur  prometheus.Histogram
+	metricIDTokens        prometheus.Counter
+	metricTokenGet        *prometheus.CounterVec
 }
 
 // NewCallbackHandler creates a new callback handler
 func NewCallbackHandler(db *sqlx.DB, encryptionKey, stateKey []byte) *CallbackHandler {
+	success := prometheus.NewCounter(prometheus.CounterOpts{
+		Name:        "oauth_token_exchanges_total",
+		Help:        "Total OAuth token exchanges",
+		ConstLabels: prometheus.Labels{"status": "success"},
+	})
+	failure := prometheus.NewCounter(prometheus.CounterOpts{
+		Name:        "oauth_token_exchanges_total",
+		Help:        "Total OAuth token exchanges",
+		ConstLabels: prometheus.Labels{"status": "error"},
+	})
+	hist := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "oauth_exchange_duration_seconds",
+		Help:    "Duration of token exchange requests",
+		Buckets: prometheus.DefBuckets,
+	})
+	idTokens := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "oauth_id_tokens_returned_total",
+		Help: "Total number of times an id_token was returned by provider",
+	})
+	tokenGet := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "oauth_token_get_total",
+		Help: "Token retrievals by provider and whether id_token present",
+	}, []string{"provider", "has_id_token"})
+
+	prometheus.MustRegister(success, failure, hist, idTokens, tokenGet)
 	return &CallbackHandler{
-		db:            db,
-		encryptionKey: encryptionKey,
-		stateKey:      stateKey,
+		db:                    db,
+		encryptionKey:         encryptionKey,
+		stateKey:              stateKey,
+		metricExchangeSuccess: success,
+		metricExchangeError:   failure,
+		histogramExchangeDur:  hist,
+		metricIDTokens:        idTokens,
+		metricTokenGet:        tokenGet,
 	}
 }
 
@@ -112,12 +148,19 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	redirectURI := base + redirectPath
 
 	// Exchange code for tokens
+	start := time.Now()
 	tokens, err := h.exchangeCodeForTokens(provider.TokenURL, provider.ClientID, provider.ClientSecret, code, connection.CodeVerifier, redirectURI)
+	h.histogramExchangeDur.Observe(time.Since(start).Seconds())
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_exchange_failed", map[string]string{"error": err.Error()}, r)
 		h.updateConnectionStatus(connectionID, "failed")
+		h.metricExchangeError.Inc()
 		http.Error(w, "Token exchange failed", http.StatusInternalServerError)
 		return
+	}
+	h.metricExchangeSuccess.Inc()
+	if _, ok := tokens["id_token"]; ok {
+		h.metricIDTokens.Inc()
 	}
 
 	// Encrypt and store tokens
@@ -160,10 +203,11 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 
 	// Check if connection exists and is active
 	var connection struct {
-		Status string `db:"status"`
+		Status     string `db:"status"`
+		ProviderID string `db:"provider_id"`
 	}
 
-	err = h.db.QueryRow("SELECT status FROM connections WHERE id = $1", connectionID).Scan(&connection.Status)
+	err = h.db.QueryRow("SELECT status, provider_id FROM connections WHERE id = $1", connectionID).Scan(&connection.Status, &connection.ProviderID)
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "connection not found", "id": connectionID.String()}, r)
 		http.Error(w, "Connection not found", http.StatusNotFound)
@@ -214,6 +258,13 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	// Log successful retrieval
 	h.logAuditEvent(&connectionID, "token_retrieved", map[string]string{}, r)
 
+	// Emit metric for token retrieval
+	hasID := "false"
+	if _, ok := tokenData["id_token"]; ok {
+		hasID = "true"
+	}
+	h.metricTokenGet.WithLabelValues(connection.ProviderID, hasID).Inc()
+
 	// Return the decrypted token
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(tokenData)
@@ -254,6 +305,105 @@ func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret
 	}
 
 	return tokens, nil
+}
+
+// refreshTokens refreshes using a refresh_token
+func (h *CallbackHandler) refreshTokens(tokenURL, clientID, clientSecret, refreshToken string) (map[string]interface{}, error) {
+	data := url.Values{}
+	data.Set("grant_type", "refresh_token")
+	data.Set("refresh_token", refreshToken)
+	data.Set("client_id", clientID)
+	data.Set("client_secret", clientSecret)
+
+	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("token refresh failed: %s", string(body))
+	}
+	var tokens map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
+		return nil, err
+	}
+	return tokens, nil
+}
+
+// Refresh handles POST /connections/{connection_id}/refresh
+func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	// Extract connection ID
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 3 {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+	idStr := parts[len(parts)-2]
+	connectionID, err := uuid.Parse(idStr)
+	if err != nil {
+		http.Error(w, "Invalid connection ID", http.StatusBadRequest)
+		return
+	}
+	// Load provider and latest token
+	var providerID string
+	err = h.db.QueryRow("SELECT provider_id FROM connections WHERE id=$1 AND status='active'", connectionID).Scan(&providerID)
+	if err != nil {
+		http.Error(w, "Connection not active or not found", http.StatusNotFound)
+		return
+	}
+	var provider struct {
+		TokenURL     string `db:"token_url"`
+		ClientID     string `db:"client_id"`
+		ClientSecret string `db:"client_secret"`
+	}
+	err = h.db.QueryRow("SELECT token_url, client_id, client_secret FROM provider_profiles WHERE id=$1", providerID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret)
+	if err != nil {
+		http.Error(w, "Provider not found", http.StatusInternalServerError)
+		return
+	}
+	var tokenRow struct {
+		EncryptedData string `db:"encrypted_data"`
+	}
+	err = h.db.QueryRow("SELECT encrypted_data FROM tokens WHERE connection_id=$1 ORDER BY created_at DESC LIMIT 1", connectionID).Scan(&tokenRow.EncryptedData)
+	if err != nil {
+		http.Error(w, "Token not found", http.StatusNotFound)
+		return
+	}
+	plaintext, err := vault.Decrypt(h.encryptionKey, tokenRow.EncryptedData)
+	if err != nil {
+		http.Error(w, "Decrypt failed", http.StatusInternalServerError)
+		return
+	}
+	var current map[string]interface{}
+	if err := json.Unmarshal(plaintext, &current); err != nil {
+		http.Error(w, "Token parse failed", http.StatusInternalServerError)
+		return
+	}
+	refreshToken, _ := current["refresh_token"].(string)
+	if refreshToken == "" {
+		http.Error(w, "No refresh_token available", http.StatusBadRequest)
+		return
+	}
+	// Refresh
+	newTokens, err := h.refreshTokens(provider.TokenURL, provider.ClientID, provider.ClientSecret, refreshToken)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	// Store new tokens
+	if err := h.storeTokens(connectionID, newTokens); err != nil {
+		http.Error(w, "Store refreshed token failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(newTokens)
 }
 
 // storeTokens encrypts and stores tokens in database

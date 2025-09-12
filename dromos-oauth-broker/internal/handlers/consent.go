@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"dromos-oauth-broker/internal/auth"
 )
@@ -26,17 +27,30 @@ type ConsentSpec struct {
 
 // ConsentHandler handles OAuth consent flow
 type ConsentHandler struct {
-	db       *sqlx.DB
-	baseURL  string
-	stateKey []byte
+	db             *sqlx.DB
+	baseURL        string
+	stateKey       []byte
+	consentsMetric prometheus.Counter
+	consentsOpenID prometheus.Counter
 }
 
 // NewConsentHandler creates a new consent handler
 func NewConsentHandler(db *sqlx.DB, baseURL string, stateKey []byte) *ConsentHandler {
+	metric := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "oauth_consents_created_total",
+		Help: "Total OAuth consents created",
+	})
+	metricOpenID := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "oauth_consents_with_openid_total",
+		Help: "Total OAuth consents where openid scope was requested",
+	})
+	prometheus.MustRegister(metric, metricOpenID)
 	return &ConsentHandler{
-		db:       db,
-		baseURL:  baseURL,
-		stateKey: stateKey,
+		db:             db,
+		baseURL:        baseURL,
+		stateKey:       stateKey,
+		consentsMetric: metric,
+		consentsOpenID: metricOpenID,
 	}
 }
 
@@ -74,6 +88,32 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		log.Printf("/auth/consent-spec provider lookup error: %v", err)
 		http.Error(w, "Provider not found", http.StatusNotFound)
 		return
+	}
+
+	// Adjust scopes for refresh-token behavior per provider
+	isGoogle := strings.Contains(strings.ToLower(provider.AuthURL), "accounts.google.com")
+	if isGoogle {
+		// Remove offline_access if present (Google does not support this scope)
+		filtered := make([]string, 0, len(request.Scopes))
+		for _, s := range request.Scopes {
+			if strings.EqualFold(s, "offline_access") {
+				continue
+			}
+			filtered = append(filtered, s)
+		}
+		request.Scopes = filtered
+	} else {
+		// Ensure offline_access for providers that use it (e.g., Microsoft/Okta)
+		hasOffline := false
+		for _, s := range request.Scopes {
+			if strings.EqualFold(s, "offline_access") {
+				hasOffline = true
+				break
+			}
+		}
+		if !hasOffline {
+			request.Scopes = append(request.Scopes, "offline_access")
+		}
 	}
 
 	// Generate PKCE
@@ -126,6 +166,15 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+	// increment metric after successful response
+	h.consentsMetric.Inc()
+	// increment when openid scope included
+	for _, s := range request.Scopes {
+		if strings.EqualFold(s, "openid") {
+			h.consentsOpenID.Inc()
+			break
+		}
+	}
 }
 
 // buildAuthURL constructs the OAuth authorization URL
@@ -149,6 +198,12 @@ func (h *ConsentHandler) buildAuthURL(providerAuthURL, clientID, state, codeChal
 	q.Set("state", state)
 	q.Set("code_challenge", codeChallenge)
 	q.Set("code_challenge_method", "S256")
+
+	// Provider-specific: request refresh tokens for Google
+	if strings.Contains(strings.ToLower(u.Host), "accounts.google.com") || strings.Contains(strings.ToLower(u.String()), "accounts.google.com") {
+		q.Set("access_type", "offline")
+		q.Set("prompt", "consent")
+	}
 
 	u.RawQuery = q.Encode()
 	return u.String(), nil
