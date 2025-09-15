@@ -1,6 +1,3 @@
-//go:build grpc
-// +build grpc
-
 package grpcsrv
 
 import (

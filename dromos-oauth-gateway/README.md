@@ -1,6 +1,6 @@
 # Dromos OAuth Gateway
 
-The OAuth Gateway provides a REST (and optional gRPC + HTTP gateway) interface for services to initiate OAuth flows via the Dromos OAuth Broker, verify connection status, and retrieve tokens without storing them.
+The OAuth Gateway exposes a gRPC API (primary) with an HTTP JSON gateway (REST) for convenience. It initiates OAuth flows via the Dromos OAuth Broker, verifies connection status, and retrieves tokens without storing them.
 
 ## Features
 - requestConnection: Initiate OAuth via broker `/auth/consent-spec`
@@ -19,15 +19,19 @@ The OAuth Gateway provides a REST (and optional gRPC + HTTP gateway) interface f
 - GET `/v1/check-connection/{connectionID}`
 - GET `/v1/token/{connectionID}`
 
-## Run
+## Run (gRPC primary + REST gateway)
 ```bash
+# optional: buf generate   (only if you change protos)
 export BROKER_BASE_URL="http://localhost:8080"
 export STATE_KEY="$(openssl rand -base64 32)"  # use the broker's key in real env
+export PORT_GRPC=9090
+export PORT_HTTP=8090
 
-go run ./cmd/oha
+go build -tags grpc -o bin/oauth-gateway-grpc ./cmd/oha-grpc
+./bin/oauth-gateway-grpc
 ```
 
-## gRPC + HTTP Gateway (optional)
+## REST-only (optional)
 - Proto: `api/proto/oha/v1/oha.proto` (with HTTP annotations)
 - Build gRPC variant: `go build -tags grpc ./...`
 - Codegen via buf (once installed):
@@ -47,9 +51,8 @@ export STATE_KEY="$(openssl rand -base64 32)"  # use broker's key in prod
 export PORT_GRPC=9090
 export PORT_HTTP=8090
 
-# build and run with grpc tag
-go build -tags grpc -o bin/oauth-gateway-grpc ./cmd/oha-grpc
-./bin/oauth-gateway-grpc
+# run the REST-only server (no gRPC)
+go run ./cmd/oha
 
 # gRPC at localhost:${PORT_GRPC}
 # HTTP gateway (JSON/REST) at localhost:${PORT_HTTP}

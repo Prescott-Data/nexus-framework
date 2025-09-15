@@ -392,9 +392,9 @@ const file_api_proto_oha_v1_oha_proto_rawDesc = "" +
 	"OHAService\x12{\n" +
 	"\x11RequestConnection\x12 .oha.v1.RequestConnectionRequest\x1a!.oha.v1.RequestConnectionResponse\"!\x82\xd3\xe4\x93\x02\x1b:\x01*\"\x16/v1/request-connection\x12\x80\x01\n" +
 	"\x0fCheckConnection\x12\x1e.oha.v1.CheckConnectionRequest\x1a\x1f.oha.v1.CheckConnectionResponse\",\x82\xd3\xe4\x93\x02&\x12$/v1/check-connection/{connection_id}\x12`\n" +
-	"\bGetToken\x12\x17.oha.v1.GetTokenRequest\x1a\x18.oha.v1.GetTokenResponse\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/v1/token/{connection_id}B\x81\x01\n" +
+	"\bGetToken\x12\x17.oha.v1.GetTokenRequest\x1a\x18.oha.v1.GetTokenResponse\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/v1/token/{connection_id}B\x83\x01\n" +
 	"\n" +
-	"com.oha.v1B\bOhaProtoP\x01Z0dromos-oauth-gateway/gen/go/api/proto/oha/v1;ohapb\xa2\x02\x03OXX\xaa\x02\x06Oha.V1\xca\x02\x06Oha\\V1\xe2\x02\x12Oha\\V1\\GPBMetadata\xea\x02\aOha::V1b\x06proto3"
+	"com.oha.v1B\bOhaProtoP\x01Z2dromos-oauth-gateway/gen/go/api/proto/oha/v1;ohapb\xa2\x02\x03OXX\xaa\x02\x06Oha.V1\xca\x02\x06Oha\\V1\xe2\x02\x12Oha\\V1\\GPBMetadata\xea\x02\aOha::V1b\x06proto3"
 
 var (
 	file_api_proto_oha_v1_oha_proto_rawDescOnce sync.Once
