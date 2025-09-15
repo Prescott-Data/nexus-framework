@@ -1,0 +1,35 @@
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Go build outputs
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Coverage
+coverage.out
+*.coverprofile
+
+# Logs
+*.log
+server.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Temp
+tmp/
+*.tmp
+
+
