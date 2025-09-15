@@ -91,6 +91,10 @@ func main() {
 	// Setup routes
 	router := srv.Router()
 	router.Post("/providers", providersHandler.Register)
+	router.Get("/providers", providersHandler.List)
+	router.Get("/providers/by-name/*", providersHandler.GetByName)
+	router.Get("/providers", providersHandler.List)
+	router.Get("/providers/by-name/*", providersHandler.GetByName)
 	router.Post("/auth/consent-spec", consentHandler.GetSpec)
 	router.Get("/auth/callback", callbackHandler.Handle)
 	router.Get("/connections/{connectionID}/token", callbackHandler.GetToken)

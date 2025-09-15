@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"dromos-oauth-broker/internal/auth"
@@ -103,17 +104,18 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var connection struct {
-		ID           string `db:"id"`
-		CodeVerifier string `db:"code_verifier"`
-		ReturnURL    string `db:"return_url"`
-		ProviderID   string `db:"provider_id"`
+		ID           string   `db:"id"`
+		CodeVerifier string   `db:"code_verifier"`
+		ReturnURL    string   `db:"return_url"`
+		ProviderID   string   `db:"provider_id"`
+		Scopes       []string `db:"scopes"`
 	}
 
 	err = h.db.QueryRow(`
-		SELECT id, code_verifier, return_url, provider_id
+		SELECT id, code_verifier, return_url, provider_id, scopes
 		FROM connections
 		WHERE id = $1 AND status = 'pending' AND expires_at > NOW()`,
-		connectionID).Scan(&connection.ID, &connection.CodeVerifier, &connection.ReturnURL, &connection.ProviderID)
+		connectionID).Scan(&connection.ID, &connection.CodeVerifier, &connection.ReturnURL, &connection.ProviderID, pq.Array(&connection.Scopes))
 
 	if err != nil {
 		h.logAuditEvent(&connectionID, "connection_not_found", map[string]string{"error": err.Error()}, r)
@@ -149,7 +151,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// Exchange code for tokens
 	start := time.Now()
-	tokens, err := h.exchangeCodeForTokens(provider.TokenURL, provider.ClientID, provider.ClientSecret, code, connection.CodeVerifier, redirectURI)
+	tokens, err := h.exchangeCodeForTokens(provider.TokenURL, provider.ClientID, provider.ClientSecret, code, connection.CodeVerifier, redirectURI, connection.Scopes)
 	h.histogramExchangeDur.Observe(time.Since(start).Seconds())
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_exchange_failed", map[string]string{"error": err.Error()}, r)
@@ -271,7 +273,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // exchangeCodeForTokens exchanges authorization code for access tokens
-func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret, code, codeVerifier, redirectURI string) (map[string]interface{}, error) {
+func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret, code, codeVerifier, redirectURI string, scopes []string) (map[string]interface{}, error) {
 	data := url.Values{}
 	data.Set("grant_type", "authorization_code")
 	data.Set("code", code)
@@ -279,6 +281,10 @@ func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret
 	data.Set("client_id", clientID)
 	data.Set("client_secret", clientSecret)
 	data.Set("redirect_uri", redirectURI)
+	// Some providers (e.g., Microsoft identity platform v2) require scope on token exchange
+	if len(scopes) > 0 {
+		data.Set("scope", strings.Join(scopes, " "))
+	}
 
 	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
