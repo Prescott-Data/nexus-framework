@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package oha.v1;
+
+option go_package = "dromos-oauth-gateway/gen/go/api/proto/oha/v1;ohapb";
+
+import "google/api/annotations.proto";
+import "google/protobuf/struct.proto";
+
+service OHAService {
+  rpc RequestConnection(RequestConnectionRequest) returns (RequestConnectionResponse) {
+    option (google.api.http) = {
+      post: "/v1/request-connection"
+      body: "*"
+    };
+  }
+
+  rpc CheckConnection(CheckConnectionRequest) returns (CheckConnectionResponse) {
+    option (google.api.http) = {
+      get: "/v1/check-connection/{connection_id}"
+    };
+  }
+
+  rpc GetToken(GetTokenRequest) returns (GetTokenResponse) {
+    option (google.api.http) = {
+      get: "/v1/token/{connection_id}"
+    };
+  }
+}
+
+message RequestConnectionRequest {
+  string user_id = 1;
+  string provider_id = 2;
+  string provider_name = 3;
+  repeated string scopes = 4;
+  string return_url = 5;
+  string action = 6;
+}
+
+message RequestConnectionResponse {
+  string auth_url = 1;
+  string state = 2;
+  repeated string scopes = 3;
+  string provider_id = 4;
+  string connection_id = 5;
+}
+
+message CheckConnectionRequest {
+  string connection_id = 1;
+}
+
+message CheckConnectionResponse {
+  string status = 1; // pending | active | failed
+}
+
+message GetTokenRequest {
+  string connection_id = 1;
+}
+
+message GetTokenResponse {
+  google.protobuf.Struct token = 1; // proxied token payload from broker
+}
+
+
