@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"dromos-oauth-broker/internal/auth"
+	"dromos-oauth-broker/internal/server"
 )
 
 // ConsentSpec represents the response for consent specification
@@ -71,6 +72,11 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 	// Validate required fields
 	if request.WorkspaceID == "" || request.ProviderID == "" || len(request.Scopes) == 0 || request.ReturnURL == "" {
 		http.Error(w, "Missing required fields", http.StatusBadRequest)
+		return
+	}
+	// Validate return URL domain if enforced
+	if !server.IsReturnURLAllowed(request.ReturnURL) {
+		http.Error(w, "return_url not allowed", http.StatusBadRequest)
 		return
 	}
 

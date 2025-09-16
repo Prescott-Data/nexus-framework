@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"log"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -17,6 +19,7 @@ func main() {
 	// Get configuration from environment
 	port := getEnv("PORT", "8080")
 	databaseURL := getEnv("DATABASE_URL", "postgres://user:password@localhost/oauth_broker?sslmode=disable")
+	databaseURL = enforceDBSSL(databaseURL)
 	baseURL := getEnv("BASE_URL", "http://localhost:8080")
 	encryptionKeyStr := getEnv("ENCRYPTION_KEY", "")
 	stateKeyStr := getEnv("STATE_KEY", "")
@@ -90,16 +93,17 @@ func main() {
 
 	// Setup routes
 	router := srv.Router()
-	router.Post("/providers", providersHandler.Register)
-	router.Get("/providers", providersHandler.List)
-	router.Get("/providers/by-name/*", providersHandler.GetByName)
-	router.Get("/providers", providersHandler.List)
-	router.Get("/providers/by-name/*", providersHandler.GetByName)
-	router.Post("/auth/consent-spec", consentHandler.GetSpec)
+	// Public endpoints
 	router.Get("/auth/callback", callbackHandler.Handle)
-	router.Get("/connections/{connectionID}/token", callbackHandler.GetToken)
-	router.Post("/connections/{connectionID}/refresh", callbackHandler.Refresh)
 	router.Method("GET", "/metrics", server.MetricsHandler())
+	// Protected endpoints: API key + allowlist
+	protected := router.With(server.ApiKeyMiddleware(), server.AllowlistMiddleware())
+	protected.Post("/providers", providersHandler.Register)
+	protected.Get("/providers", providersHandler.List)
+	protected.Get("/providers/by-name/*", providersHandler.GetByName)
+	protected.Post("/auth/consent-spec", consentHandler.GetSpec)
+	protected.Get("/connections/{connectionID}/token", callbackHandler.GetToken)
+	protected.Post("/connections/{connectionID}/refresh", callbackHandler.Refresh)
 
 	// Health check
 	router.Get("/health", server.HealthHandler)
@@ -118,4 +122,45 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// enforceDBSSL optionally enforces sslmode on the Postgres DSN based on env flags.
+// ENFORCE_DB_SSL=true enables enforcement. DB_SSLMODE (default "require") sets the mode.
+// DB_SSLROOTCERT can be provided to append sslrootcert=... for verify-ca/verify-full.
+func enforceDBSSL(dsn string) string {
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("ENFORCE_DB_SSL")), "true") {
+		return dsn
+	}
+	mode := strings.TrimSpace(os.Getenv("DB_SSLMODE"))
+	if mode == "" {
+		mode = "require"
+	}
+	root := strings.TrimSpace(os.Getenv("DB_SSLROOTCERT"))
+
+	u, err := url.Parse(dsn)
+	if err != nil || u.Scheme == "" || !strings.HasPrefix(dsn, "postgres") {
+		// Fallback: simple string append if DSN isn't a URL
+		if !strings.Contains(dsn, "sslmode=") {
+			if strings.Contains(dsn, "?") {
+				dsn += "&sslmode=" + mode
+			} else {
+				dsn += "?sslmode=" + mode
+			}
+		}
+		if root != "" && !strings.Contains(dsn, "sslrootcert=") {
+			if strings.Contains(dsn, "?") {
+				dsn += "&sslrootcert=" + url.QueryEscape(root)
+			} else {
+				dsn += "?sslrootcert=" + url.QueryEscape(root)
+			}
+		}
+		return dsn
+	}
+	q := u.Query()
+	q.Set("sslmode", mode)
+	if root != "" && q.Get("sslrootcert") == "" {
+		q.Set("sslrootcert", root)
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"dromos-oauth-broker/internal/auth"
+	"dromos-oauth-broker/internal/server"
 	"dromos-oauth-broker/internal/vault"
 )
 
@@ -183,6 +184,10 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	h.logAuditEvent(&connectionID, "oauth_flow_completed", map[string]string{"provider_id": connection.ProviderID}, r)
 
 	// Redirect to return URL with success
+	if !server.IsReturnURLAllowed(connection.ReturnURL) {
+		http.Error(w, "return_url not allowed", http.StatusBadRequest)
+		return
+	}
 	http.Redirect(w, r, connection.ReturnURL+"?status=success&connection_id="+connectionID.String(), http.StatusFound)
 }
 
