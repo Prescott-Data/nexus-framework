@@ -1,14 +1,18 @@
-n care of le## Technical Debt: OIDC Hardening for OAuth Broker
+## Technical Debt: OIDC Hardening for OAuth Broker
 
-### Current Posture (as-built MVP)
-- Tokens are treated as opaque; we do not use `id_token` claims for authorization decisions.
+### Current Posture (updated)
 - We use Authorization Code + PKCE, HMAC-signed `state`, HTTPS (assumed in prod), API key gate, IP allowlisting, return URL validation.
-- We store tokens encrypted at rest (AES-GCM) and support on-demand refresh via provider token endpoints.
-- We do not currently:
-  - Verify `id_token` signatures/claims (no JWKS-based verification).
-  - Include/verify OIDC `nonce`.
-  - Use OIDC discovery (`.well-known/openid-configuration`).
-  - Call the OIDC `UserInfo` endpoint.
+- Tokens are encrypted at rest (AES-GCM) and refreshed on-demand.
+- Implemented OIDC basics:
+  - `id_token` verification via JWKS (go-oidc): verifies signature, `iss`, `aud`, `exp`, and checks `iat` skew and `nonce`.
+  - OIDC discovery with in-memory caching (prefers discovered `authorization_endpoint`/`token_endpoint`, falls back to static URLs if discovery unavailable).
+  - `nonce` generated (bound via `state`) and verified when `openid` scope present.
+- Still not implemented:
+  - Persistent metadata/JWKS cache with ETag/Last-Modified and background refresh.
+  - Provider data model fields (`issuer`, `enable_discovery`, optional overrides) and admin toggles.
+  - Metrics for discovery/JWKS/verification outcomes; detailed logs for cache states.
+  - `UserInfo` endpoint fetching/normalization.
+  - Startup warm-up of discovery/JWKS and stronger retry/backoff.
 
 ### Risk Assessment
 - Low risk if the broker remains internal and downstreams never rely on `id_token` claims (email/hd/sub/etc.).
@@ -24,43 +28,42 @@ n care of le## Technical Debt: OIDC Hardening for OAuth Broker
 - Multi-provider usage where issuer/audience mix-up is possible.
 - Compliance/security review requires OIDC-conformant validation.
 
-### Acceptance Criteria (when we harden OIDC)
-- Verify `id_token` using provider JWKS:
-  - Validate signature, `iss`, `aud` (matches our `client_id`), `exp`, `iat` (with small clock skew), and algorithm (reject `none`).
-  - Cache JWKS keys with expiry and rotation handling.
-- Add `nonce` to auth request and verify `nonce` in `id_token` at callback.
-- Support OIDC discovery to resolve `issuer`, `authorization_endpoint`, `token_endpoint`, `jwks_uri`.
-- Optional: Call `UserInfo` endpoint when `openid email profile` scopes are present; reconcile with `id_token` claims.
-- Emit metrics/logs for verification outcomes (success/failure counters, latency histograms).
-- Comprehensive tests:
-  - Unit tests for verifier (valid/expired/wrong-aud/wrong-iss/wrong-alg/nonce-mismatch).
-  - Integration smoke with at least one provider (e.g., Google) using discovery.
-- Feature flag/toggle:
-  - Backwards compatible: allow running in “opaque-token mode” (current behavior) vs “OIDC-verified mode”.
+### Acceptance Criteria
+Completed:
+- Verify `id_token` using provider JWKS (sig/iss/aud/exp + `iat` skew + `nonce`).
+- Add and verify `nonce` for OIDC flows.
+- Use OIDC discovery to resolve endpoints; prefer discovered endpoints at runtime.
 
-### Implementation Outline
+Remaining:
+- Cache JWKS/metadata persistently with rotation handling; conditional GETs.
+- Provider model fields and flags: `issuer`, `enable_discovery`, `well_known_url`, `endpoint_overrides`, "prefer discovery" vs "force static".
+- Metrics/logs for discovery/JWKS/verification outcomes and latencies.
+- `UserInfo` integration (optional, when scopes allow).
+- Tests: unit (edge cases: expired, wrong aud/iss/alg, nonce mismatch) and integration (e.g., Google/Azure).
+- Feature flag to toggle OIDC-verified mode vs opaque-token mode.
+
+### Implementation Outline (progress vs remaining)
 1) Dependencies
-   - Add `go-oidc` (v3) and an HTTP client with sane timeouts.
-   - Implement a small JWKS cache (LRU with TTL) per issuer.
+   - [DONE] Add `go-oidc` and HTTP client timeouts.
+   - [REMAINING] Persistent JWKS/metadata cache (DB + ETag/Last-Modified).
 
 2) Data Model / Migration
-   - Add `nonce` column to `connections` (nullable initially). Store per consent flow.
+   - [REMAINING] Add provider fields: `issuer`, `enable_discovery`, `well_known_url`, `endpoint_overrides`.
 
 3) Consent Flow
-   - Generate cryptographically random `nonce`; include in authorization request when `openid` present.
+   - [DONE] Generate/attach `nonce` (via signed state) when `openid` present.
+   - [DONE] Use discovered `authorization_endpoint` when available; fallback to static.
 
 4) Callback Flow
-   - Resolve discovery (or use configured issuer) → build `oidc.Verifier` with expected `client_id` and `issuer`.
-   - Verify `id_token`, check `nonce`, then proceed with token storage/update as today.
-   - Record audit events for verification failures.
+   - [DONE] Verify `id_token` (sig/iss/aud/exp/iat/nonce) via go-oidc before storing tokens.
+   - [DONE] Prefer discovered `token_endpoint` when available; fallback to static.
+   - [REMAINING] Audit/metrics for verification outcomes.
 
 5) Configuration
-   - Flags/env: `OIDC_VERIFY_ID_TOKEN` (bool), `OIDC_USE_DISCOVERY` (bool), optional `OIDC_ISSUER_OVERRIDE` per provider.
-   - Timeouts and JWKS cache TTL settings.
+   - [REMAINING] Feature flags to toggle discovery/verification modes; JWKS TTL/backoff settings.
 
 6) Observability
-   - Metrics: `oidc_verifications_total{result=...}`, `oidc_verification_duration_seconds` histogram, JWKS fetch errors.
-   - Structured logs with provider/issuer/connection_id (no secrets).
+   - [REMAINING] Metrics for discovery hits/misses, JWKS fetch, verification success/fail; structured logs for cache/refresh.
 
 ### Notes and Provider Specifics
 - Google: issuer is `https://accounts.google.com`; do not request `offline_access` scope. Use `access_type=offline` and `prompt=consent` for refresh tokens.
