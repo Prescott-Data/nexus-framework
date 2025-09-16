@@ -1,4 +1,4 @@
-## Technical Debt: OIDC Hardening for OAuth Broker
+n care of le## Technical Debt: OIDC Hardening for OAuth Broker
 
 ### Current Posture (as-built MVP)
 - Tokens are treated as opaque; we do not use `id_token` claims for authorization decisions.
@@ -70,5 +70,57 @@
 - Phase 1: Ship flag-disabled OIDC verification in parallel with existing flow; add metrics.
 - Phase 2: Enable verification in staging; validate downstreams.
 - Phase 3: Enable in production for providers where consumers rely on identity claims.
+
+
+---
+
+## Technical Debt: Service Mesh mTLS for Internal Traffic
+
+### Current Posture
+- App-layer guards in place (API key on sensitive routes, IP allowlist, return_url allowlist).
+- Transport encryption between gateway ↔ broker is not enforced by mTLS yet.
+
+### Goal
+Enforce mutual TLS for all internal service-to-service traffic (e.g., gateway ↔ broker) via a service mesh (Istio/Linkerd/Consul) or Envoy sidecars to avoid app code changes and centralize cert management.
+
+### Acceptance Criteria
+- Workload certificates are issued/rotated automatically; peer authentication (mTLS) is enforced at STRICT mode for broker/gateway namespaces.
+- Authorization policies restrict which workloads can call broker sensitive routes.
+- Application pods do not manage TLS material; apps continue to speak HTTP/gRPC on localhost while the mesh secures on-the-wire traffic.
+- Health checks and golden signals in place for mTLS (success/fail counts, certificate age, policy violations).
+
+### Rollout Plan
+1) Enable the mesh with PERMISSIVE mTLS in staging; verify traffic flows.
+2) Switch to STRICT mTLS for broker/gateway namespaces; add allow policies for gateway → broker.
+3) Add rate limits and per-route auth policies at the mesh/ingress layer; monitor and then promote to production.
+
+### Interim Hardening (until mesh)
+- Keep API key + IP allowlist enabled for sensitive routes.
+- Enforce `sslmode=require` for Postgres connections.
+- Terminate public TLS at ingress for `/auth/callback` with managed certificates.
+- Rotate API keys and keep `ALLOWED_CIDRS` tight to gateway/ingress subnets.
+- Apply basic 429/rate limits and WAF rules at ingress for sensitive broker endpoints.
+
+---
+
+## Technical Debt: Ingress TLS Termination and Rate Limiting
+
+### Current Posture
+- Broker serves HTTP internally; `/auth/callback` may be exposed publicly via VM IP.
+- No standardized ingress configuration yet (TLS/WAF/rate limits).
+
+### Goal
+- Terminate TLS for public endpoints at a managed ingress (NGINX/Envoy/Azure Application Gateway) with automated certificates.
+- Enforce 429/rate limits and WAF rules at the edge for `/auth/callback` and any temporarily exposed sensitive routes.
+
+### Acceptance Criteria
+- Public access only to `/auth/callback` via HTTPS (managed certs); all other broker routes blocked or restricted.
+- Rate limiting configured (e.g., 10 req/min per IP for `/auth/callback`) and WAF protections enabled.
+- Health checks configured; logs/metrics from ingress available.
+
+### Rollout Plan
+1) Staging: configure ingress with HTTPS, WAF, and rate limits; validate callback flow.
+2) Production: point DNS, enable automatic cert renewal, monitor for throttling/blocks.
+3) Remove any temporary public exposure of sensitive broker routes.
 
 
