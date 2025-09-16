@@ -9,6 +9,7 @@ Minimal, internal OAuth 2.0/OIDC broker written in Go. It initiates consent (PKC
 - AES-GCM token vault (encrypted at rest)
 - Token retrieval and on-demand refresh
 - Security gates (API key, IP allowlist, return URL validation)
+- Ready for service-mesh mTLS (tracked in `docs/TECH_DEBT.md`)
 - Prometheus metrics and structured logging
 
 ---
@@ -148,6 +149,9 @@ Access logs are structured; audit events are recorded in `audit_events`.
 - IP allowlisting via `ALLOWED_CIDRS`
 - Return URL domain validation via `ALLOWED_RETURN_DOMAINS`
 - Always use HTTPS in production (set `BASE_URL=https://...`)
+- mTLS via service mesh planned; see `docs/TECH_DEBT.md`
+
+See `docs/SECURITY.md` for detailed guardrails and operations.
 
 OIDC hardening (id_token verification via JWKS, nonce, discovery) is deferred. See `docs/TECH_DEBT.md`.
 

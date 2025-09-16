@@ -20,13 +20,15 @@ func NewStore(db *sqlx.DB) *Store {
 
 // Profile represents a provider profile
 type Profile struct {
-	ID           uuid.UUID `json:"id"`
-	Name         string    `json:"name"`
-	ClientID     string    `json:"client_id"`
-	ClientSecret string    `json:"client_secret"`
-	AuthURL      string    `json:"auth_url"`
-	TokenURL     string    `json:"token_url"`
-	Scopes       []string  `json:"scopes"`
+	ID              uuid.UUID `json:"id"`
+	Name            string    `json:"name"`
+	ClientID        string    `json:"client_id"`
+	ClientSecret    string    `json:"client_secret"`
+	AuthURL         string    `json:"auth_url"`
+	TokenURL        string    `json:"token_url"`
+	Issuer          *string   `json:"issuer,omitempty"`
+	EnableDiscovery bool      `json:"enable_discovery"`
+	Scopes          []string  `json:"scopes"`
 }
 
 // RegisterProfile registers a new provider profile from JSON
@@ -36,18 +38,18 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		return nil, fmt.Errorf("invalid profile JSON: %w", err)
 	}
 
-	// Validate required fields
-	if p.Name == "" || p.ClientID == "" || p.ClientSecret == "" || p.AuthURL == "" || p.TokenURL == "" {
+	// For OIDC, issuer+discovery is preferred. For non-OIDC, require endpoints.
+	if p.Name == "" || p.ClientID == "" || p.ClientSecret == "" || (!p.EnableDiscovery && (p.AuthURL == "" || p.TokenURL == "")) {
 		return nil, fmt.Errorf("missing required fields")
 	}
 
 	query := `
-		INSERT INTO provider_profiles (name, client_id, client_secret, auth_url, token_url, scopes)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO provider_profiles (name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id`
 
 	var id uuid.UUID
-	err := s.db.QueryRow(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Scopes).Scan(&id)
+	err := s.db.QueryRow(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, p.Scopes).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create provider profile: %w", err)
 	}
@@ -59,10 +61,10 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 // GetProfile retrieves a provider profile by ID
 func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 	var p Profile
-	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, scopes FROM provider_profiles WHERE id = $1`
+	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes FROM provider_profiles WHERE id = $1`
 
 	row := s.db.QueryRow(query, id)
-	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Scopes)
+	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, &p.Scopes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider profile: %w", err)
 	}

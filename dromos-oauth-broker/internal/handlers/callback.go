@@ -17,6 +17,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"dromos-oauth-broker/internal/auth"
+	"dromos-oauth-broker/internal/discovery"
+	oidcutil "dromos-oauth-broker/internal/oidc"
+	"dromos-oauth-broker/internal/server"
 	"dromos-oauth-broker/internal/vault"
 )
 
@@ -151,7 +154,11 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// Exchange code for tokens
 	start := time.Now()
-	tokens, err := h.exchangeCodeForTokens(provider.TokenURL, provider.ClientID, provider.ClientSecret, code, connection.CodeVerifier, redirectURI, connection.Scopes)
+	useTokenURL := provider.TokenURL
+	if md, errD := discovery.Discover(r.Context(), discovery.Hint{AuthURL: provider.TokenURL}); errD == nil && strings.TrimSpace(md.TokenEndpoint) != "" {
+		useTokenURL = md.TokenEndpoint
+	}
+	tokens, err := h.exchangeCodeForTokens(useTokenURL, provider.ClientID, provider.ClientSecret, code, connection.CodeVerifier, redirectURI, connection.Scopes)
 	h.histogramExchangeDur.Observe(time.Since(start).Seconds())
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_exchange_failed", map[string]string{"error": err.Error()}, r)
@@ -163,6 +170,18 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	h.metricExchangeSuccess.Inc()
 	if _, ok := tokens["id_token"]; ok {
 		h.metricIDTokens.Inc()
+	}
+
+	// Verify OIDC id_token if present and openid scope requested
+	if raw, ok := tokens["id_token"].(string); ok && raw != "" {
+		if containsScope(connection.Scopes, "openid") {
+			if _, err := oidcutil.VerifyIDToken(r.Context(), raw, provider.ClientID, state); err != nil {
+				h.logAuditEvent(&connectionID, "id_token_verification_failed", map[string]string{"error": err.Error()}, r)
+				h.updateConnectionStatus(connectionID, "failed")
+				http.Error(w, "Invalid id_token", http.StatusUnauthorized)
+				return
+			}
+		}
 	}
 
 	// Encrypt and store tokens
@@ -183,7 +202,22 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	h.logAuditEvent(&connectionID, "oauth_flow_completed", map[string]string{"provider_id": connection.ProviderID}, r)
 
 	// Redirect to return URL with success
+	if !server.IsReturnURLAllowed(connection.ReturnURL) {
+		http.Error(w, "return_url not allowed", http.StatusBadRequest)
+		return
+	}
 	http.Redirect(w, r, connection.ReturnURL+"?status=success&connection_id="+connectionID.String(), http.StatusFound)
+}
+
+// containsScope returns true if target (case-insensitive) is present in scopes
+func containsScope(scopes []string, target string) bool {
+	t := strings.ToLower(strings.TrimSpace(target))
+	for _, s := range scopes {
+		if strings.ToLower(strings.TrimSpace(s)) == t {
+			return true
+		}
+	}
+	return false
 }
 
 // GetToken handles GET /connections/{connection_id}/token

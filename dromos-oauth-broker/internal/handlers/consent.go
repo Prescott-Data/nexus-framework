@@ -15,6 +15,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"dromos-oauth-broker/internal/auth"
+	"dromos-oauth-broker/internal/discovery"
+	"dromos-oauth-broker/internal/server"
 )
 
 // ConsentSpec represents the response for consent specification
@@ -71,6 +73,11 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 	// Validate required fields
 	if request.WorkspaceID == "" || request.ProviderID == "" || len(request.Scopes) == 0 || request.ReturnURL == "" {
 		http.Error(w, "Missing required fields", http.StatusBadRequest)
+		return
+	}
+	// Validate return URL domain if enforced
+	if !server.IsReturnURLAllowed(request.ReturnURL) {
+		http.Error(w, "return_url not allowed", http.StatusBadRequest)
 		return
 	}
 
@@ -150,8 +157,14 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Attempt OIDC discovery to use the provider's authorization_endpoint
+	useAuthURL := provider.AuthURL
+	if md, errD := discovery.Discover(r.Context(), discovery.Hint{AuthURL: provider.AuthURL}); errD == nil && strings.TrimSpace(md.AuthorizationEndpoint) != "" {
+		useAuthURL = md.AuthorizationEndpoint
+	}
+
 	// Build auth URL
-	authURL, err := h.buildAuthURL(provider.AuthURL, provider.ClientID, signedState, codeChallenge, request.Scopes)
+	authURL, err := h.buildAuthURL(useAuthURL, provider.ClientID, signedState, codeChallenge, request.Scopes)
 	if err != nil {
 		http.Error(w, "Failed to build auth URL", http.StatusInternalServerError)
 		return
@@ -198,6 +211,18 @@ func (h *ConsentHandler) buildAuthURL(providerAuthURL, clientID, state, codeChal
 	q.Set("state", state)
 	q.Set("code_challenge", codeChallenge)
 	q.Set("code_challenge_method", "S256")
+
+	// When OIDC is requested, include a nonce to bind the ID token
+	for _, s := range scopes {
+		if strings.EqualFold(s, "openid") {
+			// Use the connection ID embedded in the signed state as nonce
+			// This will be verified against the id_token's nonce claim on callback
+			// State format is base64(data).base64(hmac), where data contains Nonce
+			// We can safely reuse the state value itself as nonce binding input without leaking secrets
+			q.Set("nonce", state)
+			break
+		}
+	}
 
 	// Provider-specific: request refresh tokens for Google
 	if strings.Contains(strings.ToLower(u.Host), "accounts.google.com") || strings.Contains(strings.ToLower(u.String()), "accounts.google.com") {

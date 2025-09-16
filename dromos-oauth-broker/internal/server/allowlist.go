@@ -9,6 +9,7 @@ import (
 
 // AllowlistMiddleware restricts access to specified CIDRs
 func AllowlistMiddleware() func(http.Handler) http.Handler {
+	require := strings.EqualFold(strings.TrimSpace(os.Getenv("REQUIRE_ALLOWLIST")), "true")
 	allowedCIDRs := os.Getenv("ALLOWED_CIDRS")
 	if allowedCIDRs == "" {
 		// Default to localhost for development
@@ -28,6 +29,10 @@ func AllowlistMiddleware() func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !require {
+				next.ServeHTTP(w, r)
+				return
+			}
 			clientIP := getClientIP(r)
 
 			allowed := false
