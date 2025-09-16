@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +55,7 @@ type Handler struct {
 	httpClient    *http.Client
 	providerCache map[string]providerCacheEntry
 	cacheMu       sync.RWMutex
+	brokerAPIKey  string
 }
 
 type providerCacheEntry struct {
@@ -70,7 +72,15 @@ func NewHandler(brokerBaseURL string, stateKey []byte, httpClient *http.Client) 
 		stateKey:      stateKey,
 		httpClient:    httpClient,
 		providerCache: make(map[string]providerCacheEntry),
+		brokerAPIKey:  strings.TrimSpace(getEnv("BROKER_API_KEY", "")),
 	}
+}
+
+func getEnv(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
 }
 
 // requestConnectionRequest is input for initiating a connection
@@ -134,6 +144,24 @@ func (h *Handler) RequestConnectionCore(ctx context.Context, in RequestConnectio
 		providerID = id
 	}
 
+	// Azure guidance log (non-mutating)
+	if strings.Contains(strings.ToLower(strings.TrimSpace(in.ProviderName)), "azure") || strings.Contains(strings.ToLower(in.ProviderID), "azure") {
+		baseOnly := true
+		for _, s := range in.Scopes {
+			ls := strings.ToLower(strings.TrimSpace(s))
+			if ls != "openid" && ls != "email" && ls != "profile" && ls != "offline_access" {
+				baseOnly = false
+				break
+			}
+		}
+		if baseOnly {
+			logging.Info(ctx, "azure_scopes.missing_resource_scope", map[string]any{
+				"hint":   "Add a resource scope like User.Read for Azure v2",
+				"scopes": in.Scopes,
+			})
+		}
+	}
+
 	payload := map[string]interface{}{
 		"workspace_id": in.UserID,
 		"provider_id":  providerID,
@@ -144,6 +172,9 @@ func (h *Handler) RequestConnectionCore(ctx context.Context, in RequestConnectio
 	brokerURL := h.brokerBaseURL + "/auth/consent-spec"
 	httpReq, _ := http.NewRequestWithContext(ctx, "POST", brokerURL, strings.NewReader(string(body)))
 	httpReq.Header.Set("Content-Type", "application/json")
+	if h.brokerAPIKey != "" {
+		httpReq.Header.Set("X-API-Key", h.brokerAPIKey)
+	}
 
 	resp, err := h.httpClient.Do(httpReq)
 	if err != nil {
@@ -197,6 +228,9 @@ func (h *Handler) resolveProviderID(ctx context.Context, providerName string) (s
 	// Try a canonical by-name endpoint first
 	byNameURL := h.brokerBaseURL + "/providers/by-name/" + url.PathEscape(name)
 	req, _ := http.NewRequestWithContext(ctx, "GET", byNameURL, nil)
+	if h.brokerAPIKey != "" {
+		req.Header.Set("X-API-Key", h.brokerAPIKey)
+	}
 	resp, err := h.httpClient.Do(req)
 	if err == nil && resp != nil {
 		defer resp.Body.Close()
@@ -213,6 +247,9 @@ func (h *Handler) resolveProviderID(ctx context.Context, providerName string) (s
 	// Fallback: list and filter
 	listURL := h.brokerBaseURL + "/providers"
 	req2, _ := http.NewRequestWithContext(ctx, "GET", listURL, nil)
+	if h.brokerAPIKey != "" {
+		req2.Header.Set("X-API-Key", h.brokerAPIKey)
+	}
 	resp2, err2 := h.httpClient.Do(req2)
 	if err2 != nil {
 		return "", fmt.Errorf("%w: %v", ErrBrokerUnavailable, err2)
@@ -251,6 +288,9 @@ func (h *Handler) resolveProviderID(ctx context.Context, providerName string) (s
 func (h *Handler) CheckConnectionCore(ctx context.Context, connectionID string) (string, error) {
 	brokerURL := h.brokerBaseURL + "/connections/" + connectionID + "/token"
 	httpReq, _ := http.NewRequestWithContext(ctx, "GET", brokerURL, nil)
+	if h.brokerAPIKey != "" {
+		httpReq.Header.Set("X-API-Key", h.brokerAPIKey)
+	}
 	resp, err := h.httpClient.Do(httpReq)
 	if err != nil {
 		return "", fmt.Errorf("broker request failed: %w", err)
@@ -354,6 +394,9 @@ func (h *Handler) GetToken(w http.ResponseWriter, r *http.Request) {
 
 	brokerURL := h.brokerBaseURL + "/connections/" + connectionID + "/token"
 	httpReq, _ := http.NewRequest("GET", brokerURL, nil)
+	if h.brokerAPIKey != "" {
+		httpReq.Header.Set("X-API-Key", h.brokerAPIKey)
+	}
 	resp, err := h.httpClient.Do(httpReq)
 	if err != nil {
 		logging.Error(r.Context(), "get_token.broker_error", map[string]any{"error": err.Error()})
@@ -377,6 +420,9 @@ func (h *Handler) GetToken(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetTokenCore(ctx context.Context, connectionID string) (map[string]any, int, error) {
 	brokerURL := h.brokerBaseURL + "/connections/" + connectionID + "/token"
 	httpReq, _ := http.NewRequestWithContext(ctx, "GET", brokerURL, nil)
+	if h.brokerAPIKey != "" {
+		httpReq.Header.Set("X-API-Key", h.brokerAPIKey)
+	}
 	resp, err := h.httpClient.Do(httpReq)
 	if err != nil {
 		return nil, http.StatusBadGateway, fmt.Errorf("broker request failed: %w", err)
