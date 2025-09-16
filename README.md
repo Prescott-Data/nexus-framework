@@ -19,6 +19,16 @@ The OAuth Gateway exposes a gRPC API (primary) with an HTTP JSON gateway (REST) 
 - GET `/v1/check-connection/{connectionID}`
 - GET `/v1/token/{connectionID}`
 
+## Agent Integration (summary)
+- Agents should store only `connection_id`.
+- Flow:
+  1) `POST /v1/request-connection` → returns `authUrl` + `connection_id`; send user to `authUrl`.
+  2) After callback, poll `GET /v1/check-connection/{connection_id}` until `active`.
+  3) Fetch tokens on-demand: `GET /v1/token/{connection_id}`; use `access_token` for provider API calls.
+- Refresh: For now, use Broker `POST /connections/{connection_id}/refresh` with `X-API-Key`. We will add a gateway proxy endpoint.
+
+See `INTEGRATIONS.md` for full details.
+
 ## Run (gRPC primary + REST gateway)
 ```bash
 # optional: buf generate   (only if you change protos)

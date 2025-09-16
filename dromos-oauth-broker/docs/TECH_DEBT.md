@@ -65,6 +65,29 @@ Remaining:
 6) Observability
    - [REMAINING] Metrics for discovery hits/misses, JWKS fetch, verification success/fail; structured logs for cache/refresh.
 
+---
+
+## Technical Debt: Gateway Refresh Proxy
+
+### Current Posture
+- Agents fetch tokens via gateway GET `/v1/token/{connection_id}`.
+- Refresh is available at the broker: POST `/connections/{connection_id}/refresh` (requires broker API key + allowlist).
+- Agents may need to call the broker directly to refresh.
+
+### Goal
+Provide a single front door for agents by adding a gateway endpoint to proxy token refresh to the broker, centralizing policy, metrics, and credentials.
+
+### Acceptance Criteria
+- Gateway exposes POST `/v1/refresh/{connection_id}` (or `GET /v1/token/{id}?auto_refresh=true`).
+- Gateway calls broker refresh with its own API key and returns refreshed token JSON.
+- Rate limits/backoff applied; metrics: `token_refresh_total`, `token_refresh_duration_seconds`.
+- Backwards compatible; direct broker refresh continues to work.
+
+### Rollout Plan
+1) Implement gateway proxy endpoint and metrics.
+2) Update agent docs to prefer the gateway endpoint.
+3) Optionally restrict broker refresh to gateway CIDRs over time.
+
 ### Notes and Provider Specifics
 - Google: issuer is `https://accounts.google.com`; do not request `offline_access` scope. Use `access_type=offline` and `prompt=consent` for refresh tokens.
 - Non-Google providers (e.g., Microsoft/Okta) may use `offline_access` scope; keep provider-specific handling.
