@@ -33,3 +33,6 @@ tmp/
 *.tmp
 
 
+oha
+oha-grpc
+
