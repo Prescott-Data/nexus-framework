@@ -26,7 +26,7 @@ pipelines:
               condition:
                 changesets:
                   include:
-                    - "oauth-framework/dromos-oauth-gateway/**"
+                    - "dromos-oauth-gateway/**"
           - step:
               name: Lint & Test (broker)
               caches:
@@ -41,7 +41,7 @@ pipelines:
               condition:
                 changesets:
                   include:
-                    - "oauth-framework/dromos-oauth-broker/**"
+                    - "dromos-oauth-broker/**"
 
       - step:
           name: Build & Push Broker Image
@@ -69,7 +69,7 @@ pipelines:
           condition:
             changesets:
               include:
-                - "oauth-framework/dromos-oauth-broker/**"
+                - "dromos-oauth-broker/**"
 
       - step:
           name: Deploy Broker to Azure Container Apps
@@ -155,7 +155,7 @@ pipelines:
           condition:
             changesets:
               include:
-                - "oauth-framework/dromos-oauth-gateway/**"
+                - "dromos-oauth-gateway/**"
 
       - step:
           name: Deploy Gateway to Azure Container Apps
@@ -217,7 +217,7 @@ pipelines:
           condition:
             changesets:
               include:
-                - "oauth-framework/dromos-oauth-broker/**"
+                - "dromos-oauth-broker/**"
       - step:
           name: Build (if gateway changed)
           image: docker:24
@@ -228,5 +228,5 @@ pipelines:
           condition:
             changesets:
               include:
-                - "oauth-framework/dromos-oauth-gateway/**"
+                - "dromos-oauth-gateway/**"
 
