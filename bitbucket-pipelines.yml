@@ -126,8 +126,8 @@ pipelines:
                   DB_SSLROOTCERT="$DB_SSLROOTCERT"
           condition:
             changesets:
-              include:
-                - "oauth-framework/dromos-oauth-broker/**"
+              includePaths:
+                - 'dromos-oauth-broker/**'
 
       - step:
           name: Build & Push Gateway Image
@@ -203,8 +203,8 @@ pipelines:
                   ALLOWED_RETURN_DOMAINS="$ALLOWED_RETURN_DOMAINS"
           condition:
             changesets:
-              include:
-                - "oauth-framework/dromos-oauth-gateway/**"
+              includePaths:
+                - 'dromos-oauth-gateway/**'
 
     "feature/*":
       - step:
