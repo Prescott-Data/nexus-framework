@@ -18,7 +18,7 @@ pipelines:
                 - godeps
               size: 2x
               script:
-                - cd oauth-framework/dromos-oauth-gateway
+                - cd dromos-oauth-gateway
                 - go fmt ./...
                 - go vet ./...
                 - go mod tidy
@@ -33,7 +33,7 @@ pipelines:
                 - godeps
               size: 2x
               script:
-                - cd oauth-framework/dromos-oauth-broker
+                - cd dromos-oauth-broker
                 - go fmt ./...
                 - go vet ./...
                 - go mod tidy
@@ -64,7 +64,7 @@ pipelines:
               IMAGE_TAG="${BITBUCKET_COMMIT}"
               az login --service-principal -u "$AZURE_APP_ID" -p "$AZURE_CLIENT_SECRET" -t "$AZURE_TENANT_ID"
               az acr login --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP"
-              docker build -t "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}" -f oauth-framework/dromos-oauth-broker/Dockerfile oauth-framework/dromos-oauth-broker
+              docker build -t "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}" -f dromos-oauth-broker/Dockerfile dromos-oauth-broker
               docker push "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
           condition:
             changesets:
@@ -150,7 +150,7 @@ pipelines:
               IMAGE_TAG="${BITBUCKET_COMMIT}"
               az login --service-principal -u "$AZURE_APP_ID" -p "$AZURE_CLIENT_SECRET" -t "$AZURE_TENANT_ID"
               az acr login --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP"
-              docker build -t "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}" -f oauth-framework/dromos-oauth-gateway/Dockerfile oauth-framework/dromos-oauth-gateway
+              docker build -t "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}" -f dromos-oauth-gateway/Dockerfile dromos-oauth-gateway
               docker push "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
           condition:
             changesets:
@@ -213,7 +213,7 @@ pipelines:
           services:
             - docker
           script:
-            - docker build -t tmp/broker -f oauth-framework/dromos-oauth-broker/Dockerfile oauth-framework/dromos-oauth-broker
+            - docker build -t tmp/broker -f dromos-oauth-broker/Dockerfile dromos-oauth-broker
           condition:
             changesets:
               includePaths:
@@ -224,7 +224,7 @@ pipelines:
           services:
             - docker
           script:
-            - docker build -t tmp/gateway -f oauth-framework/dromos-oauth-gateway/Dockerfile oauth-framework/dromos-oauth-gateway
+            - docker build -t tmp/gateway -f dromos-oauth-gateway/Dockerfile dromos-oauth-gateway
           condition:
             changesets:
               includePaths:
