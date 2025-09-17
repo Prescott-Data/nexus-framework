@@ -43,6 +43,29 @@ This guide explains how agents and services integrate with the OAuth framework u
   - `GET  /auth/callback` (provider redirect)
   - `POST /connections/{connection_id}/refresh` (temporary until gateway proxy)
 
+### Frontend Integration (browser flow)
+The browser initiates consent; server(s) hold secrets and call the gateway.
+
+1) Agent/server asks gateway to create a connection
+   - Your backend calls `POST /v1/request-connection` (see above) with a `return_url` hosted by your frontend (e.g., `https://app.example.com/oauth/return`).
+
+2) Redirect the user
+   - From your frontend, redirect the browser to the `authUrl` in the response.
+
+3) Provider → Broker → Frontend
+   - After consent, the provider redirects to the Broker callback; the Broker persists tokens and redirects the user back to your `return_url` with `status=success&connection_id=...`.
+
+4) Frontend → Backend to consume connection
+   - Your frontend extracts `connection_id` and sends it to your backend (e.g., via POST). Your backend stores only the `connection_id`.
+
+5) Backend fetches tokens on-demand
+   - Your backend calls Gateway `GET /v1/token/{connection_id}` to retrieve tokens when needed. Do not store tokens long-term; cache short-lived if required.
+
+Frontend notes:
+- Ensure the Broker `BASE_URL` is public and the exact callback URL is registered in provider consoles.
+- Set Broker `ENFORCE_RETURN_URL=true` and list allowed domains in `ALLOWED_RETURN_DOMAINS`.
+- You do not need to expose secrets to the browser. The browser only handles redirects.
+
 ### Security & Production Notes
 - OIDC discovery and JWKS verification enabled; id_token is verified when present.
 - Prefer tenant-specific issuer for Azure in production; `common` allowed for multi-tenant/personal.
