@@ -6,7 +6,7 @@ definitions:
       memory: 2048
   caches:
     godeps: $GOPATH/pkg/mod
-    docker: /var/lib/docker
+    docker_cache: /var/lib/docker
 
 pipelines:
   branches:
@@ -50,7 +50,7 @@ pipelines:
             - docker
           size: 2x
           caches:
-            - docker
+            - docker_cache
           script:
             - |
               set -eo pipefail
@@ -136,7 +136,7 @@ pipelines:
             - docker
           size: 2x
           caches:
-            - docker
+            - docker_cache
           script:
             - |
               set -eo pipefail
