@@ -191,5 +191,5 @@ go build -o oauth-broker ./cmd/oauth-broker
 - `docs/PROVIDERS.md` – registry and templates for supported providers
 - `docs/TECH_DEBT.md` – OIDC hardening plan and acceptance criteria
 
-Touching to test pipeline
+Touching to test 
 
