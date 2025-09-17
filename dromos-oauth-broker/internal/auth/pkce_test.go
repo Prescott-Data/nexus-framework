@@ -23,10 +23,9 @@ func TestGeneratePKCE(t *testing.T) {
 	}
 
 	// Verifier should be 32 bytes when decoded
-	verifierBytes := make([]byte, len(verifier)*6/8)
-	n, err := decodeBase64URL(verifier, verifierBytes)
-	if err != nil || n != 32 {
-		t.Errorf("Verifier should decode to 32 bytes, got %d", n)
+	decoded, err := base64.RawURLEncoding.DecodeString(verifier)
+	if err != nil || len(decoded) != 32 {
+		t.Errorf("Verifier should decode to 32 bytes, got %d", len(decoded))
 	}
 }
 
@@ -53,14 +52,4 @@ func TestValidatePKCE(t *testing.T) {
 }
 
 // decodeBase64URL is a helper to decode base64 URL strings for testing
-func decodeBase64URL(s string, dst []byte) (int, error) {
-	// Add padding if needed
-	switch len(s) % 4 {
-	case 2:
-		s += "=="
-	case 3:
-		s += "="
-	}
-
-	return base64.RawURLEncoding.Decode(dst, []byte(s))
-}
+// no helper needed with DecodeString
