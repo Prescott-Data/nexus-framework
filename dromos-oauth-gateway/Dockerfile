@@ -1,6 +1,6 @@
 # Multi-stage build for Dromos OAuth Gateway (REST server)
 
-FROM golang:1.21-alpine AS builder
+FROM golang:1.23-alpine AS builder
 WORKDIR /app
 
 RUN apk add --no-cache git ca-certificates build-base
