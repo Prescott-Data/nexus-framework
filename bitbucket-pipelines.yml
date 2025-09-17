@@ -25,8 +25,8 @@ pipelines:
                 - go test ./...
               condition:
                 changesets:
-                  include:
-                    - "dromos-oauth-gateway/**"
+                  includePaths:
+                    - 'dromos-oauth-gateway/**'
           - step:
               name: Lint & Test (broker)
               caches:
@@ -40,8 +40,8 @@ pipelines:
                 - go test ./...
               condition:
                 changesets:
-                  include:
-                    - "dromos-oauth-broker/**"
+                  includePaths:
+                    - 'dromos-oauth-broker/**'
 
       - step:
           name: Build & Push Broker Image
@@ -68,8 +68,8 @@ pipelines:
               docker push "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
           condition:
             changesets:
-              include:
-                - "dromos-oauth-broker/**"
+              includePaths:
+                - 'dromos-oauth-broker/**'
 
       - step:
           name: Deploy Broker to Azure Container Apps
@@ -154,8 +154,8 @@ pipelines:
               docker push "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
           condition:
             changesets:
-              include:
-                - "dromos-oauth-gateway/**"
+              includePaths:
+                - 'dromos-oauth-gateway/**'
 
       - step:
           name: Deploy Gateway to Azure Container Apps
@@ -216,8 +216,8 @@ pipelines:
             - docker build -t tmp/broker -f oauth-framework/dromos-oauth-broker/Dockerfile oauth-framework/dromos-oauth-broker
           condition:
             changesets:
-              include:
-                - "dromos-oauth-broker/**"
+              includePaths:
+                - 'dromos-oauth-broker/**'
       - step:
           name: Build (if gateway changed)
           image: docker:24
@@ -227,6 +227,6 @@ pipelines:
             - docker build -t tmp/gateway -f oauth-framework/dromos-oauth-gateway/Dockerfile oauth-framework/dromos-oauth-gateway
           condition:
             changesets:
-              include:
-                - "dromos-oauth-gateway/**"
+              includePaths:
+                - 'dromos-oauth-gateway/**'
 
