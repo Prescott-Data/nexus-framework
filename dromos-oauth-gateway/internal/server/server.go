@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"dromos-oauth-gateway/internal/usecase"
 )
@@ -38,6 +39,9 @@ func (s *Server) routes() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 	})
+
+	// Prometheus metrics
+	s.mux.Handle("/metrics", promhttp.Handler())
 
 	s.mux.Post("/v1/request-connection", s.handler.RequestConnection)
 	s.mux.Get("/v1/check-connection/{connectionID}", s.handler.CheckConnection)
