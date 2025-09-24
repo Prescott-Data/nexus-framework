@@ -59,19 +59,7 @@ newToken, err := client.RefreshViaBroker(ctx, connectionID)
 - Keep Broker private; allowlist callers and require API key for refresh.
 - Prefer Gateway-only flows; `RefreshViaBroker` is temporary until a Gateway refresh proxy exists.
 
-## Release (v0.1.0)
-1) Confirm `module` path in `oauth-sdk/go.mod` is the final public path (e.g., `github.com/your-org/oauth-framework/oauth-sdk`).
-2) Commit and tag:
+## Install
 ```bash
-git add oauth-sdk openapi.yaml INTEGRATIONS.md README.md
-git commit -m "SDK: add Go client v0.1.0 with retries and example"
-git tag v0.1.0
-```
-3) Push tags via Bitbucket Pipelines if used, or directly:
-```bash
-git push origin main --tags
-```
-4) Consumers add:
-```bash
-go get github.com/your-org/oauth-framework/oauth-sdk@v0.1.0
+go get bitbucket.org/dromos/oauth-framework/oauth-sdk@v0.1.1
 ```

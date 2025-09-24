@@ -82,7 +82,7 @@ Add the module and call the Gateway via the SDK:
 ```go
 import (
   "context"
-  oauthsdk "github.com/dromos-labs/oauth-framework/oauth-sdk"
+  oauthsdk "bitbucket.org/dromos/oauth-framework/oauth-sdk"
 )
 
 client := oauthsdk.New(
