@@ -125,5 +125,6 @@ Key metrics:
 - Broker details: `dromos-oauth-broker/README.md`
 - Gateway details: `dromos-oauth-gateway/README.md`
 - Integration guide: `INTEGRATIONS.md`
+- OpenAPI spec: `openapi.yaml` (v1 frozen endpoints)
 - Provider registry & examples: `dromos-oauth-broker/docs/PROVIDERS.md`
 - Tech debt & roadmap: `dromos-oauth-broker/docs/TECH_DEBT.md`
