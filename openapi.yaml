@@ -1,0 +1,181 @@
+openapi: 3.0.3
+info:
+  title: Dromos OAuth Gateway API
+  version: 1.0.0
+  description: |
+    Stable v1 contract for the Dromos OAuth Gateway. This spec freezes the agent-facing endpoints.
+    Breaking changes require a new major version (e.g., /v2). Additive changes only in v1.
+servers:
+  - url: https://gateway.example.com
+    description: Production
+  - url: http://localhost:8090
+    description: Local development
+paths:
+  /v1/request-connection:
+    post:
+      summary: Initiate a user consent connection
+      operationId: requestConnection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestConnectionInput'
+      responses:
+        '200':
+          description: Consent created; redirect user to authUrl
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestConnectionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/UpstreamError'
+  /v1/check-connection/{connection_id}:
+    get:
+      summary: Check connection status
+      operationId: checkConnection
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current connection status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionStatusResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/UpstreamError'
+  /v1/token/{connection_id}:
+    get:
+      summary: Retrieve token for a connection
+      operationId: getToken
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token JSON proxied from Broker (opaque extras allowed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Connection not found
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/UpstreamError'
+components:
+  schemas:
+    RequestConnectionInput:
+      type: object
+      additionalProperties: false
+      required: [user_id, provider_name, scopes, return_url]
+      properties:
+        user_id:
+          type: string
+          description: Workspace or user identifier in the agent system
+        provider_name:
+          type: string
+          description: Human-readable provider alias (e.g., Google, Microsoft)
+        scopes:
+          type: array
+          items: { type: string }
+        return_url:
+          type: string
+          format: uri
+        metadata:
+          type: object
+          additionalProperties: true
+    RequestConnectionResponse:
+      type: object
+      required: [authUrl, connection_id]
+      properties:
+        authUrl:
+          type: string
+          format: uri
+        connection_id:
+          type: string
+        state:
+          type: string
+        scopes:
+          type: array
+          items: { type: string }
+        provider_id:
+          type: string
+    ConnectionStatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [active, pending, failed]
+    TokenResponse:
+      type: object
+      properties:
+        access_token: { type: string }
+        token_type: { type: string }
+        expires_in: { type: number }
+        expires_at: { oneOf: [{ type: number }, { type: string }] }
+        scope: { type: string }
+        id_token: { type: string }
+        refresh_token: { type: string }
+        provider: { type: string }
+      additionalProperties: true
+    ErrorEnvelope:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+      required: [code, message]
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UpstreamError:
+      description: Upstream service error (Broker or provider)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+tags:
+  - name: Connections
+    description: Create and manage user connections
+  - name: Tokens
+    description: Retrieve tokens for active connections
+
+x-notes:
+  refresh:
+    planned_endpoint: /v1/refresh/{connection_id}
+    method: POST
+    status: planned
+    notes: A Gateway refresh proxy will be added; until then, refresh is on the Broker.
+

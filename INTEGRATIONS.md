@@ -76,6 +76,32 @@ Frontend notes:
 - Gateway `GET /v1/token/{id}` returns upstream status codes. Handle 502/503 by retrying with backoff.
 - If token expired/invalid, call refresh (Broker for now) then retry token fetch.
 
+### Using the Go SDK (server-side)
+Add the module and call the Gateway via the SDK:
+
+```go
+import (
+  "context"
+  oauthsdk "github.com/dromos-labs/oauth-framework/oauth-sdk"
+)
+
+client := oauthsdk.New(
+  "https://<gateway-base-url>",
+  oauthsdk.WithRetry(oauthsdk.RetryPolicy{Retries: 3}),
+)
+
+rc, _ := client.RequestConnection(context.Background(), oauthsdk.RequestConnectionInput{
+  UserID:       "workspace-123",
+  ProviderName: "Google",
+  Scopes:       []string{"openid","email","profile"},
+  ReturnURL:    "https://app.example.com/oauth/return",
+})
+// Redirect user to rc.AuthURL
+
+// Later, fetch token:
+tok, _ := client.GetToken(context.Background(), rc.ConnectionID)
+```
+
 ### Roadmap (Tech Debt)
 - Gateway refresh proxy: `POST /v1/refresh/{connection_id}` and `auto_refresh` support on token fetch.
 - Persistent discovery/JWKS cache and richer metrics.
