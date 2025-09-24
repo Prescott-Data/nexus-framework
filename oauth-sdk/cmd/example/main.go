@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	oauthsdk "github.com/dromos-labs/oauth-framework/oauth-sdk"
+	oauthsdk "bitbucket.org/dromos/oauth-framework/oauth-sdk"
 )
 
 func main() {
