@@ -272,6 +272,69 @@ func TestBridge_HappyPath(t *testing.T) {
 	}
 }
 
+func TestBridge_MessageSizeLimit(t *testing.T) {
+	t.Parallel()
+	authClient := &mockOAuthClient{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
+			return &Token{AccessToken: "test-token", ExpiresAt: time.Now().Add(1 * time.Hour).Unix()}, nil
+		},
+	}
+
+	disconnectChan := make(chan error, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		// Send a message that is larger than the configured limit.
+		err = conn.WriteMessage(websocket.TextMessage, make([]byte, 2048))
+		if err != nil {
+			t.Logf("Server write error: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	handler := &mockHandler{
+		onDisconnect: func(err error) { disconnectChan <- err },
+	}
+
+	bridge := New(authClient, WithMessageSizeLimit(1024))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	go bridge.MaintainWebSocket(ctx, "conn-123", "ws"+server.URL[4:], handler)
+
+	select {
+	case err := <-disconnectChan:
+		if err == nil {
+			t.Fatal("Expected an error due to message size limit, but got nil")
+		}
+		t.Logf("Got expected disconnect error: %v", err)
+	case <-time.After(1 * time.Second):
+		t.Fatal("Bridge did not disconnect after receiving oversized message")
+	}
+}
+
+func TestBridge_Options(t *testing.T) {
+	t.Parallel()
+	authClient := &mockOAuthClient{}
+	bridge := New(authClient,
+		WithMessageSizeLimit(1234),
+		WithWriteTimeout(5*time.Second),
+		WithPingInterval(45*time.Second),
+	)
+
+	if bridge.messageSizeLimit != 1234 {
+		t.Errorf("Expected messageSizeLimit to be 1234, got %d", bridge.messageSizeLimit)
+	}
+	if bridge.writeTimeout != 5*time.Second {
+		t.Errorf("Expected writeTimeout to be 5s, got %v", bridge.writeTimeout)
+	}
+	if bridge.pingInterval != 45*time.Second {
+		t.Errorf("Expected pingInterval to be 45s, got %v", bridge.pingInterval)
+	}
+}
+
 func TestBridge_TokenRefreshWithoutDisconnect(t *testing.T) {
 	t.Parallel()
 

@@ -24,12 +24,15 @@ type Token struct {
 
 // Bridge manages persistent connections.
 type Bridge struct {
-	oauthClient   OAuthClient
-	logger        Logger
-	retryPolicy   RetryPolicy
-	metrics       Metrics
-	refreshBuffer time.Duration
-	dialer        *websocket.Dialer
+	oauthClient      OAuthClient
+	logger           Logger
+	retryPolicy      RetryPolicy
+	metrics          Metrics
+	refreshBuffer    time.Duration
+	dialer           *websocket.Dialer
+	messageSizeLimit int64
+	writeTimeout     time.Duration
+	pingInterval     time.Duration
 }
 
 // New creates a new Bridge with optional configurations.
@@ -44,8 +47,11 @@ func New(oauthClient OAuthClient, opts ...Option) *Bridge {
 			MaxBackoff: 30 * time.Second,
 			Jitter:     1 * time.Second,
 		},
-		refreshBuffer: 5 * time.Minute,
-		dialer:        websocket.DefaultDialer,
+		refreshBuffer:    5 * time.Minute,
+		dialer:           websocket.DefaultDialer,
+		messageSizeLimit: 65536, // 64KB
+		writeTimeout:     10 * time.Second,
+		pingInterval:     30 * time.Second,
 	}
 
 	// Apply all the functional options provided by the user
@@ -105,6 +111,13 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 	}
 	defer conn.Close()
 
+	conn.SetReadLimit(b.messageSizeLimit)
+	conn.SetPongHandler(func(string) error {
+		// Extend the read deadline upon receiving a pong.
+		conn.SetReadDeadline(time.Now().Add(b.pingInterval + b.writeTimeout))
+		return nil
+	})
+
 	b.metrics.IncConnections()
 	b.metrics.SetConnectionStatus(1)
 	b.logger.Info("Successfully established WebSocket connection", "connectionID", connectionID, "endpoint", endpointURL)
@@ -149,13 +162,23 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 		}
 	}()
 
-	// Step 4.2: Start the "write pump" goroutine for thread-safe writes.
+	// Step 4.2: Start the "write pump" and "ping" goroutine for thread-safe writes and health checks.
 	go func() {
+		pingTicker := time.NewTicker(b.pingInterval)
+		defer pingTicker.Stop()
+
 		for {
 			select {
 			case message := <-writeChan:
+				conn.SetWriteDeadline(time.Now().Add(b.writeTimeout))
 				if err := conn.WriteMessage(websocket.TextMessage, message); err != nil {
 					b.logger.Error(err, "Error writing to WebSocket", "connectionID", connectionID)
+				}
+			case <-pingTicker.C:
+				conn.SetWriteDeadline(time.Now().Add(b.writeTimeout))
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					b.logger.Error(err, "Error sending ping", "connectionID", connectionID)
+					return // Assume connection is dead if ping fails.
 				}
 			case <-done:
 				return
