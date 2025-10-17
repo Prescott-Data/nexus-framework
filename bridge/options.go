@@ -83,3 +83,27 @@ func WithMetrics(metrics Metrics) Option {
 		b.metrics = metrics
 	}
 }
+
+// WithMessageSizeLimit sets the maximum message size allowed from the peer.
+// Defaults to 64KB.
+func WithMessageSizeLimit(limit int64) Option {
+	return func(b *Bridge) {
+		b.messageSizeLimit = limit
+	}
+}
+
+// WithWriteTimeout sets the write deadline for outgoing messages.
+// Defaults to 10 seconds.
+func WithWriteTimeout(timeout time.Duration) Option {
+	return func(b *Bridge) {
+		b.writeTimeout = timeout
+	}
+}
+
+// WithPingInterval sets the interval for sending ping messages to the peer.
+// Defaults to 30 seconds.
+func WithPingInterval(interval time.Duration) Option {
+	return func(b *Bridge) {
+		b.pingInterval = interval
+	}
+}
