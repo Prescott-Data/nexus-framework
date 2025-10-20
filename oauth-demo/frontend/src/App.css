@@ -1,0 +1,29 @@
+body {
+  background-color: #f8f9fa;
+}
+
+.step {
+  padding: 1.5rem 0;
+}
+
+.step.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.step.disabled .btn {
+  pointer-events: none;
+}
+
+hr {
+  margin: 0;
+}
+
+.card {
+  border: none;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
