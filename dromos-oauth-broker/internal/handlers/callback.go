@@ -262,7 +262,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt     *time.Time `db:"expires_at"`
 	}
 
-	err = h.db.QueryRow("SELECT encrypted_data, expires_at FROM tokens WHERE connection_id = $1", connectionID).Scan(&token.EncryptedData, &token.ExpiresAt)
+	err = h.db.QueryRow("SELECT encrypted_data, expires_at FROM tokens WHERE connection_id = $1 ORDER BY created_at DESC LIMIT 1", connectionID).Scan(&token.EncryptedData, &token.ExpiresAt)
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "token not found"}, r)
 		http.Error(w, "Token not found", http.StatusNotFound)
