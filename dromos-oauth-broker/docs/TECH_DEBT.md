@@ -149,4 +149,28 @@ Enforce mutual TLS for all internal service-to-service traffic (e.g., gateway â†
 2) Production: point DNS, enable automatic cert renewal, monitor for throttling/blocks.
 3) Remove any temporary public exposure of sensitive broker routes.
 
+---
+
+## Technical Debt: Provider Management API Endpoints
+
+### Current Posture
+- Providers are managed by `POST /providers` for creation.
+- Listing providers is available via `GET /providers`, but it only returns names and IDs.
+- There are no API endpoints for describing, updating, or deleting a specific provider.
+- Management currently requires direct database access for anything other than creation and listing.
+
+### Goal
+- To provide a full set of RESTful API endpoints for managing provider configurations, reducing the need for direct database access.
+
+### Acceptance Criteria
+- `GET /providers/{id}`: Returns the full details of a specific provider (excluding the client secret).
+- `PUT /providers/{id}`: Updates the configuration for a specific provider.
+- `DELETE /providers/{id}`: Deletes a specific provider.
+- All new endpoints should be protected by the same authentication and authorization mechanisms as the existing provider endpoints.
+
+### Rollout Plan
+1) Implement the `GET /providers/{id}` endpoint.
+2) Implement the `DELETE /providers/{id}` endpoint.
+3) Implement the `PUT /providers/{id}` endpoint.
+4) Update any relevant documentation to reflect the new API endpoints.
 

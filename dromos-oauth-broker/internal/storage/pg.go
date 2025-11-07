@@ -29,10 +29,12 @@ func NewDB(dsn string) (*DB, error) {
 type ProviderProfile struct {
 	ID              uuid.UUID `db:"id" json:"id"`
 	Name            string    `db:"name" json:"name"`
-	ClientID        string    `db:"client_id" json:"client_id"`
-	ClientSecret    string    `db:"client_secret" json:"client_secret"`
-	AuthURL         string    `db:"auth_url" json:"auth_url"`
-	TokenURL        string    `db:"token_url" json:"token_url"`
+	AuthType        string    `db:"auth_type" json:"auth_type,omitempty"`
+	AuthHeader      string    `db:"auth_header" json:"auth_header,omitempty"`
+	ClientID        string    `db:"client_id" json:"client_id,omitempty"`
+	ClientSecret    string    `db:"client_secret" json:"client_secret,omitempty"`
+	AuthURL         string    `db:"auth_url" json:"auth_url,omitempty"`
+	TokenURL        string    `db:"token_url" json:"token_url,omitempty"`
 	Issuer          *string   `db:"issuer" json:"issuer,omitempty"`
 	EnableDiscovery bool      `db:"enable_discovery" json:"enable_discovery"`
 	Scopes          []string  `db:"scopes" json:"scopes"`
@@ -46,7 +48,7 @@ type Connection struct {
 	WorkspaceID  string    `db:"workspace_id" json:"workspace_id"`
 	ProviderID   uuid.UUID `db:"provider_id" json:"provider_id"`
 	Status       string    `db:"status" json:"status"`
-	CodeVerifier string    `db:"code_verifier" json:"code_verifier"`
+	CodeVerifier *string   `db:"code_verifier" json:"code_verifier,omitempty"`
 	Scopes       []string  `db:"scopes" json:"scopes"`
 	ReturnURL    string    `db:"return_url" json:"return_url"`
 	CreatedAt    time.Time `db:"created_at" json:"created_at"`
@@ -77,11 +79,20 @@ type AuditEvent struct {
 // Provider operations
 func (db *DB) CreateProviderProfile(p *ProviderProfile) error {
 	query := `
-		INSERT INTO provider_profiles (name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO provider_profiles (
+			name, client_id, client_secret, auth_url, token_url, 
+			issuer, enable_discovery, scopes, 
+			auth_type, auth_header
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, created_at, updated_at`
 
-	return db.QueryRowx(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes)).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
+	return db.QueryRowx(
+		query, 
+		p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, 
+		p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes),
+		p.AuthType, p.AuthHeader, // <-- NEW PARAMS
+	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
 }
 
 func (db *DB) GetProviderProfile(id uuid.UUID) (*ProviderProfile, error) {

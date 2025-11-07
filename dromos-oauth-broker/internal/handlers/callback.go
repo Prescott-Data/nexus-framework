@@ -209,6 +209,83 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, connection.ReturnURL+"?status=success&connection_id="+connectionID.String(), http.StatusFound)
 }
 
+// CaptureCredentialForm serves the HTML form for capturing static credentials.
+func (h *CallbackHandler) CaptureCredentialForm(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+	providerName := r.URL.Query().Get("provider_name")
+
+	// Verify state
+	_, err := auth.VerifyState(h.stateKey, state)
+	if err != nil {
+		http.Error(w, "Invalid state", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<title>Enter Credentials for %s</title>
+		</head>
+		<body>
+			<h2>Enter API Key for %s</h2>
+			<form action="/auth/capture-credential" method="post">
+				<input type="hidden" name="state" value="%s">
+				<p><input type="text" name="credential" size="50"></p>
+				<p><button type="submit">Submit</button></p>
+			</form>
+		</body>
+		</html>
+	`, providerName, providerName, state)
+}
+
+// SaveCredential handles the submission of the credential capture form.
+func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	state := r.FormValue("state")
+	credential := r.FormValue("credential")
+
+	// Verify state
+	stateData, err := auth.VerifyState(h.stateKey, state)
+	if err != nil {
+		http.Error(w, "Invalid state", http.StatusBadRequest)
+		return
+	}
+
+	connectionID, err := uuid.Parse(stateData.Nonce)
+	if err != nil {
+		http.Error(w, "Invalid connection ID", http.StatusBadRequest)
+		return
+	}
+
+	var returnURL string
+	err = h.db.QueryRow("SELECT return_url FROM connections WHERE id = $1", connectionID).Scan(&returnURL)
+	if err != nil {
+		http.Error(w, "Connection not found", http.StatusNotFound)
+		return
+	}
+
+	tokens := map[string]interface{}{"access_token": credential}
+
+	if err := h.storeTokens(connectionID, tokens); err != nil {
+		http.Error(w, "Failed to store token", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.updateConnectionStatus(connectionID, "active"); err != nil {
+		http.Error(w, "Failed to update connection status", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, returnURL+"?status=success&connection_id="+connectionID.String(), http.StatusFound)
+}
+
+
 // containsScope returns true if target (case-insensitive) is present in scopes
 func containsScope(scopes []string, target string) bool {
 	t := strings.ToLower(strings.TrimSpace(target))
@@ -391,59 +468,80 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid connection ID", http.StatusBadRequest)
 		return
 	}
-	// Load provider and latest token
-	var providerID string
-	err = h.db.QueryRow("SELECT provider_id FROM connections WHERE id=$1 AND status='active'", connectionID).Scan(&providerID)
+
+	var conn struct {
+		ProviderID string `db:"provider_id"`
+		AuthType   string `db:"auth_type"`
+	}
+	err = h.db.QueryRow(`
+		SELECT c.provider_id, p.auth_type 
+		FROM connections c
+		JOIN provider_profiles p ON c.provider_id = p.id
+		WHERE c.id=$1 AND c.status='active'`, connectionID).Scan(&conn.ProviderID, &conn.AuthType)
+
 	if err != nil {
 		http.Error(w, "Connection not active or not found", http.StatusNotFound)
 		return
 	}
-	var provider struct {
-		TokenURL     string `db:"token_url"`
-		ClientID     string `db:"client_id"`
-		ClientSecret string `db:"client_secret"`
-	}
-	err = h.db.QueryRow("SELECT token_url, client_id, client_secret FROM provider_profiles WHERE id=$1", providerID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret)
-	if err != nil {
-		http.Error(w, "Provider not found", http.StatusInternalServerError)
+
+	// Check the auth type right away
+	switch conn.AuthType {
+	case "api_key", "basic_auth":
+		// Static tokens cannot be refreshed.
+		http.Error(w, "This connection uses a static token and cannot be refreshed", http.StatusBadRequest)
+		return // Stop execution here
+	case "oauth2", "":
+		// This is an OAuth2 provider, continue with the *existing* refresh logic
+		var provider struct {
+			TokenURL     string `db:"token_url"`
+			ClientID     string `db:"client_id"`
+			ClientSecret string `db:"client_secret"`
+		}
+		err = h.db.QueryRow("SELECT token_url, client_id, client_secret FROM provider_profiles WHERE id=$1", conn.ProviderID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret)
+		if err != nil {
+			http.Error(w, "Provider not found", http.StatusInternalServerError)
+			return
+		}
+		var tokenRow struct {
+			EncryptedData string `db:"encrypted_data"`
+		}
+		err = h.db.QueryRow("SELECT encrypted_data FROM tokens WHERE connection_id=$1 ORDER BY created_at DESC LIMIT 1", connectionID).Scan(&tokenRow.EncryptedData)
+		if err != nil {
+			http.Error(w, "Token not found", http.StatusNotFound)
+			return
+		}
+		plaintext, err := vault.Decrypt(h.encryptionKey, tokenRow.EncryptedData)
+		if err != nil {
+			http.Error(w, "Decrypt failed", http.StatusInternalServerError)
+			return
+		}
+		var current map[string]interface{}
+		if err := json.Unmarshal(plaintext, &current); err != nil {
+			http.Error(w, "Token parse failed", http.StatusInternalServerError)
+			return
+		}
+		refreshToken, _ := current["refresh_token"].(string)
+		if refreshToken == "" {
+			http.Error(w, "No refresh_token available", http.StatusBadRequest)
+			return
+		}
+		// Refresh
+		newTokens, err := h.refreshTokens(provider.TokenURL, provider.ClientID, provider.ClientSecret, refreshToken)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		// Store new tokens
+		if err := h.storeTokens(connectionID, newTokens); err != nil {
+			http.Error(w, "Store refreshed token failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(newTokens)
+	default:
+		http.Error(w, "Unsupported provider auth_type", http.StatusInternalServerError)
 		return
 	}
-	var tokenRow struct {
-		EncryptedData string `db:"encrypted_data"`
-	}
-	err = h.db.QueryRow("SELECT encrypted_data FROM tokens WHERE connection_id=$1 ORDER BY created_at DESC LIMIT 1", connectionID).Scan(&tokenRow.EncryptedData)
-	if err != nil {
-		http.Error(w, "Token not found", http.StatusNotFound)
-		return
-	}
-	plaintext, err := vault.Decrypt(h.encryptionKey, tokenRow.EncryptedData)
-	if err != nil {
-		http.Error(w, "Decrypt failed", http.StatusInternalServerError)
-		return
-	}
-	var current map[string]interface{}
-	if err := json.Unmarshal(plaintext, &current); err != nil {
-		http.Error(w, "Token parse failed", http.StatusInternalServerError)
-		return
-	}
-	refreshToken, _ := current["refresh_token"].(string)
-	if refreshToken == "" {
-		http.Error(w, "No refresh_token available", http.StatusBadRequest)
-		return
-	}
-	// Refresh
-	newTokens, err := h.refreshTokens(provider.TokenURL, provider.ClientID, provider.ClientSecret, refreshToken)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	// Store new tokens
-	if err := h.storeTokens(connectionID, newTokens); err != nil {
-		http.Error(w, "Store refreshed token failed", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(newTokens)
 }
 
 // storeTokens encrypts and stores tokens in database

@@ -1,0 +1,2 @@
+ALTER TABLE provider_profiles
+ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE;

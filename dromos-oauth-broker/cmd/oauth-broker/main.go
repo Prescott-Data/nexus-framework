@@ -96,11 +96,15 @@ func main() {
 	// Public endpoints
 	router.Get("/auth/callback", callbackHandler.Handle)
 	router.Method("GET", "/metrics", server.MetricsHandler())
+	router.Get("/auth/capture-credential", callbackHandler.CaptureCredentialForm)
+	router.Post("/auth/capture-credential", callbackHandler.SaveCredential)
 	// Protected endpoints: API key + allowlist
 	protected := router.With(server.ApiKeyMiddleware(), server.AllowlistMiddleware())
 	protected.Post("/providers", providersHandler.Register)
 	protected.Get("/providers", providersHandler.List)
-	protected.Get("/providers/by-name/*", providersHandler.GetByName)
+	protected.Get("/providers/{id}", providersHandler.Get)
+	protected.Put("/providers/{id}", providersHandler.Update)
+	protected.Delete("/providers/{id}", providersHandler.Delete)
 	protected.Post("/auth/consent-spec", consentHandler.GetSpec)
 	protected.Get("/connections/{connectionID}/token", callbackHandler.GetToken)
 	protected.Post("/connections/{connectionID}/refresh", callbackHandler.Refresh)

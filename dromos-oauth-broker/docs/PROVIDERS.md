@@ -63,6 +63,48 @@ jq -c '{profile: .}' path/to/provider.json \
 ```
 5) The response returns `provider_id`. Use it with `/auth/consent-spec`.
 
+### Managing Providers
+
+In addition to registering new providers, you can also describe, update, and delete them using the following API endpoints. All of these endpoints are protected and require an API key.
+
+#### Describe a Provider
+
+To get the full details of a specific provider, use the `GET /providers/{id}` endpoint.
+
+```bash
+curl -s -X GET http://localhost:8080/providers/<provider-id> \
+  -H "X-API-Key: <api-key-if-required>" | jq .
+```
+
+#### Update a Provider
+
+To update a provider's information, use the `PUT /providers/{id}` endpoint. The request body should contain the fields to be updated.
+
+```bash
+curl -s -X PUT http://localhost:8080/providers/<provider-id> \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <api-key-if-required>" \
+  -d '{"name": "New Name", "client_id": "new-client-id"}' | jq .
+```
+
+#### Delete a Provider
+
+To delete a provider, use the `DELETE /providers/{id}` endpoint. This is a "soft delete", meaning the provider will be marked as deleted but not removed from the database. This prevents issues with existing connections that rely on the provider.
+
+```bash
+curl -s -X DELETE http://localhost:8080/providers/<provider-id> \
+  -H "X-API-Key: <api-key-if-required>"
+```
+
+### Verifying what’s installed
+
+To see a list of all active providers, you can use the `GET /providers` endpoint.
+
+```bash
+curl -s http://localhost:8080/providers \
+  -H "X-API-Key: <api-key-if-required>" | jq .
+```
+
 ### Currently supported
 
 #### Google
@@ -88,13 +130,6 @@ jq -c '{profile: .}' path/to/provider.json \
 - For Google, we remove `offline_access` from scopes and add `access_type=offline` and `prompt=consent`.
 - For Microsoft/others, keep `offline_access` in scopes to obtain refresh tokens.
 
-### Verifying what’s installed
-- To see registered providers, query the database (example):
-```sql
-SELECT id, name, auth_url, token_url, scopes FROM provider_profiles ORDER BY created_at DESC;
-```
-- Or re-run the POST and note the returned `id`.
-
 ### Adding new providers (template section to copy)
 #### <Provider Name>
 - Authorization endpoint: `<authorize-endpoint>`
@@ -102,5 +137,4 @@ SELECT id, name, auth_url, token_url, scopes FROM provider_profiles ORDER BY cre
 - Typical scopes: `openid`, `email`, `offline_access` (if supported), plus any API scopes
 - Provider-specific notes:
   - `<notes about offline_access, audience params, discovery, etc.>`
-
 
