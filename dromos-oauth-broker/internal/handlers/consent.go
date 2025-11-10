@@ -14,9 +14,9 @@ import (
 	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"dromos-oauth-broker/internal/auth"
-	"dromos-oauth-broker/internal/discovery"
-	"dromos-oauth-broker/internal/server"
+	"dromos.com/oauth-broker/internal/auth"
+	"dromos.com/oauth-broker/internal/discovery"
+	"dromos.com/oauth-broker/internal/server"
 )
 
 // ConsentSpec represents the response for consent specification
@@ -32,12 +32,13 @@ type ConsentHandler struct {
 	db             *sqlx.DB
 	baseURL        string
 	stateKey       []byte
+	httpClient     *http.Client
 	consentsMetric prometheus.Counter
 	consentsOpenID prometheus.Counter
 }
 
 // NewConsentHandler creates a new consent handler
-func NewConsentHandler(db *sqlx.DB, baseURL string, stateKey []byte) *ConsentHandler {
+func NewConsentHandler(db *sqlx.DB, baseURL string, stateKey []byte, httpClient *http.Client) *ConsentHandler {
 	metric := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "oauth_consents_created_total",
 		Help: "Total OAuth consents created",
@@ -46,11 +47,21 @@ func NewConsentHandler(db *sqlx.DB, baseURL string, stateKey []byte) *ConsentHan
 		Name: "oauth_consents_with_openid_total",
 		Help: "Total OAuth consents where openid scope was requested",
 	})
-	prometheus.MustRegister(metric, metricOpenID)
+
+	collectors := []prometheus.Collector{metric, metricOpenID}
+	for _, c := range collectors {
+		if err := prometheus.Register(c); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				panic(err)
+			}
+		}
+	}
+
 	return &ConsentHandler{
 		db:             db,
 		baseURL:        baseURL,
 		stateKey:       stateKey,
+		httpClient:     httpClient,
 		consentsMetric: metric,
 		consentsOpenID: metricOpenID,
 	}
@@ -83,18 +94,19 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 
 	// Get provider profile
 	var provider struct {
-		ID       uuid.UUID `db:"id"`
-		Name     string    `db:"name"`
-		AuthType string    `db:"auth_type"`
-		AuthURL  string    `db:"auth_url"`
-		ClientID string    `db:"client_id"`
-		Scopes   []string  `db:"scopes"`
+		ID       uuid.UUID        `db:"id"`
+		Name     string           `db:"name"`
+		AuthType string           `db:"auth_type"`
+		AuthURL  string           `db:"auth_url"`
+		ClientID string           `db:"client_id"`
+		Scopes   []string         `db:"scopes"`
+		Params   *json.RawMessage `db:"params"`
 	}
 
 	err := h.db.QueryRow(
-		"SELECT id, name, auth_type, auth_url, client_id, scopes FROM provider_profiles WHERE id = $1",
+		"SELECT id, name, auth_type, auth_url, client_id, scopes, params FROM provider_profiles WHERE id = $1",
 		request.ProviderID,
-	).Scan(&provider.ID, &provider.Name, &provider.AuthType, &provider.AuthURL, &provider.ClientID, pq.Array(&provider.Scopes))
+	).Scan(&provider.ID, &provider.Name, &provider.AuthType, &provider.AuthURL, &provider.ClientID, pq.Array(&provider.Scopes), &provider.Params)
 	if err != nil {
 		log.Printf("/auth/consent-spec provider lookup error: %v", err)
 		http.Error(w, "Provider not found", http.StatusNotFound)
@@ -103,32 +115,6 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 
 	switch provider.AuthType {
 	case "oauth2", "":
-		// Adjust scopes for refresh-token behavior per provider
-		isGoogle := strings.Contains(strings.ToLower(provider.AuthURL), "accounts.google.com")
-		if isGoogle {
-			// Remove offline_access if present (Google does not support this scope)
-			filtered := make([]string, 0, len(request.Scopes))
-			for _, s := range request.Scopes {
-				if strings.EqualFold(s, "offline_access") {
-					continue
-				}
-				filtered = append(filtered, s)
-			}
-			request.Scopes = filtered
-		} else {
-			// Ensure offline_access for providers that use it (e.g., Microsoft/Okta)
-			hasOffline := false
-			for _, s := range request.Scopes {
-				if strings.EqualFold(s, "offline_access") {
-					hasOffline = true
-					break
-				}
-			}
-			if !hasOffline {
-				request.Scopes = append(request.Scopes, "offline_access")
-			}
-		}
-
 		// Generate PKCE
 		codeVerifier, codeChallenge, err := auth.GeneratePKCE()
 		if err != nil {
@@ -165,12 +151,12 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 
 		// Attempt OIDC discovery to use the provider's authorization_endpoint
 		useAuthURL := provider.AuthURL
-		if md, errD := discovery.Discover(r.Context(), discovery.Hint{AuthURL: provider.AuthURL}); errD == nil && strings.TrimSpace(md.AuthorizationEndpoint) != "" {
+		if md, errD := discovery.Discover(r.Context(), h.httpClient, discovery.Hint{AuthURL: provider.AuthURL}); errD == nil && strings.TrimSpace(md.AuthorizationEndpoint) != "" {
 			useAuthURL = md.AuthorizationEndpoint
 		}
 
 		// Build auth URL
-		authURL, err := h.buildAuthURL(useAuthURL, provider.ClientID, signedState, codeChallenge, request.Scopes)
+		authURL, err := h.buildAuthURL(useAuthURL, provider.ClientID, signedState, codeChallenge, request.Scopes, provider.Params)
 		if err != nil {
 			http.Error(w, "Failed to build auth URL", http.StatusInternalServerError)
 			return
@@ -247,7 +233,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildAuthURL constructs the OAuth authorization URL
-func (h *ConsentHandler) buildAuthURL(providerAuthURL, clientID, state, codeChallenge string, scopes []string) (string, error) {
+func (h *ConsentHandler) buildAuthURL(providerAuthURL, clientID, state, codeChallenge string, scopes []string, providerParams *json.RawMessage) (string, error) {
 	baseURL := strings.TrimSuffix(h.baseURL, "/")
 	redirectPath := os.Getenv("REDIRECT_PATH")
 	if redirectPath == "" {
@@ -280,10 +266,13 @@ func (h *ConsentHandler) buildAuthURL(providerAuthURL, clientID, state, codeChal
 		}
 	}
 
-	// Provider-specific: request refresh tokens for Google
-	if strings.Contains(strings.ToLower(u.Host), "accounts.google.com") || strings.Contains(strings.ToLower(u.String()), "accounts.google.com") {
-		q.Set("access_type", "offline")
-		q.Set("prompt", "consent")
+	if providerParams != nil && len(*providerParams) > 0 {
+		var params map[string]string
+		if err := json.Unmarshal(*providerParams, &params); err == nil {
+			for key, value := range params {
+				q.Set(key, value)
+			}
+		}
 	}
 
 	u.RawQuery = q.Encode()

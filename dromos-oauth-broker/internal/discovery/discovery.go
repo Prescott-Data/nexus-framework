@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -21,15 +20,7 @@ type OIDCMetadata struct {
 	JWKSURI               string `json:"jwks_uri"`
 }
 
-type cacheEntry struct {
-	md        OIDCMetadata
-	expiresAt time.Time
-}
-
 var (
-	cacheMu              sync.RWMutex
-	cache                = make(map[string]cacheEntry)
-	hc                   = &http.Client{Timeout: 10 * time.Second}
 	metricsDiscoverTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "oidc_discovery_total",
 		Help: "OIDC discovery attempts by result",
@@ -52,7 +43,7 @@ type Hint struct {
 
 // Discover attempts to resolve OIDC metadata using issuer or heuristics from auth URL.
 // It caches results with a default TTL of 1h if no Cache-Control directive is present.
-func Discover(ctx context.Context, hint Hint) (OIDCMetadata, error) {
+func Discover(ctx context.Context, client *http.Client, hint Hint) (OIDCMetadata, error) {
 	start := time.Now()
 	issuer := strings.TrimSpace(hint.Issuer)
 	if issuer == "" {
@@ -63,13 +54,9 @@ func Discover(ctx context.Context, hint Hint) (OIDCMetadata, error) {
 		return OIDCMetadata{}, errors.New("issuer not resolvable")
 	}
 
-	if md, ok := getCached(issuer); ok {
-		return md, nil
-	}
-
 	wellKnown := strings.TrimRight(issuer, "/") + "/.well-known/openid-configuration"
 	req, _ := http.NewRequestWithContext(ctx, "GET", wellKnown, nil)
-	resp, err := hc.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		metricsDiscoverTotal.WithLabelValues("error").Inc()
 		return OIDCMetadata{}, err
@@ -88,46 +75,9 @@ func Discover(ctx context.Context, hint Hint) (OIDCMetadata, error) {
 		metricsDiscoverTotal.WithLabelValues("error").Inc()
 		return OIDCMetadata{}, errors.New("discovery invalid payload")
 	}
-	putCached(issuer, md, cacheTTL(resp))
 	metricsDiscoverLatency.Observe(time.Since(start).Seconds())
 	metricsDiscoverTotal.WithLabelValues("success").Inc()
 	return md, nil
-}
-
-func cacheTTL(resp *http.Response) time.Duration {
-	cc := resp.Header.Get("Cache-Control")
-	if cc == "" {
-		return time.Hour
-	}
-	// Very simple max-age parser
-	for _, part := range strings.Split(cc, ",") {
-		part = strings.TrimSpace(part)
-		if strings.HasPrefix(strings.ToLower(part), "max-age=") {
-			v := strings.TrimPrefix(part, "max-age=")
-			if secs, err := time.ParseDuration(strings.TrimSpace(v) + "s"); err == nil {
-				if secs > 0 {
-					return secs
-				}
-			}
-		}
-	}
-	return time.Hour
-}
-
-func getCached(issuer string) (OIDCMetadata, bool) {
-	cacheMu.RLock()
-	defer cacheMu.RUnlock()
-	ce, ok := cache[issuer]
-	if !ok || time.Now().After(ce.expiresAt) {
-		return OIDCMetadata{}, false
-	}
-	return ce.md, true
-}
-
-func putCached(issuer string, md OIDCMetadata, ttl time.Duration) {
-	cacheMu.Lock()
-	cache[issuer] = cacheEntry{md: md, expiresAt: time.Now().Add(ttl)}
-	cacheMu.Unlock()
 }
 
 // deriveIssuerFromAuthURL uses known patterns to compute an issuer.
