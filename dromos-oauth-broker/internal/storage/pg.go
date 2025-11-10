@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -27,19 +28,20 @@ func NewDB(dsn string) (*DB, error) {
 
 // ProviderProfile represents an OAuth provider configuration
 type ProviderProfile struct {
-	ID              uuid.UUID `db:"id" json:"id"`
-	Name            string    `db:"name" json:"name"`
-	AuthType        string    `db:"auth_type" json:"auth_type,omitempty"`
-	AuthHeader      string    `db:"auth_header" json:"auth_header,omitempty"`
-	ClientID        string    `db:"client_id" json:"client_id,omitempty"`
-	ClientSecret    string    `db:"client_secret" json:"client_secret,omitempty"`
-	AuthURL         string    `db:"auth_url" json:"auth_url,omitempty"`
-	TokenURL        string    `db:"token_url" json:"token_url,omitempty"`
-	Issuer          *string   `db:"issuer" json:"issuer,omitempty"`
-	EnableDiscovery bool      `db:"enable_discovery" json:"enable_discovery"`
-	Scopes          []string  `db:"scopes" json:"scopes"`
-	CreatedAt       time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
+	ID              uuid.UUID        `db:"id" json:"id"`
+	Name            string           `db:"name" json:"name"`
+	AuthType        string           `db:"auth_type" json:"auth_type,omitempty"`
+	AuthHeader      string           `db:"auth_header" json:"auth_header,omitempty"`
+	ClientID        string           `db:"client_id" json:"client_id,omitempty"`
+	ClientSecret    string           `db:"client_secret" json:"client_secret,omitempty"`
+	AuthURL         string           `db:"auth_url" json:"auth_url,omitempty"`
+	TokenURL        string           `db:"token_url" json:"token_url,omitempty"`
+	Issuer          *string          `db:"issuer" json:"issuer,omitempty"`
+	EnableDiscovery bool             `db:"enable_discovery" json:"enable_discovery"`
+	Scopes          []string         `db:"scopes" json:"scopes"`
+	Params          *json.RawMessage `db:"params" json:"params,omitempty"`
+	CreatedAt       time.Time        `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time        `db:"updated_at" json:"updated_at"`
 }
 
 // Connection represents an OAuth connection flow
@@ -82,16 +84,16 @@ func (db *DB) CreateProviderProfile(p *ProviderProfile) error {
 		INSERT INTO provider_profiles (
 			name, client_id, client_secret, auth_url, token_url, 
 			issuer, enable_discovery, scopes, 
-			auth_type, auth_header
+			auth_type, auth_header, params
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at, updated_at`
 
 	return db.QueryRowx(
-		query, 
-		p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, 
+		query,
+		p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL,
 		p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes),
-		p.AuthType, p.AuthHeader, // <-- NEW PARAMS
+		p.AuthType, p.AuthHeader, p.Params, // <-- NEW PARAM
 	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
 }
 

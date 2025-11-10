@@ -16,11 +16,11 @@ import (
 	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"dromos-oauth-broker/internal/auth"
-	"dromos-oauth-broker/internal/discovery"
-	oidcutil "dromos-oauth-broker/internal/oidc"
-	"dromos-oauth-broker/internal/server"
-	"dromos-oauth-broker/internal/vault"
+	"dromos.com/oauth-broker/internal/auth"
+	"dromos.com/oauth-broker/internal/discovery"
+	oidcutil "dromos.com/oauth-broker/internal/oidc"
+	"dromos.com/oauth-broker/internal/server"
+	"dromos.com/oauth-broker/internal/vault"
 )
 
 // CallbackHandler handles OAuth callback and token exchange
@@ -28,6 +28,7 @@ type CallbackHandler struct {
 	db                    *sqlx.DB
 	encryptionKey         []byte
 	stateKey              []byte
+	httpClient            *http.Client
 	metricExchangeSuccess prometheus.Counter
 	metricExchangeError   prometheus.Counter
 	histogramExchangeDur  prometheus.Histogram
@@ -36,7 +37,7 @@ type CallbackHandler struct {
 }
 
 // NewCallbackHandler creates a new callback handler
-func NewCallbackHandler(db *sqlx.DB, encryptionKey, stateKey []byte) *CallbackHandler {
+func NewCallbackHandler(db *sqlx.DB, encryptionKey, stateKey []byte, httpClient *http.Client) *CallbackHandler {
 	success := prometheus.NewCounter(prometheus.CounterOpts{
 		Name:        "oauth_token_exchanges_total",
 		Help:        "Total OAuth token exchanges",
@@ -61,11 +62,20 @@ func NewCallbackHandler(db *sqlx.DB, encryptionKey, stateKey []byte) *CallbackHa
 		Help: "Token retrievals by provider and whether id_token present",
 	}, []string{"provider", "has_id_token"})
 
-	prometheus.MustRegister(success, failure, hist, idTokens, tokenGet)
+	collectors := []prometheus.Collector{success, failure, hist, idTokens, tokenGet}
+	for _, c := range collectors {
+		if err := prometheus.Register(c); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				panic(err)
+			}
+		}
+	}
+
 	return &CallbackHandler{
 		db:                    db,
 		encryptionKey:         encryptionKey,
 		stateKey:              stateKey,
+		httpClient:            httpClient,
 		metricExchangeSuccess: success,
 		metricExchangeError:   failure,
 		histogramExchangeDur:  hist,
@@ -155,7 +165,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	// Exchange code for tokens
 	start := time.Now()
 	useTokenURL := provider.TokenURL
-	if md, errD := discovery.Discover(r.Context(), discovery.Hint{AuthURL: provider.TokenURL}); errD == nil && strings.TrimSpace(md.TokenEndpoint) != "" {
+	if md, errD := discovery.Discover(r.Context(), h.httpClient, discovery.Hint{AuthURL: provider.TokenURL}); errD == nil && strings.TrimSpace(md.TokenEndpoint) != "" {
 		useTokenURL = md.TokenEndpoint
 	}
 	tokens, err := h.exchangeCodeForTokens(useTokenURL, provider.ClientID, provider.ClientSecret, code, connection.CodeVerifier, redirectURI, connection.Scopes)
@@ -175,7 +185,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	// Verify OIDC id_token if present and openid scope requested
 	if raw, ok := tokens["id_token"].(string); ok && raw != "" {
 		if containsScope(connection.Scopes, "openid") {
-			if _, err := oidcutil.VerifyIDToken(r.Context(), raw, provider.ClientID, state); err != nil {
+			if _, err := oidcutil.VerifyIDToken(r.Context(), h.httpClient, raw, provider.ClientID, state); err != nil {
 				h.logAuditEvent(&connectionID, "id_token_verification_failed", map[string]string{"error": err.Error()}, r)
 				h.updateConnectionStatus(connectionID, "failed")
 				http.Error(w, "Invalid id_token", http.StatusUnauthorized)
@@ -284,7 +294,6 @@ func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 
 	http.Redirect(w, r, returnURL+"?status=success&connection_id="+connectionID.String(), http.StatusFound)
 }
-
 
 // containsScope returns true if target (case-insensitive) is present in scopes
 func containsScope(scopes []string, target string) bool {
