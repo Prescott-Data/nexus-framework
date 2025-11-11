@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"github.com/lib/pq" // Added import
+	"github.com/lib/pq"
 )
 
 // Store provides provider profile management
@@ -103,21 +103,21 @@ func (s *Store) UpdateProfile(p *Profile) error {
 	query := `
 		UPDATE provider_profiles
 		SET
-			name = :name,
-			client_id = :client_id,
-			client_secret = :client_secret,
-			auth_url = :auth_url,
-			token_url = :token_url,
-			issuer = :issuer,
-			enable_discovery = :enable_discovery,
-			scopes = :scopes,
-			auth_type = :auth_type,
-			auth_header = :auth_header,
-			params = :params,
+			name = $1,
+			client_id = $2,
+			client_secret = $3,
+			auth_url = $4,
+			token_url = $5,
+			issuer = $6,
+			enable_discovery = $7,
+			scopes = $8,
+			auth_type = $9,
+			auth_header = $10,
+			params = $11,
 			updated_at = NOW()
-		WHERE id = :id AND deleted_at IS NULL`
+		WHERE id = $12 AND deleted_at IS NULL`
 
-	_, err := s.db.NamedExec(query, p)
+	_, err := s.db.Exec(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.Params, p.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update provider profile: %w", err)
 	}
@@ -137,10 +137,10 @@ func (s *Store) DeleteProfile(id uuid.UUID) error {
 
 // ListProfiles retrieves all non-deleted provider names and IDs
 func (s *Store) ListProfiles() ([]ProfileList, error) {
-    var rows []ProfileList
-    query := `SELECT id, name FROM provider_profiles WHERE deleted_at IS NULL ORDER BY created_at DESC`
-    if err := s.db.Select(&rows, query); err != nil {
-        return nil, fmt.Errorf("failed to list profiles: %w", err)
-    }
-    return rows, nil
+	var rows []ProfileList
+	query := `SELECT id, name FROM provider_profiles WHERE deleted_at IS NULL ORDER BY created_at DESC`
+	if err := s.db.Select(&rows, query); err != nil {
+		return nil, fmt.Errorf("failed to list profiles: %w", err)
+	}
+	return rows, nil
 }

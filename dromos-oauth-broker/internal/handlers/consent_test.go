@@ -34,6 +34,7 @@ func TestGetSpec_OAuth2(t *testing.T) {
 	handler := NewConsentHandler(sqlxDB, "http://localhost:8080", []byte("test-key"), mockProviderServer.Client())
 
 	paramsJSON := []byte(`{"access_type": "offline", "prompt": "consent"}`)
+
 	rows := sqlmock.NewRows([]string{"id", "name", "auth_type", "auth_url", "client_id", "scopes", "params"}).
 		AddRow("a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0", "Test OAuth2 Provider", "oauth2", "http://provider.com/auth", "test-client-id", "{openid}", paramsJSON)
 	mock.ExpectQuery("SELECT id, name, auth_type, auth_url, client_id, scopes, params FROM provider_profiles WHERE id = \\$1").
@@ -82,9 +83,10 @@ func TestGetSpec_StaticKey(t *testing.T) {
 	handler := NewConsentHandler(sqlxDB, "http://localhost:8080", []byte("test-key"), http.DefaultClient)
 
 
+
 rows := sqlmock.NewRows([]string{"id", "name", "auth_type", "auth_url", "client_id", "scopes", "params"}).
 		AddRow("b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1", "Test API", "api_key", "", "", "{}", []byte("{}"))
-	mock.ExpectQuery("SELECT id, name, auth_type, auth_url, client_id, scopes, params FROM provider_profiles WHERE id = \\$1").
+mock.ExpectQuery("SELECT id, name, auth_type, auth_url, client_id, scopes, params FROM provider_profiles WHERE id = \\$1").
 		WithArgs("b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1").
 		WillReturnRows(rows)
 
@@ -110,6 +112,6 @@ rows := sqlmock.NewRows([]string{"id", "name", "auth_type", "auth_url", "client_
 	err = json.Unmarshal(rr.Body.Bytes(), &response)
 	assert.NoError(t, err)
 
-	assert.True(t, strings.Contains(response.AuthURL, "/auth/capture-credential"), "authUrl should contain /auth/capture-credential")
+	assert.True(t, strings.Contains(response.AuthURL, "/auth/capture-schema"), "authUrl should contain /auth/capture-schema")
 	assert.True(t, strings.Contains(response.AuthURL, "state="), "authUrl should contain a state parameter")
 }
