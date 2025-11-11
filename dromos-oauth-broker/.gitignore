@@ -4,3 +4,4 @@ tmp/
 *.log
 server.log
 *.sqlitevendor/
+vendor/
