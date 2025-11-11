@@ -120,7 +120,8 @@ func main() {
 	// Public endpoints
 	router.Get("/auth/callback", callbackHandler.Handle)
 	router.Method("GET", "/metrics", server.MetricsHandler())
-	router.Get("/auth/capture-credential", callbackHandler.CaptureCredentialForm)
+	// This is a new public, state-protected endpoint for the frontend
+	router.Get("/auth/capture-schema", callbackHandler.GetCaptureSchema)
 	router.Post("/auth/capture-credential", callbackHandler.SaveCredential)
 	// Protected endpoints: API key + allowlist
 	protected := router.With(server.ApiKeyMiddleware(), server.AllowlistMiddleware())

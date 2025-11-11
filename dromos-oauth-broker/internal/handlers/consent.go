@@ -197,14 +197,13 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Build Internal URL
-		brokerBaseURL := strings.TrimSuffix(h.baseURL, "/")
-		capturePath := "/auth/capture-credential"
+		// Build Internal URL to the schema endpoint
+		brokerBaseURL := strings.TrimSuffix(h.baseURL, "")
+		capturePath := "/auth/capture-schema"
 
 		u, _ := url.Parse(brokerBaseURL + capturePath)
 		q := u.Query()
 		q.Set("state", signedState)
-		q.Set("provider_name", provider.Name)
 		u.RawQuery = q.Encode()
 
 		response := ConsentSpec{

@@ -219,49 +219,75 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, connection.ReturnURL+"?status=success&connection_id="+connectionID.String(), http.StatusFound)
 }
 
-// CaptureCredentialForm serves the HTML form for capturing static credentials.
-func (h *CallbackHandler) CaptureCredentialForm(w http.ResponseWriter, r *http.Request) {
+// GetCaptureSchema serves a JSON schema for the credential capture form.
+func (h *CallbackHandler) GetCaptureSchema(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
-	providerName := r.URL.Query().Get("provider_name")
 
 	// Verify state
-	_, err := auth.VerifyState(h.stateKey, state)
+	stateData, err := auth.VerifyState(h.stateKey, state)
 	if err != nil {
 		http.Error(w, "Invalid state", http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `
-		<!DOCTYPE html>
-		<html>
-		<head>
-			<title>Enter Credentials for %s</title>
-		</head>
-		<body>
-			<h2>Enter API Key for %s</h2>
-			<form action="/auth/capture-credential" method="post">
-				<input type="hidden" name="state" value="%s">
-				<p><input type="text" name="credential" size="50"></p>
-				<p><button type="submit">Submit</button></p>
-			</form>
-		</body>
-		</html>
-	`, providerName, providerName, state)
+	providerID, err := uuid.Parse(stateData.ProviderID)
+	if err != nil {
+		http.Error(w, "Invalid provider ID in state", http.StatusBadRequest)
+		return
+	}
+
+	var provider struct {
+		Name   string           `db:"name"`
+		Params *json.RawMessage `db:"params"`
+	}
+
+	err = h.db.QueryRow("SELECT name, params FROM provider_profiles WHERE id = $1", providerID).Scan(&provider.Name, &provider.Params)
+	if err != nil {
+		http.Error(w, "Provider not found", http.StatusNotFound)
+		return
+	}
+
+	var params map[string]json.RawMessage
+	if provider.Params != nil {
+		if err := json.Unmarshal(*provider.Params, &params); err != nil {
+			http.Error(w, "Failed to parse provider params", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	schema, ok := params["credential_schema"]
+	if !ok {
+		http.Error(w, "Credential schema not found for this provider", http.StatusNotFound)
+		return
+	}
+
+	type SchemaResponse struct {
+		ProviderName string          `json:"provider_name"`
+		Schema       json.RawMessage `json:"schema"`
+	}
+
+	response := SchemaResponse{
+		ProviderName: provider.Name,
+		Schema:       schema,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // SaveCredential handles the submission of the credential capture form.
 func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+	var reqBody struct {
+		State       string                 `json:"state"`
+		Credentials map[string]interface{} `json:"credentials"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
 		return
 	}
 
-	state := r.FormValue("state")
-	credential := r.FormValue("credential")
-
 	// Verify state
-	stateData, err := auth.VerifyState(h.stateKey, state)
+	stateData, err := auth.VerifyState(h.stateKey, reqBody.State)
 	if err != nil {
 		http.Error(w, "Invalid state", http.StatusBadRequest)
 		return
@@ -280,10 +306,9 @@ func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	tokens := map[string]interface{}{"access_token": credential}
-
-	if err := h.storeTokens(connectionID, tokens); err != nil {
-		http.Error(w, "Failed to store token", http.StatusInternalServerError)
+	err = h.storeTokens(connectionID, reqBody.Credentials)
+	if err != nil {
+		http.Error(w, "Failed to store credentials", http.StatusInternalServerError)
 		return
 	}
 
