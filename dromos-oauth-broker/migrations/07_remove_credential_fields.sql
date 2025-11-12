@@ -1,0 +1,1 @@
+ALTER TABLE provider_profiles DROP COLUMN credential_fields;

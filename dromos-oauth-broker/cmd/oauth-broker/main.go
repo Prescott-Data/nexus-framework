@@ -1,18 +1,23 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"log"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
+	"dromos.com/oauth-broker/internal/caching"
+	"dromos.com/oauth-broker/internal/provider"
+	"github.com/go-redis/redis/v8"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 
-	"dromos-oauth-broker/internal/handlers"
-	"dromos-oauth-broker/internal/server"
+	"dromos.com/oauth-broker/internal/handlers"
+	"dromos.com/oauth-broker/internal/server"
 )
 
 func main() {
@@ -23,6 +28,7 @@ func main() {
 	baseURL := getEnv("BASE_URL", "http://localhost:8080")
 	encryptionKeyStr := getEnv("ENCRYPTION_KEY", "")
 	stateKeyStr := getEnv("STATE_KEY", "")
+	redisURL := getEnv("REDIS_URL", "redis://localhost:6379/0")
 
 	// Validate required environment variables
 	if databaseURL == "" {
@@ -83,24 +89,47 @@ func main() {
 
 	log.Println("Successfully connected to database")
 
+	// Connect to Redis
+	opts, err := redis.ParseURL(redisURL)
+	if err != nil {
+		log.Fatal("Failed to parse REDIS_URL:", err)
+	}
+
+	redisClient := redis.NewClient(opts)
+	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+		log.Fatal("Failed to ping Redis:", err)
+	}
+	log.Println("Successfully connected to Redis")
+
+	// Create caching client
+	cachingClient := caching.NewCachingClient(redisClient, 1*time.Hour)
+
 	// Create HTTP server
 	srv := server.NewServer(port)
 
+	// Create the REAL store
+	store := provider.NewStore(db)
+
 	// Setup handlers
-	providersHandler := handlers.NewProvidersHandler(db)
-	consentHandler := handlers.NewConsentHandler(db, baseURL, stateKey)
-	callbackHandler := handlers.NewCallbackHandler(db, encryptionKey, stateKey)
+	providersHandler := handlers.NewProvidersHandler(store)
+	consentHandler := handlers.NewConsentHandler(db, baseURL, stateKey, cachingClient)
+	callbackHandler := handlers.NewCallbackHandler(db, encryptionKey, stateKey, cachingClient)
 
 	// Setup routes
 	router := srv.Router()
 	// Public endpoints
 	router.Get("/auth/callback", callbackHandler.Handle)
 	router.Method("GET", "/metrics", server.MetricsHandler())
+	// This is a new public, state-protected endpoint for the frontend
+	router.Get("/auth/capture-schema", callbackHandler.GetCaptureSchema)
+	router.Post("/auth/capture-credential", callbackHandler.SaveCredential)
 	// Protected endpoints: API key + allowlist
 	protected := router.With(server.ApiKeyMiddleware(), server.AllowlistMiddleware())
 	protected.Post("/providers", providersHandler.Register)
 	protected.Get("/providers", providersHandler.List)
-	protected.Get("/providers/by-name/*", providersHandler.GetByName)
+	protected.Get("/providers/{id}", providersHandler.Get)
+	protected.Put("/providers/{id}", providersHandler.Update)
+	protected.Delete("/providers/{id}", providersHandler.Delete)
 	protected.Post("/auth/consent-spec", consentHandler.GetSpec)
 	protected.Get("/connections/{connectionID}/token", callbackHandler.GetToken)
 	protected.Post("/connections/{connectionID}/refresh", callbackHandler.Refresh)

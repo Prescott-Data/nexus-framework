@@ -16,11 +16,11 @@ import (
 	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"dromos-oauth-broker/internal/auth"
-	"dromos-oauth-broker/internal/discovery"
-	oidcutil "dromos-oauth-broker/internal/oidc"
-	"dromos-oauth-broker/internal/server"
-	"dromos-oauth-broker/internal/vault"
+	"dromos.com/oauth-broker/internal/auth"
+	"dromos.com/oauth-broker/internal/discovery"
+	oidcutil "dromos.com/oauth-broker/internal/oidc"
+	"dromos.com/oauth-broker/internal/server"
+	"dromos.com/oauth-broker/internal/vault"
 )
 
 // CallbackHandler handles OAuth callback and token exchange
@@ -28,6 +28,7 @@ type CallbackHandler struct {
 	db                    *sqlx.DB
 	encryptionKey         []byte
 	stateKey              []byte
+	httpClient            *http.Client
 	metricExchangeSuccess prometheus.Counter
 	metricExchangeError   prometheus.Counter
 	histogramExchangeDur  prometheus.Histogram
@@ -36,7 +37,7 @@ type CallbackHandler struct {
 }
 
 // NewCallbackHandler creates a new callback handler
-func NewCallbackHandler(db *sqlx.DB, encryptionKey, stateKey []byte) *CallbackHandler {
+func NewCallbackHandler(db *sqlx.DB, encryptionKey, stateKey []byte, httpClient *http.Client) *CallbackHandler {
 	success := prometheus.NewCounter(prometheus.CounterOpts{
 		Name:        "oauth_token_exchanges_total",
 		Help:        "Total OAuth token exchanges",
@@ -61,11 +62,20 @@ func NewCallbackHandler(db *sqlx.DB, encryptionKey, stateKey []byte) *CallbackHa
 		Help: "Token retrievals by provider and whether id_token present",
 	}, []string{"provider", "has_id_token"})
 
-	prometheus.MustRegister(success, failure, hist, idTokens, tokenGet)
+	collectors := []prometheus.Collector{success, failure, hist, idTokens, tokenGet}
+	for _, c := range collectors {
+		if err := prometheus.Register(c); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				panic(err)
+			}
+		}
+	}
+
 	return &CallbackHandler{
 		db:                    db,
 		encryptionKey:         encryptionKey,
 		stateKey:              stateKey,
+		httpClient:            httpClient,
 		metricExchangeSuccess: success,
 		metricExchangeError:   failure,
 		histogramExchangeDur:  hist,
@@ -155,7 +165,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	// Exchange code for tokens
 	start := time.Now()
 	useTokenURL := provider.TokenURL
-	if md, errD := discovery.Discover(r.Context(), discovery.Hint{AuthURL: provider.TokenURL}); errD == nil && strings.TrimSpace(md.TokenEndpoint) != "" {
+	if md, errD := discovery.Discover(r.Context(), h.httpClient, discovery.Hint{AuthURL: provider.TokenURL}); errD == nil && strings.TrimSpace(md.TokenEndpoint) != "" {
 		useTokenURL = md.TokenEndpoint
 	}
 	tokens, err := h.exchangeCodeForTokens(useTokenURL, provider.ClientID, provider.ClientSecret, code, connection.CodeVerifier, redirectURI, connection.Scopes)
@@ -175,7 +185,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	// Verify OIDC id_token if present and openid scope requested
 	if raw, ok := tokens["id_token"].(string); ok && raw != "" {
 		if containsScope(connection.Scopes, "openid") {
-			if _, err := oidcutil.VerifyIDToken(r.Context(), raw, provider.ClientID, state); err != nil {
+			if _, err := oidcutil.VerifyIDToken(r.Context(), h.httpClient, raw, provider.ClientID, state); err != nil {
 				h.logAuditEvent(&connectionID, "id_token_verification_failed", map[string]string{"error": err.Error()}, r)
 				h.updateConnectionStatus(connectionID, "failed")
 				http.Error(w, "Invalid id_token", http.StatusUnauthorized)
@@ -207,6 +217,107 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, connection.ReturnURL+"?status=success&connection_id="+connectionID.String(), http.StatusFound)
+}
+
+// GetCaptureSchema serves a JSON schema for the credential capture form.
+func (h *CallbackHandler) GetCaptureSchema(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+
+	// Verify state
+	stateData, err := auth.VerifyState(h.stateKey, state)
+	if err != nil {
+		http.Error(w, "Invalid state", http.StatusBadRequest)
+		return
+	}
+
+	providerID, err := uuid.Parse(stateData.ProviderID)
+	if err != nil {
+		http.Error(w, "Invalid provider ID in state", http.StatusBadRequest)
+		return
+	}
+
+	var provider struct {
+		Name   string           `db:"name"`
+		Params *json.RawMessage `db:"params"`
+	}
+
+	err = h.db.QueryRow("SELECT name, params FROM provider_profiles WHERE id = $1", providerID).Scan(&provider.Name, &provider.Params)
+	if err != nil {
+		http.Error(w, "Provider not found", http.StatusNotFound)
+		return
+	}
+
+	var params map[string]json.RawMessage
+	if provider.Params != nil {
+		if err := json.Unmarshal(*provider.Params, &params); err != nil {
+			http.Error(w, "Failed to parse provider params", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	schema, ok := params["credential_schema"]
+	if !ok {
+		http.Error(w, "Credential schema not found for this provider", http.StatusNotFound)
+		return
+	}
+
+	type SchemaResponse struct {
+		ProviderName string          `json:"provider_name"`
+		Schema       json.RawMessage `json:"schema"`
+	}
+
+	response := SchemaResponse{
+		ProviderName: provider.Name,
+		Schema:       schema,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// SaveCredential handles the submission of the credential capture form.
+func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request) {
+	var reqBody struct {
+		State       string                 `json:"state"`
+		Credentials map[string]interface{} `json:"credentials"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	// Verify state
+	stateData, err := auth.VerifyState(h.stateKey, reqBody.State)
+	if err != nil {
+		http.Error(w, "Invalid state", http.StatusBadRequest)
+		return
+	}
+
+	connectionID, err := uuid.Parse(stateData.Nonce)
+	if err != nil {
+		http.Error(w, "Invalid connection ID", http.StatusBadRequest)
+		return
+	}
+
+	var returnURL string
+	err = h.db.QueryRow("SELECT return_url FROM connections WHERE id = $1", connectionID).Scan(&returnURL)
+	if err != nil {
+		http.Error(w, "Connection not found", http.StatusNotFound)
+		return
+	}
+
+	err = h.storeTokens(connectionID, reqBody.Credentials)
+	if err != nil {
+		http.Error(w, "Failed to store credentials", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.updateConnectionStatus(connectionID, "active"); err != nil {
+		http.Error(w, "Failed to update connection status", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, returnURL+"?status=success&connection_id="+connectionID.String(), http.StatusFound)
 }
 
 // containsScope returns true if target (case-insensitive) is present in scopes
@@ -391,59 +502,80 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid connection ID", http.StatusBadRequest)
 		return
 	}
-	// Load provider and latest token
-	var providerID string
-	err = h.db.QueryRow("SELECT provider_id FROM connections WHERE id=$1 AND status='active'", connectionID).Scan(&providerID)
+
+	var conn struct {
+		ProviderID string `db:"provider_id"`
+		AuthType   string `db:"auth_type"`
+	}
+	err = h.db.QueryRow(`
+		SELECT c.provider_id, p.auth_type 
+		FROM connections c
+		JOIN provider_profiles p ON c.provider_id = p.id
+		WHERE c.id=$1 AND c.status='active'`, connectionID).Scan(&conn.ProviderID, &conn.AuthType)
+
 	if err != nil {
 		http.Error(w, "Connection not active or not found", http.StatusNotFound)
 		return
 	}
-	var provider struct {
-		TokenURL     string `db:"token_url"`
-		ClientID     string `db:"client_id"`
-		ClientSecret string `db:"client_secret"`
-	}
-	err = h.db.QueryRow("SELECT token_url, client_id, client_secret FROM provider_profiles WHERE id=$1", providerID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret)
-	if err != nil {
-		http.Error(w, "Provider not found", http.StatusInternalServerError)
+
+	// Check the auth type right away
+	switch conn.AuthType {
+	case "api_key", "basic_auth":
+		// Static tokens cannot be refreshed.
+		http.Error(w, "This connection uses a static token and cannot be refreshed", http.StatusBadRequest)
+		return // Stop execution here
+	case "oauth2", "":
+		// This is an OAuth2 provider, continue with the *existing* refresh logic
+		var provider struct {
+			TokenURL     string `db:"token_url"`
+			ClientID     string `db:"client_id"`
+			ClientSecret string `db:"client_secret"`
+		}
+		err = h.db.QueryRow("SELECT token_url, client_id, client_secret FROM provider_profiles WHERE id=$1", conn.ProviderID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret)
+		if err != nil {
+			http.Error(w, "Provider not found", http.StatusInternalServerError)
+			return
+		}
+		var tokenRow struct {
+			EncryptedData string `db:"encrypted_data"`
+		}
+		err = h.db.QueryRow("SELECT encrypted_data FROM tokens WHERE connection_id=$1 ORDER BY created_at DESC LIMIT 1", connectionID).Scan(&tokenRow.EncryptedData)
+		if err != nil {
+			http.Error(w, "Token not found", http.StatusNotFound)
+			return
+		}
+		plaintext, err := vault.Decrypt(h.encryptionKey, tokenRow.EncryptedData)
+		if err != nil {
+			http.Error(w, "Decrypt failed", http.StatusInternalServerError)
+			return
+		}
+		var current map[string]interface{}
+		if err := json.Unmarshal(plaintext, &current); err != nil {
+			http.Error(w, "Token parse failed", http.StatusInternalServerError)
+			return
+		}
+		refreshToken, _ := current["refresh_token"].(string)
+		if refreshToken == "" {
+			http.Error(w, "No refresh_token available", http.StatusBadRequest)
+			return
+		}
+		// Refresh
+		newTokens, err := h.refreshTokens(provider.TokenURL, provider.ClientID, provider.ClientSecret, refreshToken)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		// Store new tokens
+		if err := h.storeTokens(connectionID, newTokens); err != nil {
+			http.Error(w, "Store refreshed token failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(newTokens)
+	default:
+		http.Error(w, "Unsupported provider auth_type", http.StatusInternalServerError)
 		return
 	}
-	var tokenRow struct {
-		EncryptedData string `db:"encrypted_data"`
-	}
-	err = h.db.QueryRow("SELECT encrypted_data FROM tokens WHERE connection_id=$1 ORDER BY created_at DESC LIMIT 1", connectionID).Scan(&tokenRow.EncryptedData)
-	if err != nil {
-		http.Error(w, "Token not found", http.StatusNotFound)
-		return
-	}
-	plaintext, err := vault.Decrypt(h.encryptionKey, tokenRow.EncryptedData)
-	if err != nil {
-		http.Error(w, "Decrypt failed", http.StatusInternalServerError)
-		return
-	}
-	var current map[string]interface{}
-	if err := json.Unmarshal(plaintext, &current); err != nil {
-		http.Error(w, "Token parse failed", http.StatusInternalServerError)
-		return
-	}
-	refreshToken, _ := current["refresh_token"].(string)
-	if refreshToken == "" {
-		http.Error(w, "No refresh_token available", http.StatusBadRequest)
-		return
-	}
-	// Refresh
-	newTokens, err := h.refreshTokens(provider.TokenURL, provider.ClientID, provider.ClientSecret, refreshToken)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	// Store new tokens
-	if err := h.storeTokens(connectionID, newTokens); err != nil {
-		http.Error(w, "Store refreshed token failed", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(newTokens)
 }
 
 // storeTokens encrypts and stores tokens in database

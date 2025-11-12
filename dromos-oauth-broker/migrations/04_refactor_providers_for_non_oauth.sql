@@ -1,0 +1,7 @@
+ALTER TABLE provider_profiles
+ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'oauth2',
+ADD COLUMN auth_header TEXT,
+ALTER COLUMN client_id DROP NOT NULL,
+ALTER COLUMN client_secret DROP NOT NULL,
+ALTER COLUMN auth_url DROP NOT NULL,
+ALTER COLUMN token_url DROP NOT NULL;

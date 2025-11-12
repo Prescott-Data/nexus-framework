@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
@@ -18,9 +17,6 @@ import (
 
 // providerCache caches go-oidc Providers per issuer to reuse metadata and JWKS.
 var (
-	providersMu sync.RWMutex
-	providers   = make(map[string]*gooidc.Provider)
-	httpClient  = &http.Client{Timeout: 10 * time.Second}
 	verifyTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "oidc_verifications_total",
 		Help: "ID token verifications by result",
@@ -44,26 +40,20 @@ func randomString(n int) string {
 }
 
 // getProvider returns a cached OIDC provider for the issuer, creating it if needed.
-func getProvider(ctx context.Context, issuer string) (*gooidc.Provider, error) {
+func getProvider(ctx context.Context, client *http.Client, issuer string) (*gooidc.Provider, error) {
 	iss := strings.TrimSpace(issuer)
 	if iss == "" {
 		return nil, errors.New("issuer is empty")
 	}
-	providersMu.RLock()
-	p := providers[iss]
-	providersMu.RUnlock()
-	if p != nil {
-		return p, nil
-	}
-	// Bind a client with timeouts
-	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
+	// Bind our caching client to the context
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, client)
+
+	// The go-oidc library will now automatically use our client
+	// (and its Redis cache) for its internal HTTP calls.
 	prov, err := gooidc.NewProvider(ctx, iss)
 	if err != nil {
 		return nil, err
 	}
-	providersMu.Lock()
-	providers[iss] = prov
-	providersMu.Unlock()
 	return prov, nil
 }
 
@@ -90,7 +80,7 @@ func unverifiedIssuer(rawIDToken string) (string, error) {
 
 // VerifyIDToken verifies the ID token against the discovered provider and clientID.
 // It enforces signature, iss, aud, exp via go-oidc, and checks iat and nonce if provided.
-func VerifyIDToken(ctx context.Context, rawIDToken, clientID, expectedNonce string) (*gooidc.IDToken, error) {
+func VerifyIDToken(ctx context.Context, client *http.Client, rawIDToken, clientID, expectedNonce string) (*gooidc.IDToken, error) {
 	start := time.Now()
 	if strings.TrimSpace(rawIDToken) == "" {
 		verifyTotal.WithLabelValues("error").Inc()
@@ -101,7 +91,7 @@ func VerifyIDToken(ctx context.Context, rawIDToken, clientID, expectedNonce stri
 		verifyTotal.WithLabelValues("error").Inc()
 		return nil, err
 	}
-	prov, err := getProvider(ctx, iss)
+	prov, err := getProvider(ctx, client, iss)
 	if err != nil {
 		verifyTotal.WithLabelValues("error").Inc()
 		return nil, err
