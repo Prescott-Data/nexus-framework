@@ -5,3 +5,4 @@ tmp/
 server.log
 *.sqlitevendor/
 vendor/
+broker_whitepaper.md
