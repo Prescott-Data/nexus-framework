@@ -1,6 +1,9 @@
-.env
 bin/
 tmp/
 *.log
 server.log
-*.sqlite
+*.sqlitevendor/
+vendor/
+broker_whitepaper.md
+.env.dev
+.env

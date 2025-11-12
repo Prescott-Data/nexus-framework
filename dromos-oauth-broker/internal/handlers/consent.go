@@ -14,9 +14,9 @@ import (
 	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"dromos-oauth-broker/internal/auth"
-	"dromos-oauth-broker/internal/discovery"
-	"dromos-oauth-broker/internal/server"
+	"dromos.com/oauth-broker/internal/auth"
+	"dromos.com/oauth-broker/internal/discovery"
+	"dromos.com/oauth-broker/internal/server"
 )
 
 // ConsentSpec represents the response for consent specification
@@ -32,12 +32,13 @@ type ConsentHandler struct {
 	db             *sqlx.DB
 	baseURL        string
 	stateKey       []byte
+	httpClient     *http.Client
 	consentsMetric prometheus.Counter
 	consentsOpenID prometheus.Counter
 }
 
 // NewConsentHandler creates a new consent handler
-func NewConsentHandler(db *sqlx.DB, baseURL string, stateKey []byte) *ConsentHandler {
+func NewConsentHandler(db *sqlx.DB, baseURL string, stateKey []byte, httpClient *http.Client) *ConsentHandler {
 	metric := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "oauth_consents_created_total",
 		Help: "Total OAuth consents created",
@@ -46,11 +47,21 @@ func NewConsentHandler(db *sqlx.DB, baseURL string, stateKey []byte) *ConsentHan
 		Name: "oauth_consents_with_openid_total",
 		Help: "Total OAuth consents where openid scope was requested",
 	})
-	prometheus.MustRegister(metric, metricOpenID)
+
+	collectors := []prometheus.Collector{metric, metricOpenID}
+	for _, c := range collectors {
+		if err := prometheus.Register(c); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				panic(err)
+			}
+		}
+	}
+
 	return &ConsentHandler{
 		db:             db,
 		baseURL:        baseURL,
 		stateKey:       stateKey,
+		httpClient:     httpClient,
 		consentsMetric: metric,
 		consentsOpenID: metricOpenID,
 	}
@@ -83,102 +94,132 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 
 	// Get provider profile
 	var provider struct {
-		ID       uuid.UUID `db:"id"`
-		AuthURL  string    `db:"auth_url"`
-		ClientID string    `db:"client_id"`
-		Scopes   []string  `db:"scopes"`
+		ID       uuid.UUID        `db:"id"`
+		Name     string           `db:"name"`
+		AuthType string           `db:"auth_type"`
+		AuthURL  string           `db:"auth_url"`
+		ClientID string           `db:"client_id"`
+		Scopes   []string         `db:"scopes"`
+		Params   *json.RawMessage `db:"params"`
 	}
 
-	err := h.db.QueryRow("SELECT id, auth_url, client_id, scopes FROM provider_profiles WHERE id = $1",
-		request.ProviderID).Scan(&provider.ID, &provider.AuthURL, &provider.ClientID, pq.Array(&provider.Scopes))
+	err := h.db.QueryRow(
+		"SELECT id, name, auth_type, auth_url, client_id, scopes, params FROM provider_profiles WHERE id = $1",
+		request.ProviderID,
+	).Scan(&provider.ID, &provider.Name, &provider.AuthType, &provider.AuthURL, &provider.ClientID, pq.Array(&provider.Scopes), &provider.Params)
 	if err != nil {
 		log.Printf("/auth/consent-spec provider lookup error: %v", err)
 		http.Error(w, "Provider not found", http.StatusNotFound)
 		return
 	}
 
-	// Adjust scopes for refresh-token behavior per provider
-	isGoogle := strings.Contains(strings.ToLower(provider.AuthURL), "accounts.google.com")
-	if isGoogle {
-		// Remove offline_access if present (Google does not support this scope)
-		filtered := make([]string, 0, len(request.Scopes))
-		for _, s := range request.Scopes {
-			if strings.EqualFold(s, "offline_access") {
-				continue
-			}
-			filtered = append(filtered, s)
+	switch provider.AuthType {
+	case "oauth2", "":
+		// Generate PKCE
+		codeVerifier, codeChallenge, err := auth.GeneratePKCE()
+		if err != nil {
+			http.Error(w, "Failed to generate PKCE", http.StatusInternalServerError)
+			return
 		}
-		request.Scopes = filtered
-	} else {
-		// Ensure offline_access for providers that use it (e.g., Microsoft/Okta)
-		hasOffline := false
-		for _, s := range request.Scopes {
-			if strings.EqualFold(s, "offline_access") {
-				hasOffline = true
-				break
-			}
+
+		// Create connection record
+		connectionID := uuid.New()
+		expiresAt := time.Now().Add(10 * time.Minute)
+
+		_, err = h.db.Exec(`
+			INSERT INTO connections (id, workspace_id, provider_id, code_verifier, scopes, return_url, expires_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			connectionID, request.WorkspaceID, request.ProviderID, codeVerifier, pq.Array(request.Scopes), request.ReturnURL, expiresAt)
+		if err != nil {
+			http.Error(w, "Failed to create connection", http.StatusInternalServerError)
+			return
 		}
-		if !hasOffline {
-			request.Scopes = append(request.Scopes, "offline_access")
+
+		// Generate signed state
+		stateData := auth.StateData{
+			WorkspaceID: request.WorkspaceID,
+			ProviderID:  request.ProviderID,
+			Nonce:       connectionID.String(),
+			IAT:         time.Now(),
 		}
-	}
 
-	// Generate PKCE
-	codeVerifier, codeChallenge, err := auth.GeneratePKCE()
-	if err != nil {
-		http.Error(w, "Failed to generate PKCE", http.StatusInternalServerError)
+		signedState, err := auth.SignState(h.stateKey, stateData)
+		if err != nil {
+			http.Error(w, "Failed to sign state", http.StatusInternalServerError)
+			return
+		}
+
+		// Attempt OIDC discovery to use the provider's authorization_endpoint
+		useAuthURL := provider.AuthURL
+		if md, errD := discovery.Discover(r.Context(), h.httpClient, discovery.Hint{AuthURL: provider.AuthURL}); errD == nil && strings.TrimSpace(md.AuthorizationEndpoint) != "" {
+			useAuthURL = md.AuthorizationEndpoint
+		}
+
+		// Build auth URL
+		authURL, err := h.buildAuthURL(useAuthURL, provider.ClientID, signedState, codeChallenge, request.Scopes, provider.Params)
+		if err != nil {
+			http.Error(w, "Failed to build auth URL", http.StatusInternalServerError)
+			return
+		}
+
+		response := ConsentSpec{
+			AuthURL:    authURL,
+			State:      signedState,
+			Scopes:     request.Scopes,
+			ProviderID: request.ProviderID,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	case "api_key", "basic_auth":
+		// Create Connection
+		connectionID := uuid.New()
+		expiresAt := time.Now().Add(10 * time.Minute)
+		_, err = h.db.Exec(`
+			INSERT INTO connections (id, workspace_id, provider_id, scopes, return_url, expires_at)
+			VALUES ($1, $2, $3, $4, $5, $6)`,
+			connectionID, request.WorkspaceID, request.ProviderID, pq.Array(request.Scopes), request.ReturnURL, expiresAt)
+		if err != nil {
+			http.Error(w, "Failed to create connection", http.StatusInternalServerError)
+			return
+		}
+
+		// Generate State
+		stateData := auth.StateData{
+			WorkspaceID: request.WorkspaceID,
+			ProviderID:  request.ProviderID,
+			Nonce:       connectionID.String(),
+			IAT:         time.Now(),
+		}
+		signedState, err := auth.SignState(h.stateKey, stateData)
+		if err != nil {
+			http.Error(w, "Failed to sign state", http.StatusInternalServerError)
+			return
+		}
+
+		// Build Internal URL to the schema endpoint
+		brokerBaseURL := strings.TrimSuffix(h.baseURL, "")
+		capturePath := "/auth/capture-schema"
+
+		u, _ := url.Parse(brokerBaseURL + capturePath)
+		q := u.Query()
+		q.Set("state", signedState)
+		u.RawQuery = q.Encode()
+
+		response := ConsentSpec{
+			AuthURL:    u.String(),
+			State:      signedState,
+			Scopes:     request.Scopes,
+			ProviderID: request.ProviderID,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	default:
+		http.Error(w, "Unsupported provider auth_type", http.StatusBadRequest)
 		return
 	}
 
-	// Create connection record
-	connectionID := uuid.New()
-	expiresAt := time.Now().Add(10 * time.Minute)
-
-	_, err = h.db.Exec(`
-		INSERT INTO connections (id, workspace_id, provider_id, code_verifier, scopes, return_url, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		connectionID, request.WorkspaceID, request.ProviderID, codeVerifier, pq.Array(request.Scopes), request.ReturnURL, expiresAt)
-	if err != nil {
-		http.Error(w, "Failed to create connection", http.StatusInternalServerError)
-		return
-	}
-
-	// Generate signed state
-	stateData := auth.StateData{
-		WorkspaceID: request.WorkspaceID,
-		ProviderID:  request.ProviderID,
-		Nonce:       connectionID.String(),
-		IAT:         time.Now(),
-	}
-
-	signedState, err := auth.SignState(h.stateKey, stateData)
-	if err != nil {
-		http.Error(w, "Failed to sign state", http.StatusInternalServerError)
-		return
-	}
-
-	// Attempt OIDC discovery to use the provider's authorization_endpoint
-	useAuthURL := provider.AuthURL
-	if md, errD := discovery.Discover(r.Context(), discovery.Hint{AuthURL: provider.AuthURL}); errD == nil && strings.TrimSpace(md.AuthorizationEndpoint) != "" {
-		useAuthURL = md.AuthorizationEndpoint
-	}
-
-	// Build auth URL
-	authURL, err := h.buildAuthURL(useAuthURL, provider.ClientID, signedState, codeChallenge, request.Scopes)
-	if err != nil {
-		http.Error(w, "Failed to build auth URL", http.StatusInternalServerError)
-		return
-	}
-
-	response := ConsentSpec{
-		AuthURL:    authURL,
-		State:      signedState,
-		Scopes:     request.Scopes,
-		ProviderID: request.ProviderID,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
 	// increment metric after successful response
 	h.consentsMetric.Inc()
 	// increment when openid scope included
@@ -191,7 +232,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildAuthURL constructs the OAuth authorization URL
-func (h *ConsentHandler) buildAuthURL(providerAuthURL, clientID, state, codeChallenge string, scopes []string) (string, error) {
+func (h *ConsentHandler) buildAuthURL(providerAuthURL, clientID, state, codeChallenge string, scopes []string, providerParams *json.RawMessage) (string, error) {
 	baseURL := strings.TrimSuffix(h.baseURL, "/")
 	redirectPath := os.Getenv("REDIRECT_PATH")
 	if redirectPath == "" {
@@ -224,10 +265,13 @@ func (h *ConsentHandler) buildAuthURL(providerAuthURL, clientID, state, codeChal
 		}
 	}
 
-	// Provider-specific: request refresh tokens for Google
-	if strings.Contains(strings.ToLower(u.Host), "accounts.google.com") || strings.Contains(strings.ToLower(u.String()), "accounts.google.com") {
-		q.Set("access_type", "offline")
-		q.Set("prompt", "consent")
+	if providerParams != nil && len(*providerParams) > 0 {
+		var params map[string]string
+		if err := json.Unmarshal(*providerParams, &params); err == nil {
+			for key, value := range params {
+				q.Set(key, value)
+			}
+		}
 	}
 
 	u.RawQuery = q.Encode()
