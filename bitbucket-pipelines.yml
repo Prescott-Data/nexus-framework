@@ -88,6 +88,7 @@ pipelines:
               : "${BASE_URL:?BASE_URL required for broker callbacks}"
               : "${ENCRYPTION_KEY:?ENCRYPTION_KEY (base64-32B) required}"
               : "${STATE_KEY:?STATE_KEY (base64-32B) required}"
+              : "${REDIS_URL:?REDIS_URL required for broker}"
               : "${REDIRECT_PATH:=/auth/callback}"
               : "${API_KEY:=}"
               : "${ALLOWED_CIDRS:=127.0.0.1/32,::1/128}"
@@ -112,6 +113,7 @@ pipelines:
                   BASE_URL="$BASE_URL" \
                   ENCRYPTION_KEY="$ENCRYPTION_KEY" \
                   STATE_KEY="$STATE_KEY" \
+                  REDIS_URL="$REDIS_URL" \
                   REDIRECT_PATH="$REDIRECT_PATH" \
                   API_KEY="$API_KEY" \
                   ALLOWED_CIDRS="$ALLOWED_CIDRS" \
