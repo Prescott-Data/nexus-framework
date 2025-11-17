@@ -141,12 +141,13 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		TokenURL     string `db:"token_url"`
 		ClientID     string `db:"client_id"`
 		ClientSecret string `db:"client_secret"`
+		Name         string `db:"name"`
 	}
 
 	err = h.db.QueryRow(`
-		SELECT token_url, client_id, client_secret
+		SELECT token_url, client_id, client_secret, name
 		FROM provider_profiles WHERE id = $1`,
-		connection.ProviderID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret)
+		connection.ProviderID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret, &provider.Name)
 
 	if err != nil {
 		h.logAuditEvent(&connectionID, "provider_not_found", map[string]string{"error": err.Error()}, r)
@@ -216,7 +217,20 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "return_url not allowed", http.StatusBadRequest)
 		return
 	}
-	http.Redirect(w, r, connection.ReturnURL+"?status=success&connection_id="+connectionID.String(), http.StatusFound)
+
+	returnURL, err := url.Parse(connection.ReturnURL)
+	if err != nil {
+		h.logAuditEvent(&connectionID, "invalid_return_url", map[string]string{"error": err.Error(), "return_url": connection.ReturnURL}, r)
+		http.Error(w, "Invalid return_url", http.StatusInternalServerError)
+		return
+	}
+	query := returnURL.Query()
+	query.Set("status", "success")
+	query.Set("connection_id", connectionID.String())
+	query.Set("provider", provider.Name)
+	returnURL.RawQuery = query.Encode()
+
+	http.Redirect(w, r, returnURL.String(), http.StatusFound)
 }
 
 // GetCaptureSchema serves a JSON schema for the credential capture form.
