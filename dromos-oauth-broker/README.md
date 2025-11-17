@@ -105,10 +105,10 @@ curl -s -X POST http://localhost:8080/auth/consent-spec \
     "workspace_id":"ws-123",
     "provider_id":"<provider_id>",
     "scopes":["openid","email"],
-    "return_url":"http://localhost:8080/health"
+    "return_url":"http://localhost:3000/my-app-callback"
   }' | jq .
 ```
-Open `.authUrl` in a browser and complete consent. You’ll be redirected to `return_url` with `connection_id`.
+Open `.authUrl` in a browser and complete consent. You’ll be redirected to your `return_url` with `connection_id`, `status`, and `provider` as query parameters.
 
 ---
 

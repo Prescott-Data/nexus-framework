@@ -80,7 +80,7 @@ This will return a JSON payload containing an `authUrl`.
 
 Copy the `authUrl` from the response and paste it into your web browser. You will be directed to the provider's login and consent screen. After you approve, the provider will redirect you back to the `return_url` you specified, which will have a `connection_id` and `status` in the query string.
 
-> **Note:** The `return_url` does not need to be a real, running application for this test. You can simply copy the `connection_id` from the browser's address bar after the redirect.
+> **Note:** The `return_url` does not need to be a real, running application for this test. After the redirect, you can simply copy the `connection_id` from the browser's address bar. The final URL will also contain `status` and `provider` as query parameters.
 
 #### **Step 3: Retrieve the Token**
 
