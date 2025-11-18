@@ -109,13 +109,19 @@ func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 
 // GetProfileByName retrieves a provider profile by name
 func (s *Store) GetProfileByName(name string) (*Profile, error) {
-	var p Profile
+	var profiles []Profile
 	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, params FROM provider_profiles WHERE name = $1 AND deleted_at IS NULL`
-	err := s.db.Get(&p, query, name)
+	err := s.db.Select(&profiles, query, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider profile by name: %w", err)
 	}
-	return &p, nil
+	if len(profiles) == 0 {
+		return nil, fmt.Errorf("provider '%s' not found", name)
+	}
+	if len(profiles) > 1 {
+		return nil, fmt.Errorf("multiple providers found with name '%s' (found %d) - database integrity issue, please contact administrator", name, len(profiles))
+	}
+	return &profiles[0], nil
 }
 
 // UpdateProfile updates an existing provider profile
