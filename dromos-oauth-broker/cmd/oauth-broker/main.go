@@ -129,6 +129,7 @@ func main() {
 	protected.Get("/providers", providersHandler.List)
 	protected.Route("/providers", func(r chi.Router) {
 		r.Get("/by-name/{name}", providersHandler.GetByName)
+		r.Delete("/by-name/{name}", providersHandler.DeleteByName)
 		r.Get("/{id}", providersHandler.Get)
 		r.Put("/{id}", providersHandler.Update)
 		r.Delete("/{id}", providersHandler.Delete)

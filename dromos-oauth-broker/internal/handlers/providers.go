@@ -148,6 +148,29 @@ func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"id": profile.ID.String()})
 }
 
+// DeleteByName handles DELETE /providers/by-name/{name} to delete a provider by name
+func (h *ProvidersHandler) DeleteByName(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		http.Error(w, "missing name", http.StatusBadRequest)
+		return
+	}
+	norm := normalizeName(name)
+
+	profile, err := h.store.GetProfileByName(norm)
+	if err != nil {
+		http.Error(w, "provider not found", http.StatusNotFound)
+		return
+	}
+
+	if err := h.store.DeleteProfile(profile.ID); err != nil {
+		http.Error(w, "Failed to delete provider profile", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func normalizeName(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	// replace any non-alphanumeric with a single space
