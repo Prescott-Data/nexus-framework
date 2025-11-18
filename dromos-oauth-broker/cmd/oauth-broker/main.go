@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"dromos.com/oauth-broker/internal/caching"
+	"dromos.com/oauth-broker/internal/handlers"
 	"dromos.com/oauth-broker/internal/provider"
+	"dromos.com/oauth-broker/internal/server"
+	"github.com/go-chi/chi/v5"
 	"github.com/go-redis/redis/v8"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
-
-	"dromos.com/oauth-broker/internal/handlers"
-	"dromos.com/oauth-broker/internal/server"
 )
 
 func main() {
@@ -127,10 +127,12 @@ func main() {
 	protected := router.With(server.ApiKeyMiddleware(), server.AllowlistMiddleware())
 	protected.Post("/providers", providersHandler.Register)
 	protected.Get("/providers", providersHandler.List)
-	protected.Get("/providers/by-name/*", providersHandler.GetByName)
-	protected.Get("/providers/{id}", providersHandler.Get)
-	protected.Put("/providers/{id}", providersHandler.Update)
-	protected.Delete("/providers/{id}", providersHandler.Delete)
+	protected.Route("/providers", func(r chi.Router) {
+		r.Get("/by-name/{name}", providersHandler.GetByName)
+		r.Get("/{id}", providersHandler.Get)
+		r.Put("/{id}", providersHandler.Update)
+		r.Delete("/{id}", providersHandler.Delete)
+	})
 	protected.Post("/auth/consent-spec", consentHandler.GetSpec)
 	protected.Get("/connections/{connectionID}/token", callbackHandler.GetToken)
 	protected.Post("/connections/{connectionID}/refresh", callbackHandler.Refresh)

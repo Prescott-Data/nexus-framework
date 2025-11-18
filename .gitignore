@@ -24,21 +24,16 @@ coverage.out
 server.log
 
 # Environment files
-.env
-.env.*
-!.env.example
+# .env
+# .env.*
+# !.env.example
 
 # Temp
 tmp/
 *.tmp
 
 
-<<<<<<< HEAD
-oha
-oha-grpc
-
-=======
 oauth-framework/dromos-oauth-gateway/oha
 oauth-framework/dromos-oauth-gateway/oha-grpc
 oauth-framework/dromos-oauth-gateway/bin/
->>>>>>> origin/main
+
