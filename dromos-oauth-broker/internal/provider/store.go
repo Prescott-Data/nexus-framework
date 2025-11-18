@@ -3,6 +3,7 @@ package provider
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,6 +45,12 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		return nil, fmt.Errorf("invalid profile JSON: %w", err)
 	}
 
+	// Validate provider name format: lowercase alphanumeric with hyphens only
+	validNamePattern := regexp.MustCompile(`^[a-z0-9-]+$`)
+	if !validNamePattern.MatchString(p.Name) {
+		return nil, fmt.Errorf("invalid provider name '%s': must contain only lowercase letters, numbers, and hyphens (e.g., 'twitter', 'azure-ad', 'google-workspace')", p.Name)
+	}
+
 	// Validate fields based on the authentication type
 	switch p.AuthType {
 	case "oauth2", "": // Default to "oauth2"
@@ -58,13 +65,26 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		return nil, fmt.Errorf("unsupported auth_type: %s", p.AuthType)
 	}
 
+	// Check if a provider with this name already exists
+	var existingID uuid.UUID
+	checkQuery := `SELECT id FROM provider_profiles WHERE name = $1 AND deleted_at IS NULL LIMIT 1`
+	err := s.db.QueryRow(checkQuery, p.Name).Scan(&existingID)
+	if err == nil {
+		// A provider with this name already exists
+		return nil, fmt.Errorf("provider with name '%s' already exists", p.Name)
+	}
+	// If error is not "no rows", it's a real database error
+	if err.Error() != "sql: no rows in result set" {
+		return nil, fmt.Errorf("failed to check for existing provider: %w", err)
+	}
+
 	query := `
 		INSERT INTO provider_profiles (name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, params)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id`
 
 	var id uuid.UUID
-	err := s.db.QueryRow(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.Params).Scan(&id)
+	err = s.db.QueryRow(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.Params).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create provider profile: %w", err)
 	}
@@ -133,6 +153,20 @@ func (s *Store) DeleteProfile(id uuid.UUID) error {
 		return fmt.Errorf("failed to delete provider profile: %w", err)
 	}
 	return nil
+}
+
+// DeleteProfileByName soft-deletes ALL provider profiles with the given name
+func (s *Store) DeleteProfileByName(name string) (int64, error) {
+	query := `UPDATE provider_profiles SET deleted_at = NOW() WHERE name = $1 AND deleted_at IS NULL`
+	result, err := s.db.Exec(query, name)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete provider profiles: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	return rowsAffected, nil
 }
 
 // ListProfiles retrieves all non-deleted provider names and IDs
