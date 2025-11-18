@@ -137,7 +137,7 @@ func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
 
 	profile, err := h.store.GetProfileByName(name)
 	if err != nil {
-		http.Error(w, "provider not found", http.StatusNotFound)
+		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
