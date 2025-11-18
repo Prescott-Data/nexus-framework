@@ -127,6 +127,7 @@ func main() {
 	protected := router.With(server.ApiKeyMiddleware(), server.AllowlistMiddleware())
 	protected.Post("/providers", providersHandler.Register)
 	protected.Get("/providers", providersHandler.List)
+	protected.Get("/providers/by-name/*", providersHandler.GetByName)
 	protected.Get("/providers/{id}", providersHandler.Get)
 	protected.Put("/providers/{id}", providersHandler.Update)
 	protected.Delete("/providers/{id}", providersHandler.Delete)
