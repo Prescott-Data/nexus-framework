@@ -1,13 +1,13 @@
 package handlers
 
 import (
-	"dromos.com/oauth-broker/internal/provider"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
+
+	"dromos.com/oauth-broker/internal/provider"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -131,14 +131,13 @@ func (h *ProvidersHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // GetByName handles GET /providers/by-name/{name} with basic normalization
 func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
-	nameEnc := strings.TrimSpace(strings.TrimPrefix(r.URL.EscapedPath(), "/providers/by-name/"))
-	name, _ := url.PathUnescape(nameEnc)
+	name := chi.URLParam(r, "name")
 	if name == "" {
 		http.Error(w, "missing name", http.StatusBadRequest)
 		return
 	}
 	norm := normalizeName(name)
-	
+
 	profile, err := h.store.GetProfileByName(norm)
 	if err != nil {
 		http.Error(w, "provider not found", http.StatusNotFound)
