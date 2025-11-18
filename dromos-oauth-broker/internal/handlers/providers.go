@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
@@ -24,7 +25,7 @@ func NewProvidersHandler(store provider.ProfileStorer) *ProvidersHandler {
 
 // Get handles GET /providers/{id} to retrieve a provider profile
 func (h *ProvidersHandler) Get(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/providers/")
+	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		http.Error(w, "Invalid provider ID", http.StatusBadRequest)
@@ -41,7 +42,7 @@ func (h *ProvidersHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 // Update handles PUT /providers/{id} to update a provider profile
 func (h *ProvidersHandler) Update(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/providers/")
+	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		http.Error(w, "Invalid provider ID", http.StatusBadRequest)
@@ -66,7 +67,7 @@ func (h *ProvidersHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 // Delete handles DELETE /providers/{id} to delete a provider profile
 func (h *ProvidersHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/providers/")
+	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		http.Error(w, "Invalid provider ID", http.StatusBadRequest)
