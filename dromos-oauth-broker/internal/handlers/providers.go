@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
-	"strings"
 
 	"dromos.com/oauth-broker/internal/provider"
 
@@ -129,16 +127,15 @@ func (h *ProvidersHandler) List(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(rows)
 }
 
-// GetByName handles GET /providers/by-name/{name} with basic normalization
+// GetByName handles GET /providers/by-name/{name}
 func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if name == "" {
 		http.Error(w, "missing name", http.StatusBadRequest)
 		return
 	}
-	norm := normalizeName(name)
 
-	profile, err := h.store.GetProfileByName(norm)
+	profile, err := h.store.GetProfileByName(name)
 	if err != nil {
 		http.Error(w, "provider not found", http.StatusNotFound)
 		return
@@ -148,40 +145,25 @@ func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"id": profile.ID.String()})
 }
 
-// DeleteByName handles DELETE /providers/by-name/{name} to delete a provider by name
+// DeleteByName handles DELETE /providers/by-name/{name} to delete ALL providers with that name
 func (h *ProvidersHandler) DeleteByName(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if name == "" {
 		http.Error(w, "missing name", http.StatusBadRequest)
 		return
 	}
-	norm := normalizeName(name)
 
-	profile, err := h.store.GetProfileByName(norm)
+	rowsAffected, err := h.store.DeleteProfileByName(name)
 	if err != nil {
-		http.Error(w, "provider not found", http.StatusNotFound)
-		return
-	}
-
-	if err := h.store.DeleteProfile(profile.ID); err != nil {
 		http.Error(w, "Failed to delete provider profile", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-}
+	if rowsAffected == 0 {
+		http.Error(w, "provider not found", http.StatusNotFound)
+		return
+	}
 
-func normalizeName(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	// replace any non-alphanumeric with a single space
-	nonAlnum := regexp.MustCompile(`[^a-z0-9]+`)
-	s = nonAlnum.ReplaceAllString(s, " ")
-	// collapse multiple spaces
-	s = strings.Join(strings.Fields(s), " ")
-	// unify common variants for Azure
-	s = strings.ReplaceAll(s, "azure active directory", "azure ad")
-	s = strings.ReplaceAll(s, "microsoft entra id", "azure ad")
-	s = strings.ReplaceAll(s, "entra id", "azure ad")
-	s = strings.ReplaceAll(s, "entra", "azure ad")
-	return s
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf("Deleted %d provider(s)", rowsAffected)))
 }
