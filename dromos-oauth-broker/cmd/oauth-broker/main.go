@@ -125,9 +125,9 @@ func main() {
 	router.Post("/auth/capture-credential", callbackHandler.SaveCredential)
 	// Protected endpoints: API key + allowlist
 	protected := router.With(server.ApiKeyMiddleware(), server.AllowlistMiddleware())
-	protected.Post("/providers", providersHandler.Register)
-	protected.Get("/providers", providersHandler.List)
 	protected.Route("/providers", func(r chi.Router) {
+		r.Post("/", providersHandler.Register)
+		r.Get("/", providersHandler.List)
 		r.Get("/by-name/{name}", providersHandler.GetByName)
 		r.Delete("/by-name/{name}", providersHandler.DeleteByName)
 		r.Get("/{id}", providersHandler.Get)
