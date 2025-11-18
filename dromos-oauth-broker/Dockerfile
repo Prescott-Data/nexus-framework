@@ -1,6 +1,6 @@
 # Multi-stage build for Dromos OAuth Broker
 
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 WORKDIR /app
 
 # Enable modules and install build deps
@@ -17,7 +17,7 @@ COPY . .
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 RUN go build -o /out/oauth-broker ./cmd/oauth-broker
 
-FROM alpine:3.19 AS runtime
+FROM alpine:3.21 AS runtime
 WORKDIR /app
 RUN addgroup -S app && adduser -S app -G app \
     && apk add --no-cache ca-certificates
