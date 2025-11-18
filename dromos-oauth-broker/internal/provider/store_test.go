@@ -18,11 +18,16 @@ func TestRegisterProfile_OAuth2(t *testing.T) {
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 	store := NewStore(sqlxDB)
 
-	// 1. Mock the db.QueryRow INSERT call.
+	// 1. Mock the duplicate check query (should return no rows)
+	mock.ExpectQuery("SELECT id FROM provider_profiles WHERE name").
+		WithArgs("test-oauth2-provider").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	// 2. Mock the db.QueryRow INSERT call.
 	rows := sqlmock.NewRows([]string{"id"}).AddRow("a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0")
 	mock.ExpectQuery("INSERT INTO provider_profiles").
 		WithArgs(
-			"Test OAuth2 Provider",
+			"test-oauth2-provider",
 			"test-client-id",
 			"test-client-secret",
 			"http://provider.com/auth",
@@ -37,7 +42,7 @@ func TestRegisterProfile_OAuth2(t *testing.T) {
 
 	// 2. Create a valid Profile struct with AuthType="oauth2" and optional params.
 	profile := Profile{
-		Name:         "Test OAuth2 Provider",
+		Name:         "test-oauth2-provider",
 		AuthType:     "oauth2",
 		ClientID:     "test-client-id",
 		ClientSecret: "test-client-secret",
@@ -66,11 +71,16 @@ func TestRegisterProfile_StaticKey(t *testing.T) {
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 	store := NewStore(sqlxDB)
 
-	// 1. Mock the db.QueryRow INSERT call.
+	// 1. Mock the duplicate check query (should return no rows)
+	mock.ExpectQuery("SELECT id FROM provider_profiles WHERE name").
+		WithArgs("test-api-key-provider").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	// 2. Mock the db.QueryRow INSERT call.
 	rows := sqlmock.NewRows([]string{"id"}).AddRow("b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1")
 	mock.ExpectQuery("INSERT INTO provider_profiles").
 		WithArgs(
-			"Test API Key Provider",
+			"test-api-key-provider",
 			"",
 			"",
 			"",
@@ -85,7 +95,7 @@ func TestRegisterProfile_StaticKey(t *testing.T) {
 
 	// 2. Create a valid Profile struct with AuthType="api_key" and Name.
 	profile := Profile{
-		Name:       "Test API Key Provider",
+		Name:       "test-api-key-provider",
 		AuthType:   "api_key",
 		AuthHeader: "X-API-KEY",
 	}
@@ -109,7 +119,7 @@ func TestRegisterProfile_InvalidOAuth2(t *testing.T) {
 
 	// 1. Create an invalid Profile struct with AuthType="oauth2" but missing ClientID.
 	profile := Profile{
-		Name:     "Test Invalid Provider",
+		Name:     "test-invalid-provider",
 		AuthType: "oauth2",
 	}
 	profileJSON, err := json.Marshal(profile)
