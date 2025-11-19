@@ -23,19 +23,19 @@ func NewStore(db *sqlx.DB) *Store {
 
 // Profile represents a provider profile
 type Profile struct {
-	ID              uuid.UUID        `json:"id"`
-	Name            string           `json:"name"`
-	AuthType        string           `json:"auth_type,omitempty"`
-	AuthHeader      string           `json:"auth_header,omitempty"`
-	ClientID        string           `json:"client_id,omitempty"`
-	ClientSecret    string           `json:"client_secret,omitempty"`
-	AuthURL         string           `json:"auth_url,omitempty"`
-	TokenURL        string           `json:"token_url,omitempty"`
-	Issuer          *string          `json:"issuer,omitempty"`
-	EnableDiscovery bool             `json:"enable_discovery"`
-	Scopes          []string         `json:"scopes"`
-	Params          *json.RawMessage `json:"params,omitempty"`
-	DeletedAt       *time.Time       `json:"-"`
+	ID              uuid.UUID        `json:"id" db:"id"`
+	Name            string           `json:"name" db:"name"`
+	AuthType        string           `json:"auth_type,omitempty" db:"auth_type"`
+	AuthHeader      string           `json:"auth_header,omitempty" db:"auth_header"`
+	ClientID        string           `json:"client_id,omitempty" db:"client_id"`
+	ClientSecret    string           `json:"client_secret,omitempty" db:"client_secret"`
+	AuthURL         string           `json:"auth_url,omitempty" db:"auth_url"`
+	TokenURL        string           `json:"token_url,omitempty" db:"token_url"`
+	Issuer          *string          `json:"issuer,omitempty" db:"issuer"`
+	EnableDiscovery bool             `json:"enable_discovery" db:"enable_discovery"`
+	Scopes          []string         `json:"scopes" db:"scopes"`
+	Params          *json.RawMessage `json:"params,omitempty" db:"params"`
+	DeletedAt       *time.Time       `json:"-" db:"deleted_at"`
 }
 
 // RegisterProfile registers a new provider profile from JSON
