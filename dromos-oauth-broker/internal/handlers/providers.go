@@ -167,3 +167,14 @@ func (h *ProvidersHandler) DeleteByName(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(fmt.Sprintf("Deleted %d provider(s)", rowsAffected)))
 }
+
+// Metadata handles GET /providers/metadata to retrieve grouped integration config
+func (h *ProvidersHandler) Metadata(w http.ResponseWriter, r *http.Request) {
+	metadata, err := h.store.GetMetadata()
+	if err != nil {
+		http.Error(w, "Failed to retrieve metadata", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(metadata)
+}
