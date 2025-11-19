@@ -142,12 +142,13 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		ClientID     string `db:"client_id"`
 		ClientSecret string `db:"client_secret"`
 		Name         string `db:"name"`
+		AuthHeader   string `db:"auth_header"`
 	}
 
 	err = h.db.QueryRow(`
-		SELECT token_url, client_id, client_secret, name
+		SELECT token_url, client_id, client_secret, name, COALESCE(auth_header, '') as auth_header
 		FROM provider_profiles WHERE id = $1`,
-		connection.ProviderID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret, &provider.Name)
+		connection.ProviderID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret, &provider.Name, &provider.AuthHeader)
 
 	if err != nil {
 		h.logAuditEvent(&connectionID, "provider_not_found", map[string]string{"error": err.Error()}, r)
@@ -169,7 +170,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	if md, errD := discovery.Discover(r.Context(), h.httpClient, discovery.Hint{AuthURL: provider.TokenURL}); errD == nil && strings.TrimSpace(md.TokenEndpoint) != "" {
 		useTokenURL = md.TokenEndpoint
 	}
-	tokens, err := h.exchangeCodeForTokens(useTokenURL, provider.ClientID, provider.ClientSecret, code, connection.CodeVerifier, redirectURI, connection.Scopes)
+	tokens, err := h.exchangeCodeForTokens(useTokenURL, provider.ClientID, provider.ClientSecret, code, connection.CodeVerifier, redirectURI, connection.Scopes, provider.AuthHeader)
 	h.histogramExchangeDur.Observe(time.Since(start).Seconds())
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_exchange_failed", map[string]string{"error": err.Error()}, r)
@@ -432,14 +433,24 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // exchangeCodeForTokens exchanges authorization code for access tokens
-func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret, code, codeVerifier, redirectURI string, scopes []string) (map[string]interface{}, error) {
+func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret, code, codeVerifier, redirectURI string, scopes []string, authHeader string) (map[string]interface{}, error) {
 	data := url.Values{}
 	data.Set("grant_type", "authorization_code")
 	data.Set("code", code)
 	data.Set("code_verifier", codeVerifier)
-	data.Set("client_id", clientID)
-	data.Set("client_secret", clientSecret)
 	data.Set("redirect_uri", redirectURI)
+	
+	// Determine auth method based on authHeader configuration
+	// Default to "client_secret_post" (sending in body) if not specified or explicitly set
+	useBasicAuth := false
+	if strings.EqualFold(authHeader, "client_secret_basic") || strings.EqualFold(authHeader, "Basic") {
+		useBasicAuth = true
+	} else {
+		// Default: Send credentials in body
+		data.Set("client_id", clientID)
+		data.Set("client_secret", clientSecret)
+	}
+
 	// Some providers (e.g., Microsoft identity platform v2) require scope on token exchange
 	if len(scopes) > 0 {
 		data.Set("scope", strings.Join(scopes, " "))
@@ -451,6 +462,12 @@ func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// Essential for providers like GitHub that return XML by default
+	req.Header.Set("Accept", "application/json")
+
+	if useBasicAuth {
+		req.SetBasicAuth(clientID, clientSecret)
+	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
