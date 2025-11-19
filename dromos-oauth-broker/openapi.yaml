@@ -1,0 +1,293 @@
+openapi: 3.0.3
+info:
+  title: Dromos OAuth Broker API
+  version: 1.0.0
+  description: |
+    Internal API for the Dromos OAuth Broker service. 
+    This service handles OAuth 2.0 and OIDC flows, encrypts tokens, and manages provider configurations.
+    It is NOT intended to be exposed directly to the public internet, except for the `/auth/callback` endpoint.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://broker.internal
+    description: Production (Internal)
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    ProviderProfile:
+      type: object
+      required: [name]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Unique slug for the provider (e.g. "google", "github")
+        auth_type:
+          type: string
+          enum: [oauth2, api_key, basic_auth]
+          default: oauth2
+        auth_header:
+          type: string
+          enum: [client_secret_post, client_secret_basic]
+          description: Method for sending client secret during token exchange.
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        auth_url:
+          type: string
+        token_url:
+          type: string
+        api_base_url:
+          type: string
+          description: Root URL for the provider's API (e.g., https://api.github.com)
+        user_info_endpoint:
+          type: string
+          description: Path to fetch user info (e.g., /user)
+        scopes:
+          type: array
+          items: { type: string }
+        params:
+          type: object
+          description: Provider-specific extra parameters (e.g., prompt, access_type)
+    
+    ConsentSpecRequest:
+      type: object
+      required: [workspace_id, return_url]
+      properties:
+        workspace_id:
+          type: string
+        provider_id:
+          type: string
+        scopes:
+          type: array
+          items: { type: string }
+        return_url:
+          type: string
+    
+    ConsentSpecResponse:
+      type: object
+      properties:
+        authUrl:
+          type: string
+        state:
+          type: string
+        scopes:
+          type: array
+          items: { type: string }
+        provider_id:
+          type: string
+    
+    TokenResponse:
+      type: object
+      properties:
+        access_token: { type: string }
+        token_type: { type: string }
+        refresh_token: { type: string }
+        expiry: { type: string, format: date-time }
+        id_token: { type: string }
+    
+    MetadataResponse:
+      type: object
+      description: Grouped provider metadata
+      additionalProperties:
+        type: object
+        additionalProperties:
+          type: object
+          properties:
+            api_base_url: { type: string }
+            user_info_endpoint: { type: string }
+            scopes:
+              type: array
+              items: { type: string }
+
+paths:
+  /providers:
+    get:
+      summary: List all providers
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200':
+          description: List of providers (id and name only)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    name: { type: string }
+    post:
+      summary: Register a new provider
+      security: [{ ApiKeyAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                profile:
+                  $ref: '#/components/schemas/ProviderProfile'
+      responses:
+        '201':
+          description: Provider created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  message: { type: string }
+
+  /providers/metadata:
+    get:
+      summary: Get grouped integration metadata
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200':
+          description: Metadata map
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetadataResponse'
+
+  /providers/{id}:
+    get:
+      summary: Get provider details
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderProfile'
+    put:
+      summary: Update provider details
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderProfile'
+      responses:
+        '200':
+          description: Updated successfully
+    delete:
+      summary: Delete provider
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Deleted successfully
+
+  /providers/by-name/{name}:
+    get:
+      summary: Get provider ID by name
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+
+  /auth/consent-spec:
+    post:
+      summary: Generate authorization URL
+      security: [{ ApiKeyAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsentSpecRequest'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentSpecResponse'
+
+  /auth/callback:
+    get:
+      summary: OAuth callback handler (Public)
+      description: The provider redirects the user here. Validates state and exchanges code for token.
+      parameters:
+        - in: query
+          name: code
+          schema: { type: string }
+        - in: query
+          name: state
+          schema: { type: string }
+      responses:
+        '302':
+          description: Redirects to the stored return_url with connection_id
+
+  /connections/{connectionID}/token:
+    get:
+      summary: Retrieve stored token
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: path
+          name: connectionID
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+
+  /connections/{connectionID}/refresh:
+    post:
+      summary: Force refresh token
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: path
+          name: connectionID
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Healthy
