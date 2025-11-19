@@ -37,6 +37,8 @@ func TestRegisterProfile_OAuth2(t *testing.T) {
 			pq.Array([]string(nil)),
 			"oauth2",
 			"",
+			"", // api_base_url
+			"", // user_info_endpoint
 			sqlmock.AnyArg(),
 		).WillReturnRows(rows)
 
@@ -90,6 +92,8 @@ func TestRegisterProfile_StaticKey(t *testing.T) {
 			pq.Array([]string(nil)),
 			"api_key",
 			"X-API-KEY",
+			"", // api_base_url
+			"", // user_info_endpoint
 			nil,
 		).WillReturnRows(rows)
 
