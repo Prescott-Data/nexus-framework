@@ -46,6 +46,7 @@ func (s *Server) routes() {
 	s.mux.Post("/v1/request-connection", s.handler.RequestConnection)
 	s.mux.Get("/v1/check-connection/{connectionID}", s.handler.CheckConnection)
 	s.mux.Get("/v1/token/{connectionID}", s.handler.GetToken)
+	s.mux.Get("/v1/providers", s.handler.GetProviders)
 }
 
 func (s *Server) Start() error {

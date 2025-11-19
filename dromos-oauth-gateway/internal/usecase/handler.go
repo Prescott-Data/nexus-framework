@@ -435,3 +435,43 @@ func (h *Handler) GetTokenCore(ctx context.Context, connectionID string) (map[st
 	}
 	return token, resp.StatusCode, nil
 }
+
+// GetProvidersCore fetches provider metadata from the broker
+func (h *Handler) GetProvidersCore(ctx context.Context) (map[string]any, error) {
+	brokerURL := h.brokerBaseURL + "/providers/metadata"
+	httpReq, _ := http.NewRequestWithContext(ctx, "GET", brokerURL, nil)
+	if h.brokerAPIKey != "" {
+		httpReq.Header.Set("X-API-Key", h.brokerAPIKey)
+	}
+	resp, err := h.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBrokerUnavailable, err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return nil, &BrokerStatusError{Status: resp.StatusCode}
+	}
+
+	var metadata map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&metadata); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBrokerInvalidResponse, err)
+	}
+	return metadata, nil
+}
+
+func (h *Handler) GetProviders(w http.ResponseWriter, r *http.Request) {
+	logging.Info(r.Context(), "get_providers.start", nil)
+	metadata, err := h.GetProvidersCore(r.Context())
+	if err != nil {
+		var be *BrokerStatusError
+		if errors.As(err, &be) {
+			writeError(w, http.StatusBadGateway, "broker_error", fmt.Sprintf("broker returned status %d", be.Status), map[string]any{"status": be.Status})
+			return
+		}
+		writeError(w, http.StatusBadGateway, "broker_unavailable", "failed to fetch providers", map[string]any{"error": err.Error()})
+		return
+	}
+	
+	writeJSON(w, http.StatusOK, metadata)
+}
