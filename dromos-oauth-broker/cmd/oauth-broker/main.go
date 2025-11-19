@@ -128,6 +128,7 @@ func main() {
 	protected.Route("/providers", func(r chi.Router) {
 		r.Post("/", providersHandler.Register)
 		r.Get("/", providersHandler.List)
+		r.Get("/metadata", providersHandler.Metadata)
 		r.Get("/by-name/{name}", providersHandler.GetByName)
 		r.Delete("/by-name/{name}", providersHandler.DeleteByName)
 		r.Get("/{id}", providersHandler.Get)
