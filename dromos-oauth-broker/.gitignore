@@ -1,10 +1,44 @@
+# Binaries and Build Output
 bin/
 tmp/
+server
+*.exe
+*.dll
+*.so
+
+# Logs
 *.log
 server.log
-*.sqlitevendor/
+
+# Databases
+*.sqlite
+
+# Dependency Directories
 vendor/
-broker_whitepaper.md
-.env.dev
+node_modules/
+
+# Environment & Configuration
 .env
-# pipeline trigger
+.env.*
+!.env.example
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & Editor Configuration
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Project Specific
+broker_whitepaper.md
+.geminicli.md
+GEMINI_WORK_SUMMARY.md
