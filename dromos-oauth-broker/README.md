@@ -11,6 +11,7 @@ Minimal, internal OAuth 2.0/OIDC broker written in Go. It initiates consent (PKC
 - Security gates (API key, IP allowlist, return URL validation)
 - Ready for service-mesh mTLS (tracked in `docs/TECH_DEBT.md`)
 - Prometheus metrics and structured logging
+- **Integration Metadata:** Exposes API base URLs and endpoints for frontend discovery.
 
 ---
 
@@ -63,35 +64,92 @@ curl -s http://localhost:8080/health
 
 Endpoint requires payload under `profile`.
 
+### New Fields (v2)
+- `auth_header`: Set to `"client_secret_basic"` for providers requiring Basic Auth (Twitter, GitHub). Default is `"client_secret_post"` (Body).
+- `api_base_url`: Root URL for the provider's API (e.g., `https://api.github.com`). Used by frontend.
+- `user_info_endpoint`: Path to fetch user profile (e.g., `/user`). Used by frontend.
+
 ### Google
 ```bash
 jq -n '{
   profile: {
     name: "google",
+    auth_type: "oauth2",
     auth_url: "https://accounts.google.com/o/oauth2/v2/auth",
     token_url: "https://oauth2.googleapis.com/token",
     client_id: "<client-id>",
     client_secret: "<client-secret>",
-    scopes: ["openid","email"]
+    scopes: ["openid","email","profile"],
+    api_base_url: "https://www.googleapis.com",
+    user_info_endpoint: "/oauth2/v3/userinfo"
   }
 }' | curl -s -X POST http://localhost:8080/providers -H "Content-Type: application/json" -d @- | jq .
 ```
-Notes: We do not request `offline_access` scope for Google. The broker adds `access_type=offline` and `prompt=consent` URL params to obtain a refresh token.
 
-### Microsoft Entra ID (Azure AD) – multitenant + personal
+### Twitter (Requires Basic Auth)
 ```bash
 jq -n '{
   profile: {
-    name: "azure-ad-common",
+    name: "twitter",
+    auth_type: "oauth2",
+    auth_url: "https://twitter.com/i/oauth2/authorize",
+    token_url: "https://api.twitter.com/2/oauth2/token",
+    client_id: "<client-id>",
+    client_secret: "<client-secret>",
+    scopes: ["tweet.read","users.read"],
+    auth_header: "client_secret_basic",
+    api_base_url: "https://api.twitter.com/2",
+    user_info_endpoint: "/users/me"
+  }
+}' | curl -s -X POST http://localhost:8080/providers -H "Content-Type: application/json" -d @- | jq .
+```
+
+### Microsoft Graph (Common)
+```bash
+jq -n '{
+  profile: {
+    name: "microsoft-graph",
+    auth_type: "oauth2",
     auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
     token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
     client_id: "<application-client-id-guid>",
     client_secret: "<client-secret-value>",
-    scopes: ["openid","email","profile","offline_access","User.Read"]
+    scopes: ["openid","email","profile","offline_access","User.Read"],
+    api_base_url: "https://graph.microsoft.com/v1.0",
+    user_info_endpoint: "/me"
   }
 }' | curl -s -X POST http://localhost:8080/providers -H "Content-Type: application/json" -d @- | jq .
 ```
-More examples (Okta/Auth0) in `docs/PROVIDERS.md`.
+**Note:** Ensure your Azure App Registration has a **Web** platform configured with the correct Redirect URI.
+
+---
+
+## Provider Metadata (Frontend Integration)
+
+Retrieve a grouped list of all configured providers and their API metadata. Useful for building dynamic "Connect" UIs.
+
+```bash
+curl -H "X-API-Key: $API_KEY" http://localhost:8080/providers/metadata
+```
+
+**Response:**
+```json
+{
+  "oauth2": {
+    "google": {
+      "api_base_url": "https://www.googleapis.com",
+      "user_info_endpoint": "/oauth2/v3/userinfo",
+      "scopes": ["openid", "email", "profile"]
+    },
+    "twitter": {
+      "api_base_url": "https://api.twitter.com/2",
+      "user_info_endpoint": "/users/me",
+      "scopes": ["tweet.read", "users.read"]
+    }
+  },
+  "api_key": { ... }
+}
+```
 
 ---
 
@@ -164,6 +222,8 @@ OIDC hardening (id_token verification via JWKS, nonce, discovery) is deferred. S
 - Provider not found / TEXT[] scan errors: ensure we use `pq.Array` for scopes (handled in code) and correct UUID types.
 - 404 on Google authorize: use `https://accounts.google.com/o/oauth2/v2/auth` (not legacy URLs).
 - pgcrypto missing: `CREATE EXTENSION IF NOT EXISTS pgcrypto;` on your DB.
+- **Token exchange failed (Twitter/GitHub):** Ensure you set `"auth_header": "client_secret_basic"` in the provider profile.
+- **Token exchange failed (Microsoft):** Ensure your Azure App Registration has a **Web** platform (not SPA/Public).
 
 ---
 

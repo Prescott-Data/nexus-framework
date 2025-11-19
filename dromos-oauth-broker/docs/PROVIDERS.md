@@ -20,33 +20,62 @@ The preferred method for registering OIDC-compliant providers is to use the `iss
 #### **Payload Fields:**
 
 *   `name` (string, required): A unique name for the provider (e.g., "google").
-*   `issuer` (string, required): The OIDC issuer URL. The broker will use this to discover the authorization and token endpoints.
+*   `issuer` (string, optional): The OIDC issuer URL for auto-discovery.
 *   `client_id` (string, required): The OAuth client ID from the provider.
 *   `client_secret` (string, required): The OAuth client secret from the provider.
 *   `scopes` (string array, required): A list of default scopes to request.
 *   `auth_url` (string, optional): Override for the authorization endpoint.
 *   `token_url` (string, optional): Override for the token endpoint.
+*   `auth_header` (string, optional): Authentication method for token exchange. Values: `"client_secret_post"` (default, credentials in body) or `"client_secret_basic"` (credentials in Basic Auth header). Required for Twitter/GitHub.
+*   `api_base_url` (string, optional): The root URL for the provider's API (e.g., "https://api.github.com"). Exposed to frontend for integration logic.
+*   `user_info_endpoint` (string, optional): Path to fetch user profile (e.g., "/user"). Exposed to frontend.
 *   `params` (json, optional): A JSON object for provider-specific parameters (e.g., `{"access_type": "offline"}`).
 
-#### **Example: Registering Google via OIDC Discovery**
+#### **Example: Registering Google**
 
 ```bash
 curl -X POST http://localhost:8080/providers \
      -H "Content-Type: application/json" \
      -H "X-API-Key: dev-api-key-12345" \
-     -d 
-{
-        "name": "google",
-        "issuer": "https://accounts.google.com",
-        "client_id": "YOUR_GOOGLE_CLIENT_ID",
-        "client_secret": "YOUR_GOOGLE_CLIENT_SECRET",
-        "scopes": ["openid", "email", "profile"],
-        "params": {
-            "access_type": "offline",
-            "prompt": "consent"
+     -d '{
+        "profile": {
+            "name": "google",
+            "issuer": "https://accounts.google.com",
+            "client_id": "YOUR_GOOGLE_CLIENT_ID",
+            "client_secret": "YOUR_GOOGLE_CLIENT_SECRET",
+            "scopes": ["openid", "email", "profile"],
+            "api_base_url": "https://www.googleapis.com",
+            "user_info_endpoint": "/oauth2/v3/userinfo",
+            "params": {
+                "access_type": "offline",
+                "prompt": "consent"
+            }
         }
-     }
- | jq . 
+     }' | jq . 
+```
+
+#### **Example: Registering Twitter (Basic Auth)**
+
+Twitter requires `client_secret_basic` and manual endpoint configuration.
+
+```bash
+curl -X POST http://localhost:8080/providers \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key: dev-api-key-12345" \
+     -d '{
+        "profile": {
+            "name": "twitter",
+            "auth_type": "oauth2",
+            "auth_url": "https://twitter.com/i/oauth2/authorize",
+            "token_url": "https://api.twitter.com/2/oauth2/token",
+            "client_id": "YOUR_TWITTER_CLIENT_ID",
+            "client_secret": "YOUR_TWITTER_CLIENT_SECRET",
+            "scopes": ["tweet.read", "users.read"],
+            "auth_header": "client_secret_basic",
+            "api_base_url": "https://api.twitter.com/2",
+            "user_info_endpoint": "/users/me"
+        }
+     }' | jq . 
 ```
 
 ### Testing the OAuth 2.0 Flow
@@ -64,14 +93,12 @@ PROVIDER_ID="<provider-id>"
 curl -s -X POST http://localhost:8080/auth/consent-spec \
     -H "Content-Type: application/json" \
     -H "X-API-Key: dev-api-key-12345" \
-    -d 
-{
+    -d '{
         "workspace_id": "ws-test-123",
         "provider_id": "'$PROVIDER_ID'",
         "scopes": ["openid", "email"],
         "return_url": "http://localhost:3000/my-app-callback"
-    }
- | jq . 
+    }' | jq . 
 ```
 
 This will return a JSON payload containing an `authUrl`.
@@ -133,16 +160,16 @@ SCHEMA='{
 }'
 
 # Use jq to construct the final JSON payload
-jq -n --argjson schema "$SCHEMA" 
-{
-    "name": "freedcamp",
-    "auth_type": "api_key",
-    "params": {
-      "base_url": "https://freedcamp.com/api/v1/",
-      "credential_schema": $schema
+jq -n --argjson schema "$SCHEMA" '{
+    "profile": {
+        "name": "freedcamp",
+        "auth_type": "api_key",
+        "params": {
+          "base_url": "https://freedcamp.com/api/v1/",
+          "credential_schema": $schema
+        }
     }
-}
- | curl -X POST http://localhost:8080/providers \
+}' | curl -X POST http://localhost:8080/providers \
      -H "Content-Type: application/json" \
      -H "X-API-Key: dev-api-key-12345" \
      -d @- | jq . 
@@ -164,13 +191,11 @@ PROVIDER_ID="<provider-id>"
 AUTH_URL=$(curl -s -X POST http://localhost:8080/auth/consent-spec \
     -H "Content-Type: application/json" \
     -H "X-API-Key: dev-api-key-12345" \
-    -d 
-{
+    -d '{
         "workspace_id": "ws-test-123",
         "provider_id": "'$PROVIDER_ID'",
         "return_url": "http://localhost:3000/my-app-callback"
-    }
- | jq -r .authUrl)
+    }' | jq -r .authUrl)
 
 echo "Schema URL: $AUTH_URL"
 ```
@@ -198,14 +223,13 @@ Submit the user's credentials along with the `state` from the previous step.
 curl -s -i -X POST http://localhost:8080/auth/capture-credential \
     -H "Content-Type: application/json" \
     -H "X-API-Key: dev-api-key-12345" \
-    -d 
-{
+    -d '{
         "state": "'$STATE'",
         "credentials": {
             "api_key": "my-user-supplied-api-key",
             "api_secret": "my-user-supplied-secret"
         }
-    }
+    }'
 ```
 
 This will return a `302 Found` redirect. The `Location` header will contain the `connection_id`.
@@ -264,4 +288,44 @@ This performs a "soft delete," marking the provider as inactive but preserving i
 ```bash
 curl -s -X DELETE http://localhost:8080/providers/<provider-id> \
   -H "X-API-Key: dev-api-key-12345"
+```
+
+---
+
+## 4. Provider Metadata (Frontend Integration)
+
+To assist frontend applications in rendering dynamic integration lists or performing client-side checks, the broker exposes a metadata endpoint.
+
+#### **Get Grouped Metadata**
+
+Returns a map of all providers, grouped by `auth_type` ("oauth2", "api_key"), containing only the fields necessary for frontend logic (`api_base_url`, `user_info_endpoint`, `scopes`).
+
+```bash
+curl -s http://localhost:8080/providers/metadata \
+  -H "X-API-Key: dev-api-key-12345" | jq .
+```
+
+**Response Example:**
+```json
+{
+  "oauth2": {
+    "google": {
+      "api_base_url": "https://www.googleapis.com",
+      "user_info_endpoint": "/oauth2/v3/userinfo",
+      "scopes": ["openid", "email", "profile"]
+    },
+    "twitter": {
+      "api_base_url": "https://api.twitter.com/2",
+      "user_info_endpoint": "/users/me",
+      "scopes": ["tweet.read", "users.read"]
+    }
+  },
+  "api_key": {
+    "freedcamp": {
+      "api_base_url": "https://freedcamp.com/api/v1/",
+      "user_info_endpoint": "",
+      "scopes": null
+    }
+  }
+}
 ```
