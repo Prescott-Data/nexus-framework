@@ -23,19 +23,21 @@ func NewStore(db *sqlx.DB) *Store {
 
 // Profile represents a provider profile
 type Profile struct {
-	ID              uuid.UUID        `json:"id" db:"id"`
-	Name            string           `json:"name" db:"name"`
-	AuthType        string           `json:"auth_type,omitempty" db:"auth_type"`
-	AuthHeader      string           `json:"auth_header,omitempty" db:"auth_header"`
-	ClientID        string           `json:"client_id,omitempty" db:"client_id"`
-	ClientSecret    string           `json:"client_secret,omitempty" db:"client_secret"`
-	AuthURL         string           `json:"auth_url,omitempty" db:"auth_url"`
-	TokenURL        string           `json:"token_url,omitempty" db:"token_url"`
-	Issuer          *string          `json:"issuer,omitempty" db:"issuer"`
-	EnableDiscovery bool             `json:"enable_discovery" db:"enable_discovery"`
-	Scopes          []string         `json:"scopes" db:"scopes"`
-	Params          *json.RawMessage `json:"params,omitempty" db:"params"`
-	DeletedAt       *time.Time       `json:"-" db:"deleted_at"`
+	ID               uuid.UUID        `json:"id" db:"id"`
+	Name             string           `json:"name" db:"name"`
+	AuthType         string           `json:"auth_type,omitempty" db:"auth_type"`
+	AuthHeader       string           `json:"auth_header,omitempty" db:"auth_header"`
+	ClientID         string           `json:"client_id,omitempty" db:"client_id"`
+	ClientSecret     string           `json:"client_secret,omitempty" db:"client_secret"`
+	AuthURL          string           `json:"auth_url,omitempty" db:"auth_url"`
+	TokenURL         string           `json:"token_url,omitempty" db:"token_url"`
+	Issuer           *string          `json:"issuer,omitempty" db:"issuer"`
+	EnableDiscovery  bool             `json:"enable_discovery" db:"enable_discovery"`
+	Scopes           []string         `json:"scopes" db:"scopes"`
+	APIBaseURL       string           `json:"api_base_url,omitempty" db:"api_base_url"`
+	UserInfoEndpoint string           `json:"user_info_endpoint,omitempty" db:"user_info_endpoint"`
+	Params           *json.RawMessage `json:"params,omitempty" db:"params"`
+	DeletedAt        *time.Time       `json:"-" db:"deleted_at"`
 }
 
 // RegisterProfile registers a new provider profile from JSON
@@ -79,12 +81,12 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	}
 
 	query := `
-		INSERT INTO provider_profiles (name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, params)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO provider_profiles (name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, api_base_url, user_info_endpoint, params)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id`
 
 	var id uuid.UUID
-	err = s.db.QueryRow(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.Params).Scan(&id)
+	err = s.db.QueryRow(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create provider profile: %w", err)
 	}
@@ -96,10 +98,10 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 // GetProfile retrieves a provider profile by ID
 func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 	var p Profile
-	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), params FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
+	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
 
 	row := s.db.QueryRow(query, id)
-	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.Params)
+	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider profile: %w", err)
 	}
@@ -109,7 +111,7 @@ func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 
 // GetProfileByName retrieves a provider profile by name
 func (s *Store) GetProfileByName(name string) (*Profile, error) {
-	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), params FROM provider_profiles WHERE name = $1 AND deleted_at IS NULL`
+	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params FROM provider_profiles WHERE name = $1 AND deleted_at IS NULL`
 
 	rows, err := s.db.Query(query, name)
 	if err != nil {
@@ -120,7 +122,7 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 	var profiles []Profile
 	for rows.Next() {
 		var p Profile
-		err := rows.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.Params)
+		err := rows.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan provider profile: %w", err)
 		}
@@ -155,11 +157,13 @@ func (s *Store) UpdateProfile(p *Profile) error {
 			scopes = $8,
 			auth_type = $9,
 			auth_header = $10,
-			params = $11,
+			api_base_url = $11,
+			user_info_endpoint = $12,
+			params = $13,
 			updated_at = NOW()
-		WHERE id = $12 AND deleted_at IS NULL`
+		WHERE id = $14 AND deleted_at IS NULL`
 
-	_, err := s.db.Exec(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.Params, p.ID)
+	_, err := s.db.Exec(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update provider profile: %w", err)
 	}
@@ -199,4 +203,53 @@ func (s *Store) ListProfiles() ([]ProfileList, error) {
 		return nil, fmt.Errorf("failed to list profiles: %w", err)
 	}
 	return rows, nil
+}
+
+// GetMetadata retrieves integration metadata for all providers, grouped by auth_type
+func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
+	query := `
+		SELECT 
+			name, 
+			auth_type, 
+			COALESCE(api_base_url, '') as api_base_url, 
+			COALESCE(user_info_endpoint, '') as user_info_endpoint, 
+			scopes 
+		FROM provider_profiles 
+		WHERE deleted_at IS NULL
+		ORDER BY name`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query metadata: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]map[string]interface{})
+
+	for rows.Next() {
+		var name, authType, apiBaseURL, userInfoEndpoint string
+		var scopes []string
+
+		// auth_type usually defaults to 'oauth2' if empty in some contexts, 
+		// but here we trust the DB value.
+		if err := rows.Scan(&name, &authType, &apiBaseURL, &userInfoEndpoint, pq.Array(&scopes)); err != nil {
+			return nil, fmt.Errorf("failed to scan metadata: %w", err)
+		}
+
+		if authType == "" {
+			authType = "oauth2" // Default fallback
+		}
+
+		if _, ok := result[authType]; !ok {
+			result[authType] = make(map[string]interface{})
+		}
+
+		result[authType][name] = map[string]interface{}{
+			"api_base_url":       apiBaseURL,
+			"user_info_endpoint": userInfoEndpoint,
+			"scopes":             scopes,
+		}
+	}
+
+	return result, nil
 }
