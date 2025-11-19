@@ -109,12 +109,28 @@ func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 
 // GetProfileByName retrieves a provider profile by name
 func (s *Store) GetProfileByName(name string) (*Profile, error) {
-	var profiles []Profile
 	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, params FROM provider_profiles WHERE name = $1 AND deleted_at IS NULL`
-	err := s.db.Select(&profiles, query, name)
+
+	rows, err := s.db.Query(query, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider profile by name: %w", err)
 	}
+	defer rows.Close()
+
+	var profiles []Profile
+	for rows.Next() {
+		var p Profile
+		err := rows.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.Params)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan provider profile: %w", err)
+		}
+		profiles = append(profiles, p)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating provider profiles: %w", err)
+	}
+
 	if len(profiles) == 0 {
 		return nil, fmt.Errorf("provider '%s' not found", name)
 	}
