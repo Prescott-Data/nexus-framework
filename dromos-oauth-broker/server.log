@@ -1,0 +1,7 @@
+2025/11/19 08:52:53 Successfully connected to database
+2025/11/19 08:52:53 Successfully connected to Redis
+2025/11/19 08:52:53 Starting OAuth Broker server on port 8080
+2025/11/19 08:52:53 Base URL: http://localhost:8080
+2025/11/19 08:52:53 Starting OAuth Broker server on port 8080
+2025/11/19 08:53:07 "GET http://localhost:8080/health HTTP/1.1" from [::1]:45612 - 200 21B in 208.299µs
+2025/11/19 08:53:21 "GET http://localhost:8080/providers/by-name/twitter HTTP/1.1" from [::1]:35968 - 404 29B in 50.069504ms

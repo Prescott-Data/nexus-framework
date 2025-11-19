@@ -115,10 +115,22 @@ The simple task uncovered **multiple systemic issues**:
 3.  **Created New Provider**: Successfully created a new, clean Twitter provider via `POST /providers`. New ID: `baf7094d-134b-4fbe-a7bd-df87c3a8a1f8`.
 4.  **Verified OAuth Flow**: Successfully requested a consent URL for the new provider via `POST /auth/consent-spec`, confirming the broker can read the provider and generate valid authorization links.
 5.  **Fixed Code Bug**: Applied a fix to `GetProfileByName` in `internal/provider/store.go` to correctly handle array scanning.
+6.  **Deployed Fix**: Changes pushed to `main` and deployed to Azure Container Apps.
+7.  **Applied Migration**: Successfully ran migration `08` on the production database, enforcing unique names.
 
-### 🎯 NEXT STEPS
-1.  **Deploy Fix**: Commit and push the fix for `GetProfileByName` so the `by-name` lookup works in production.
-2.  **Apply Migration 08**: Manually run the migration in the production DB to enforce the unique constraint and prevent future duplicates.
+### ✅ Final Verification
+1.  **GET /providers/by-name/twitter**:
+    - **Result**: `200 OK`
+    - **Payload**: `{"id":"baf7094d-134b-4fbe-a7bd-df87c3a8a1f8"}`
+    - **Confirmation**: The API code fix works; scan error is gone.
+
+2.  **POST /providers (Duplicate)**:
+    - **Result**: `400 Bad Request`
+    - **Payload**: `Failed to create provider: provider with name 'twitter' already exists`
+    - **Confirmation**: The unique constraint and application logic are correctly preventing duplicates.
+
+### 🏁 CONCLUSION
+The Twitter provider configuration is fixed, the duplicate data has been cleaned up, and the system is now hardened against future naming conflicts. The API is fully functional.
 
 ## INFRASTRUCTURE DETAILS
 
@@ -132,3 +144,4 @@ The simple task uncovered **multiple systemic issues**:
 ---
 **Last Updated**: November 19, 2025
 **Git Branch**: main
+**Status**: STABLE
