@@ -96,7 +96,7 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 // GetProfile retrieves a provider profile by ID
 func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 	var p Profile
-	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, params FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
+	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), params FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
 
 	row := s.db.QueryRow(query, id)
 	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.Params)
@@ -109,7 +109,7 @@ func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 
 // GetProfileByName retrieves a provider profile by name
 func (s *Store) GetProfileByName(name string) (*Profile, error) {
-	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, params FROM provider_profiles WHERE name = $1 AND deleted_at IS NULL`
+	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), params FROM provider_profiles WHERE name = $1 AND deleted_at IS NULL`
 
 	rows, err := s.db.Query(query, name)
 	if err != nil {
