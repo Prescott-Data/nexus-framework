@@ -11,6 +11,21 @@ servers:
   - url: http://localhost:8090
     description: Local development
 paths:
+  /v1/providers:
+    get:
+      summary: Retrieve provider metadata
+      operationId: getProviders
+      responses:
+        '200':
+          description: Grouped provider configuration (base URLs, scopes)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderMetadataResponse'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/UpstreamError'
   /v1/request-connection:
     post:
       summary: Initiate a user consent connection
@@ -86,6 +101,19 @@ paths:
           $ref: '#/components/responses/UpstreamError'
 components:
   schemas:
+    ProviderMetadataResponse:
+      type: object
+      description: Map of auth_type to provider config map
+      additionalProperties:
+        type: object
+        additionalProperties:
+          type: object
+          properties:
+            api_base_url: { type: string }
+            user_info_endpoint: { type: string }
+            scopes:
+              type: array
+              items: { type: string }
     RequestConnectionInput:
       type: object
       additionalProperties: false
