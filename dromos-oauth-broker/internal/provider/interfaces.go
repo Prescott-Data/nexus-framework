@@ -19,4 +19,5 @@ type ProfileStorer interface {
 	DeleteProfile(id uuid.UUID) error
 	DeleteProfileByName(name string) (int64, error)
 	ListProfiles() ([]ProfileList, error)
+	GetMetadata() (map[string]map[string]interface{}, error)
 }
