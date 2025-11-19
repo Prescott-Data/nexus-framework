@@ -174,3 +174,26 @@ Enforce mutual TLS for all internal service-to-service traffic (e.g., gateway â†
 3) Implement the `PUT /providers/{id}` endpoint.
 4) Update any relevant documentation to reflect the new API endpoints.
 
+---
+
+## Technical Debt: Structured Logging and Audit Separation
+
+### Current Posture
+- The application logs application events (startup, errors) to `stdout`.
+- It **also** writes structured `audit_events` (success/fail, errors with full JSON payloads) directly to the primary PostgreSQL database.
+- This is convenient for small-scale debugging but poses a significant risk for high-scale production (database I/O bottleneck, storage costs, bloat).
+
+### Goal
+Decouple operational logging from the transactional database.
+
+### Acceptance Criteria
+- **Application Logs (Debug/Info/Error):** Should be emitted strictly to `stdout` in structured JSON format. These should be collected by a log aggregator (Fluentd, Promtail, Azure Monitor) and NOT written to the database.
+- **Audit Logs (Compliance/Security):** Only critical "Audit" events (e.g., "Consent Granted", "Token Retrieved", "Provider Modified") should be written to the database `audit_events` table for compliance/history. High-volume failures or debug traces should move to the log aggregator.
+- **Retention:** Implement a retention policy (e.g., 90 days) for the database audit logs to prevent infinite growth.
+
+### Rollout Plan
+1.  **Instrument Logging:** Ensure all critical errors currently in `audit_events` are also logged to `stdout` with sufficient context (trace IDs).
+2.  **Filter Database Writes:** Modify the `logAuditEvent` function to only write to DB for specific `event_type` values (success/compliance), dropping generic debug/error events from the DB write path (or toggling them via config).
+3.  **Log Aggregation:** Ensure the deployment environment (Kubernetes/Azure Container Apps) is configured to scrape stdout to a searchable store.
+
+
