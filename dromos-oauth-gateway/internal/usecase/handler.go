@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"dromos-oauth-gateway/internal/broker"
 	"dromos-oauth-gateway/internal/logging"
 )
 
@@ -52,7 +52,7 @@ func writeError(w http.ResponseWriter, status int, code, message string, fields 
 type Handler struct {
 	brokerBaseURL string
 	stateKey      []byte
-	httpClient    *http.Client
+	brokerClient  *broker.ClientWithResponses
 	providerCache map[string]providerCacheEntry
 	cacheMu       sync.RWMutex
 	brokerAPIKey  string
@@ -67,12 +67,32 @@ func NewHandler(brokerBaseURL string, stateKey []byte, httpClient *http.Client) 
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
+
+	baseURL := strings.TrimRight(brokerBaseURL, "/")
+	apiKey := strings.TrimSpace(getEnv("BROKER_API_KEY", ""))
+
+	// Create the generated client
+	client, err := broker.NewClientWithResponses(baseURL, 
+		broker.WithHTTPClient(httpClient),
+		broker.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+			if apiKey != "" {
+				req.Header.Set("X-API-Key", apiKey)
+			}
+			return nil
+		}),
+	)
+	if err != nil {
+		// Should only happen if URL is invalid, but NewClient doesn't return error often.
+		// We panic here because a bad base URL is a startup config error.
+		panic(fmt.Errorf("failed to create broker client: %w", err))
+	}
+
 	return &Handler{
-		brokerBaseURL: strings.TrimRight(brokerBaseURL, "/"),
+		brokerBaseURL: baseURL,
 		stateKey:      stateKey,
-		httpClient:    httpClient,
+		brokerClient:  client,
 		providerCache: make(map[string]providerCacheEntry),
-		brokerAPIKey:  strings.TrimSpace(getEnv("BROKER_API_KEY", "")),
+		brokerAPIKey:  apiKey,
 	}
 }
 
@@ -162,59 +182,67 @@ func (h *Handler) RequestConnectionCore(ctx context.Context, in RequestConnectio
 		}
 	}
 
-	payload := map[string]interface{}{
-		"workspace_id": in.UserID,
-		"provider_id":  providerID,
-		"scopes":       in.Scopes,
-		"return_url":   in.ReturnURL,
-	}
-	body, _ := json.Marshal(payload)
-	brokerURL := h.brokerBaseURL + "/auth/consent-spec"
-	httpReq, _ := http.NewRequestWithContext(ctx, "POST", brokerURL, strings.NewReader(string(body)))
-	httpReq.Header.Set("Content-Type", "application/json")
-	if h.brokerAPIKey != "" {
-		httpReq.Header.Set("X-API-Key", h.brokerAPIKey)
+	// Call Broker using generated client
+	reqBody := broker.ConsentSpecRequest{
+		WorkspaceId: in.UserID,
+		ProviderId:  &providerID,
+		Scopes:      &in.Scopes,
+		ReturnUrl:   in.ReturnURL,
 	}
 
-	resp, err := h.httpClient.Do(httpReq)
+	resp, err := h.brokerClient.PostAuthConsentSpecWithResponse(ctx, reqBody)
 	if err != nil {
 		logging.Error(ctx, "request_connection.core_broker_error", map[string]any{"error": err.Error()})
 		return RequestConnectionOutput{}, fmt.Errorf("%w: %v", ErrBrokerUnavailable, err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		logging.Error(ctx, "request_connection.core_broker_status", map[string]any{"status": resp.StatusCode})
-		return RequestConnectionOutput{}, &BrokerStatusError{Status: resp.StatusCode}
+	
+	if resp.StatusCode() != http.StatusOK {
+		logging.Error(ctx, "request_connection.core_broker_status", map[string]any{"status": resp.StatusCode()})
+		return RequestConnectionOutput{}, &BrokerStatusError{Status: resp.StatusCode()}
 	}
+	
+	if resp.JSON200 == nil {
+		logging.Error(ctx, "request_connection.core_empty_response", nil)
+		return RequestConnectionOutput{}, fmt.Errorf("%w: empty response", ErrBrokerInvalidResponse)
+	}
+	spec := resp.JSON200
 
-	var spec struct {
-		AuthURL    string   `json:"authUrl"`
-		State      string   `json:"state"`
-		Scopes     []string `json:"scopes"`
-		ProviderID string   `json:"provider_id"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&spec); err != nil {
-		logging.Error(ctx, "request_connection.core_decode_error", map[string]any{"error": err.Error()})
-		return RequestConnectionOutput{}, fmt.Errorf("%w: %v", ErrBrokerInvalidResponse, err)
-	}
+	// The generated struct fields might be pointers if nullable in YAML.
+	// In our YAML, they are strings (not nullable). oapi-codegen usually generates pointers for optional fields.
+	// Checking yaml: fields are not 'required' in the response schema? 
+	// Wait, in openapi.yaml ConsentSpecResponse fields were NOT marked required explicitly in the schema object, 
+	// so they will likely be pointers.
+	// Let's handle pointers safely.
+	
+	state := ""
+	if spec.State != nil { state = *spec.State }
+	
+	authURL := ""
+	if spec.AuthUrl != nil { authURL = *spec.AuthUrl }
 
-	connectionID, err := VerifyAndExtractConnectionID(h.stateKey, spec.State)
+	connectionID, err := VerifyAndExtractConnectionID(h.stateKey, state)
 	if err != nil {
 		logging.Error(ctx, "request_connection.core_state_invalid", map[string]any{"error": err.Error()})
 		return RequestConnectionOutput{}, fmt.Errorf("%w: %v", ErrInvalidState, err)
 	}
 
+	var scopes []string
+	if spec.Scopes != nil { scopes = *spec.Scopes }
+	
+	var pid string
+	if spec.ProviderId != nil { pid = *spec.ProviderId }
+
 	out := RequestConnectionOutput{
-		AuthURL:      spec.AuthURL,
-		State:        spec.State,
-		Scopes:       spec.Scopes,
-		ProviderID:   spec.ProviderID,
+		AuthURL:      authURL,
+		State:        state,
+		Scopes:       scopes,
+		ProviderID:   pid,
 		ConnectionID: connectionID,
 	}
 	logging.Info(ctx, "request_connection.core_success", map[string]any{
-		"provider_id":   spec.ProviderID,
+		"provider_id":   pid,
 		"connection_id": connectionID,
-		"auth_url":      logging.RedactQuery(spec.AuthURL),
+		"auth_url":      logging.RedactQuery(authURL),
 	})
 	return out, nil
 }
@@ -225,82 +253,59 @@ func (h *Handler) resolveProviderID(ctx context.Context, providerName string) (s
 	if name == "" {
 		return "", fmt.Errorf("empty provider_name")
 	}
-	// Try a canonical by-name endpoint first
-	byNameURL := h.brokerBaseURL + "/providers/by-name/" + url.PathEscape(name)
-	req, _ := http.NewRequestWithContext(ctx, "GET", byNameURL, nil)
-	if h.brokerAPIKey != "" {
-		req.Header.Set("X-API-Key", h.brokerAPIKey)
+	
+	// Try canonical by-name endpoint
+	resp, err := h.brokerClient.GetProvidersByNameNameWithResponse(ctx, name)
+	if err == nil && resp.StatusCode() == http.StatusOK && resp.JSON200 != nil && resp.JSON200.Id != nil {
+		return *resp.JSON200.Id, nil
 	}
-	resp, err := h.httpClient.Do(req)
-	if err == nil && resp != nil {
-		defer resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
-			var body struct {
-				ID string `json:"id"`
-			}
-			if err := json.NewDecoder(resp.Body).Decode(&body); err == nil && strings.TrimSpace(body.ID) != "" {
-				return body.ID, nil
+
+	// Fallback: list and filter
+	listResp, err := h.brokerClient.GetProvidersWithResponse(ctx)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrBrokerUnavailable, err)
+	}
+	if listResp.StatusCode() != http.StatusOK {
+		return "", &BrokerStatusError{Status: listResp.StatusCode()}
+	}
+	if listResp.JSON200 == nil {
+		return "", fmt.Errorf("%w: empty list", ErrBrokerInvalidResponse)
+	}
+
+	lower := strings.ToLower(name)
+	var matchedID string
+	matches := 0
+	
+	for _, p := range *listResp.JSON200 {
+		if p.Name != nil && strings.ToLower(strings.TrimSpace(*p.Name)) == lower {
+			if p.Id != nil {
+				matchedID = *p.Id
+				matches++
 			}
 		}
 	}
 
-	// Fallback: list and filter
-	listURL := h.brokerBaseURL + "/providers"
-	req2, _ := http.NewRequestWithContext(ctx, "GET", listURL, nil)
-	if h.brokerAPIKey != "" {
-		req2.Header.Set("X-API-Key", h.brokerAPIKey)
-	}
-	resp2, err2 := h.httpClient.Do(req2)
-	if err2 != nil {
-		return "", fmt.Errorf("%w: %v", ErrBrokerUnavailable, err2)
-	}
-	defer resp2.Body.Close()
-	if resp2.StatusCode != http.StatusOK {
-		return "", &BrokerStatusError{Status: resp2.StatusCode}
-	}
-	var providers []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
-	if err := json.NewDecoder(resp2.Body).Decode(&providers); err != nil {
-		return "", fmt.Errorf("%w: %v", ErrBrokerInvalidResponse, err)
-	}
-	lower := strings.ToLower(name)
-	matches := make([]string, 0, 1)
-	for _, p := range providers {
-		if strings.ToLower(strings.TrimSpace(p.Name)) == lower {
-			matches = append(matches, strings.TrimSpace(p.ID))
-		}
-	}
-	if len(matches) == 0 {
+	if matches == 0 {
 		return "", fmt.Errorf("%w: %s", ErrProviderNotFound, name)
 	}
-	if len(matches) > 1 {
+	if matches > 1 {
 		return "", fmt.Errorf("%w: %s", ErrProviderAmbiguous, name)
 	}
-	if matches[0] == "" {
-		return "", fmt.Errorf("provider id empty for '%s'", name)
-	}
-	return matches[0], nil
+	return matchedID, nil
 }
 
 // CheckConnectionCore probes broker token endpoint to infer status.
 func (h *Handler) CheckConnectionCore(ctx context.Context, connectionID string) (string, error) {
-	brokerURL := h.brokerBaseURL + "/connections/" + connectionID + "/token"
-	httpReq, _ := http.NewRequestWithContext(ctx, "GET", brokerURL, nil)
-	if h.brokerAPIKey != "" {
-		httpReq.Header.Set("X-API-Key", h.brokerAPIKey)
-	}
-	resp, err := h.httpClient.Do(httpReq)
+	// We use the GetToken endpoint to check existence
+	resp, err := h.brokerClient.GetConnectionsConnectionIDTokenWithResponse(ctx, connectionID)
 	if err != nil {
 		return "", fmt.Errorf("broker request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
+	
 	status := "pending"
-	if resp.StatusCode == http.StatusOK {
+	if resp.StatusCode() == http.StatusOK {
 		status = "active"
-	} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+	} else if resp.StatusCode() >= 400 && resp.StatusCode() < 500 {
 		status = "failed"
 	}
 	return status, nil
@@ -392,71 +397,87 @@ func (h *Handler) GetToken(w http.ResponseWriter, r *http.Request) {
 
 	logging.Info(r.Context(), "get_token.start", map[string]any{"connection_id": connectionID})
 
-	brokerURL := h.brokerBaseURL + "/connections/" + connectionID + "/token"
-	httpReq, _ := http.NewRequest("GET", brokerURL, nil)
-	if h.brokerAPIKey != "" {
-		httpReq.Header.Set("X-API-Key", h.brokerAPIKey)
-	}
-	resp, err := h.httpClient.Do(httpReq)
+	// Using generated client
+	resp, err := h.brokerClient.GetConnectionsConnectionIDTokenWithResponse(r.Context(), connectionID)
 	if err != nil {
 		logging.Error(r.Context(), "get_token.broker_error", map[string]any{"error": err.Error()})
 		writeError(w, http.StatusBadGateway, "broker_unavailable", "broker request failed", nil)
 		return
 	}
-	defer resp.Body.Close()
 
-	// Proxy response without logging body; do not store tokens
-	for k, vv := range resp.Header {
-		for _, v := range vv {
-			w.Header().Add(k, v)
-		}
+	logging.Info(r.Context(), "get_token.proxy", map[string]any{"connection_id": connectionID, "status": resp.StatusCode()})
+	
+	if resp.StatusCode() == http.StatusOK && resp.JSON200 != nil {
+		writeJSON(w, http.StatusOK, resp.JSON200)
+		return
 	}
-	logging.Info(r.Context(), "get_token.proxy", map[string]any{"connection_id": connectionID, "status": resp.StatusCode})
-	w.WriteHeader(resp.StatusCode)
-	_, _ = ioCopy(w, resp.Body)
+
+	// If not 200 OK or error body, just forward the status and generic error
+	if resp.StatusCode() >= 400 {
+		w.WriteHeader(resp.StatusCode())
+		return
+	}
+	
+	w.WriteHeader(resp.StatusCode())
 }
 
 // GetTokenCore fetches the decrypted token JSON from the broker and returns it as a generic map.
+// Refactored to use generated client and convert struct back to map for backwards compat or generic usage.
 func (h *Handler) GetTokenCore(ctx context.Context, connectionID string) (map[string]any, int, error) {
-	brokerURL := h.brokerBaseURL + "/connections/" + connectionID + "/token"
-	httpReq, _ := http.NewRequestWithContext(ctx, "GET", brokerURL, nil)
-	if h.brokerAPIKey != "" {
-		httpReq.Header.Set("X-API-Key", h.brokerAPIKey)
-	}
-	resp, err := h.httpClient.Do(httpReq)
+	resp, err := h.brokerClient.GetConnectionsConnectionIDTokenWithResponse(ctx, connectionID)
 	if err != nil {
 		return nil, http.StatusBadGateway, fmt.Errorf("broker request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	var token map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&token); err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("invalid token response: %w", err)
+	
+	if resp.StatusCode() != http.StatusOK {
+		return nil, resp.StatusCode(), nil
 	}
-	return token, resp.StatusCode, nil
+	
+	if resp.JSON200 == nil {
+		return nil, resp.StatusCode(), fmt.Errorf("empty response")
+	}
+
+	// Convert TokenResponse struct back to map[string]any
+	data, _ := json.Marshal(resp.JSON200)
+	var tokenMap map[string]any
+	_ = json.Unmarshal(data, &tokenMap)
+	
+	return tokenMap, http.StatusOK, nil
 }
 
 // GetProvidersCore fetches provider metadata from the broker
 func (h *Handler) GetProvidersCore(ctx context.Context) (map[string]any, error) {
-	brokerURL := h.brokerBaseURL + "/providers/metadata"
-	httpReq, _ := http.NewRequestWithContext(ctx, "GET", brokerURL, nil)
-	if h.brokerAPIKey != "" {
-		httpReq.Header.Set("X-API-Key", h.brokerAPIKey)
-	}
-	resp, err := h.httpClient.Do(httpReq)
+	resp, err := h.brokerClient.GetProvidersMetadataWithResponse(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBrokerUnavailable, err)
 	}
-	defer resp.Body.Close()
 	
-	if resp.StatusCode != http.StatusOK {
-		return nil, &BrokerStatusError{Status: resp.StatusCode}
+	if resp.StatusCode() != http.StatusOK {
+		return nil, &BrokerStatusError{Status: resp.StatusCode()}
 	}
 
-	var metadata map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&metadata); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBrokerInvalidResponse, err)
+	if resp.JSON200 == nil {
+		return nil, fmt.Errorf("%w: empty response", ErrBrokerInvalidResponse)
 	}
+
+	// The generated type MetadataResponse is already a map[string]... structure 
+	// defined as AdditionalProperties in YAML.
+	// oapi-codegen generates: type MetadataResponse map[string]map[string]interface{}
+	// Wait, the YAML says: 
+	// MetadataResponse: 
+	//   additionalProperties: 
+	//     type: object
+	//     additionalProperties: ...
+	// So `resp.JSON200` should be `*MetadataResponse`.
+	// We can cast it or marshal/unmarshal if types don't align exactly with map[string]any.
+	// Since `MetadataResponse` IS a map type in Go (usually), let's see.
+	// Ideally we return the struct, but the signature here asks for map[string]any.
+	
+	// Let's marshal/unmarshal to be safe and generic
+	data, _ := json.Marshal(resp.JSON200)
+	var metadata map[string]any
+	_ = json.Unmarshal(data, &metadata)
+	
 	return metadata, nil
 }
 
