@@ -209,6 +209,7 @@ func (s *Store) ListProfiles() ([]ProfileList, error) {
 func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
 	query := `
 		SELECT 
+			id,
 			name, 
 			auth_type, 
 			COALESCE(api_base_url, '') as api_base_url, 
@@ -227,12 +228,13 @@ func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
 	result := make(map[string]map[string]interface{})
 
 	for rows.Next() {
+		var id uuid.UUID
 		var name, authType, apiBaseURL, userInfoEndpoint string
 		var scopes []string
 
 		// auth_type usually defaults to 'oauth2' if empty in some contexts, 
 		// but here we trust the DB value.
-		if err := rows.Scan(&name, &authType, &apiBaseURL, &userInfoEndpoint, pq.Array(&scopes)); err != nil {
+		if err := rows.Scan(&id, &name, &authType, &apiBaseURL, &userInfoEndpoint, pq.Array(&scopes)); err != nil {
 			return nil, fmt.Errorf("failed to scan metadata: %w", err)
 		}
 
@@ -245,6 +247,7 @@ func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
 		}
 
 		result[authType][name] = map[string]interface{}{
+			"id":                 id.String(),
 			"api_base_url":       apiBaseURL,
 			"user_info_endpoint": userInfoEndpoint,
 			"scopes":             scopes,

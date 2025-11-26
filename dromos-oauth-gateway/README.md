@@ -40,6 +40,80 @@ Retrieve the access token for a completed connection.
 GET /v1/token/{connection_id}
 ```
 
+## Provider Management
+
+The Gateway exposes endpoints to manage provider configurations. These proxy directly to the Broker, allowing for standardized management UIs.
+
+### 5. Create Provider
+Register a new provider. Supports both standard OAuth2 providers and API Key providers (via schema).
+
+**Option A: Standard OAuth2 Provider**
+```http
+POST /v1/providers
+Content-Type: application/json
+
+{
+  "profile": {
+    "name": "google",
+    "client_id": "...",
+    "client_secret": "...",
+    "scopes": ["email"],
+    "issuer": "https://accounts.google.com"
+  }
+}
+```
+
+**Option B: Non-OAuth (API Key) Provider**
+For providers requiring a custom schema (to render a form on the frontend):
+```http
+POST /v1/providers
+Content-Type: application/json
+
+{
+  "profile": {
+    "name": "custom-service",
+    "auth_type": "api_key",
+    "params": {
+      "credential_schema": {
+        "type": "object",
+        "properties": {
+          "api_key": { "type": "string", "title": "API Key" }
+        },
+        "required": ["api_key"]
+      }
+    }
+  }
+}
+```
+
+### 6. Get Provider
+Get full configuration details for a specific provider.
+
+```http
+GET /v1/providers/{id}
+```
+
+### 7. Update Provider
+Update an existing provider.
+
+```http
+PUT /v1/providers/{id}
+Content-Type: application/json
+
+{
+  "name": "google",
+  "client_id": "new-id",
+  ...
+}
+```
+
+### 8. Delete Provider
+Soft-delete a provider.
+
+```http
+DELETE /v1/providers/{id}
+```
+
 ## Development
 
 ### Prerequisites

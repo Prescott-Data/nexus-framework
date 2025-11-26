@@ -102,6 +102,7 @@ components:
         additionalProperties:
           type: object
           properties:
+            id: { type: string }
             api_base_url: { type: string }
             user_info_endpoint: { type: string }
             scopes:
