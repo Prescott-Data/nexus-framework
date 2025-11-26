@@ -11,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"dromos-oauth-gateway/internal/broker"
 	"dromos-oauth-gateway/internal/logging"
 )
@@ -495,4 +498,123 @@ func (h *Handler) GetProviders(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	writeJSON(w, http.StatusOK, metadata)
+}
+
+// CreateProvider registers a new provider via the broker
+func (h *Handler) CreateProvider(w http.ResponseWriter, r *http.Request) {
+	logging.Info(r.Context(), "create_provider.start", nil)
+
+	var body broker.PostProvidersJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "invalid json body", nil)
+		return
+	}
+
+	resp, err := h.brokerClient.PostProvidersWithResponse(r.Context(), body)
+	if err != nil {
+		logging.Error(r.Context(), "create_provider.broker_error", map[string]any{"error": err.Error()})
+		writeError(w, http.StatusBadGateway, "broker_unavailable", "broker request failed", nil)
+		return
+	}
+
+	if resp.StatusCode() != http.StatusCreated && resp.StatusCode() != http.StatusOK {
+		logging.Error(r.Context(), "create_provider.broker_status", map[string]any{"status": resp.StatusCode()})
+		// Try to read error body if available or just return status
+		w.WriteHeader(resp.StatusCode())
+		return
+	}
+
+	if resp.JSON201 != nil {
+		writeJSON(w, http.StatusCreated, resp.JSON201)
+	} else {
+		w.WriteHeader(http.StatusCreated)
+	}
+}
+
+// GetProvider retrieves a single provider profile by ID
+func (h *Handler) GetProvider(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	providerID, err := uuid.Parse(idStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_id", "invalid provider id", nil)
+		return
+	}
+
+	logging.Info(r.Context(), "get_provider.start", map[string]any{"id": idStr})
+
+	resp, err := h.brokerClient.GetProvidersIdWithResponse(r.Context(), providerID)
+	if err != nil {
+		logging.Error(r.Context(), "get_provider.broker_error", map[string]any{"error": err.Error()})
+		writeError(w, http.StatusBadGateway, "broker_unavailable", "broker request failed", nil)
+		return
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		w.WriteHeader(resp.StatusCode())
+		return
+	}
+
+	if resp.JSON200 != nil {
+		writeJSON(w, http.StatusOK, resp.JSON200)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// UpdateProvider updates an existing provider by ID
+func (h *Handler) UpdateProvider(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	providerID, err := uuid.Parse(idStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_id", "invalid provider id", nil)
+		return
+	}
+
+	logging.Info(r.Context(), "update_provider.start", map[string]any{"id": idStr})
+
+	var body broker.PutProvidersIdJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "invalid json body", nil)
+		return
+	}
+
+	resp, err := h.brokerClient.PutProvidersIdWithResponse(r.Context(), providerID, body)
+	if err != nil {
+		logging.Error(r.Context(), "update_provider.broker_error", map[string]any{"error": err.Error()})
+		writeError(w, http.StatusBadGateway, "broker_unavailable", "broker request failed", nil)
+		return
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		w.WriteHeader(resp.StatusCode())
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// DeleteProvider deletes a provider by ID
+func (h *Handler) DeleteProvider(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	providerID, err := uuid.Parse(idStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_id", "invalid provider id", nil)
+		return
+	}
+
+	logging.Info(r.Context(), "delete_provider.start", map[string]any{"id": idStr})
+
+	resp, err := h.brokerClient.DeleteProvidersIdWithResponse(r.Context(), providerID)
+	if err != nil {
+		logging.Error(r.Context(), "delete_provider.broker_error", map[string]any{"error": err.Error()})
+		writeError(w, http.StatusBadGateway, "broker_unavailable", "broker request failed", nil)
+		return
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		w.WriteHeader(resp.StatusCode())
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
