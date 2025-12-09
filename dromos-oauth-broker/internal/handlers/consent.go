@@ -150,9 +150,20 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Attempt OIDC discovery to use the provider's authorization_endpoint
+		// Only if 'openid' scope is requested to avoid overwriting standard OAuth2 endpoints (e.g. Slack)
 		useAuthURL := provider.AuthURL
-		if md, errD := discovery.Discover(r.Context(), h.httpClient, discovery.Hint{AuthURL: provider.AuthURL}); errD == nil && strings.TrimSpace(md.AuthorizationEndpoint) != "" {
-			useAuthURL = md.AuthorizationEndpoint
+		hasOpenID := false
+		for _, s := range request.Scopes {
+			if strings.EqualFold(s, "openid") {
+				hasOpenID = true
+				break
+			}
+		}
+
+		if hasOpenID {
+			if md, errD := discovery.Discover(r.Context(), h.httpClient, discovery.Hint{AuthURL: provider.AuthURL}); errD == nil && strings.TrimSpace(md.AuthorizationEndpoint) != "" {
+				useAuthURL = md.AuthorizationEndpoint
+			}
 		}
 
 		// Build auth URL
