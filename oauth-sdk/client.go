@@ -95,15 +95,17 @@ type ConnectionStatusResponse struct { Status string `json:"status"` }
 
 // TokenResponse is minimally typed; extra fields are retained in Raw.
 type TokenResponse struct {
-    AccessToken  string  `json:"access_token"`
-    TokenType    *string `json:"token_type,omitempty"`
-    ExpiresIn    *int64  `json:"expires_in,omitempty"`
-    ExpiresAt    any     `json:"expires_at,omitempty"`
-    Scope        *string `json:"scope,omitempty"`
-    IDToken      *string `json:"id_token,omitempty"`
-    RefreshToken *string `json:"refresh_token,omitempty"`
-    Provider     *string `json:"provider,omitempty"`
-    Raw          map[string]any `json:"-"`
+    AccessToken  string                 `json:"access_token"`
+    TokenType    *string                `json:"token_type,omitempty"`
+    ExpiresIn    *int64                 `json:"expires_in,omitempty"`
+    ExpiresAt    any                    `json:"expires_at,omitempty"`
+    Scope        *string                `json:"scope,omitempty"`
+    IDToken      *string                `json:"id_token,omitempty"`
+    RefreshToken *string                `json:"refresh_token,omitempty"`
+    Provider     *string                `json:"provider,omitempty"`
+    Strategy     map[string]interface{} `json:"strategy,omitempty"`
+    Credentials  map[string]interface{} `json:"credentials,omitempty"`
+    Raw          map[string]any         `json:"-"`
 }
 
 type ErrorEnvelope struct {
@@ -153,7 +155,8 @@ func (c *Client) GetToken(ctx context.Context, connectionID string) (*TokenRespo
     if v, ok := raw["id_token"].(string); ok { tr.IDToken = &v }
     if v, ok := raw["refresh_token"].(string); ok { tr.RefreshToken = &v }
     if v, ok := raw["provider"].(string); ok { tr.Provider = &v }
-    if tr.AccessToken == "" { return tr, errors.New("missing access_token in response") }
+    if v, ok := raw["strategy"].(map[string]interface{}); ok { tr.Strategy = v }
+    if v, ok := raw["credentials"].(map[string]interface{}); ok { tr.Credentials = v }
     return tr, nil
 }
 
@@ -178,7 +181,8 @@ func (c *Client) RefreshViaBroker(ctx context.Context, connectionID string) (*To
     if v, ok := raw["id_token"].(string); ok { tr.IDToken = &v }
     if v, ok := raw["refresh_token"].(string); ok { tr.RefreshToken = &v }
     if v, ok := raw["provider"].(string); ok { tr.Provider = &v }
-    if tr.AccessToken == "" { return tr, errors.New("missing access_token in response") }
+    if v, ok := raw["strategy"].(map[string]interface{}); ok { tr.Strategy = v }
+    if v, ok := raw["credentials"].(map[string]interface{}); ok { tr.Credentials = v }
     return tr, nil
 }
 
