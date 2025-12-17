@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"dromos.io/bridge/internal/auth"
 	"github.com/gorilla/websocket"
 )
 
@@ -115,7 +116,11 @@ func TestBridge_PermanentCloseCode(t *testing.T) {
 	t.Parallel()
 	authClient := &mockOAuthClient{
 		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{AccessToken: "test-token", ExpiresAt: time.Now().Add(1 * time.Hour).Unix()}, nil
+			return &Token{
+				Strategy:    auth.AuthStrategy{Type: "oauth2"},
+				Credentials: auth.Credentials{"access_token": "test-token"},
+				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+			}, nil
 		},
 	}
 
@@ -150,7 +155,11 @@ func TestBridge_ConnectionDropAndReconnect(t *testing.T) {
 	t.Parallel()
 	authClient := &mockOAuthClient{
 		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{AccessToken: "test-token", ExpiresAt: time.Now().Add(1 * time.Hour).Unix()}, nil
+			return &Token{
+				Strategy:    auth.AuthStrategy{Type: "oauth2"},
+				Credentials: auth.Credentials{"access_token": "test-token"},
+				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+			}, nil
 		},
 	}
 
@@ -201,7 +210,11 @@ func TestBridge_ContextCancellation(t *testing.T) {
 	t.Parallel()
 	authClient := &mockOAuthClient{
 		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{AccessToken: "test-token", ExpiresAt: time.Now().Add(1 * time.Hour).Unix()}, nil
+			return &Token{
+				Strategy:    auth.AuthStrategy{Type: "oauth2"},
+				Credentials: auth.Credentials{"access_token": "test-token"},
+				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+			}, nil
 		},
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -240,7 +253,11 @@ func TestBridge_HappyPath(t *testing.T) {
 	t.Parallel()
 	authClient := &mockOAuthClient{
 		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{AccessToken: "test-token", ExpiresAt: time.Now().Add(1 * time.Hour).Unix()}, nil
+			return &Token{
+				Strategy:    auth.AuthStrategy{Type: "oauth2"},
+				Credentials: auth.Credentials{"access_token": "test-token"},
+				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+			}, nil
 		},
 	}
 
@@ -276,7 +293,11 @@ func TestBridge_MessageSizeLimit(t *testing.T) {
 	t.Parallel()
 	authClient := &mockOAuthClient{
 		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{AccessToken: "test-token", ExpiresAt: time.Now().Add(1 * time.Hour).Unix()}, nil
+			return &Token{
+				Strategy:    auth.AuthStrategy{Type: "oauth2"},
+				Credentials: auth.Credentials{"access_token": "test-token"},
+				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+			}, nil
 		},
 	}
 
@@ -345,12 +366,20 @@ func TestBridge_TokenRefreshWithoutDisconnect(t *testing.T) {
 	authClient := &mockOAuthClient{
 		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
 			// Initial token expires soon.
-			return &Token{AccessToken: "initial-token", ExpiresAt: time.Now().Add(500 * time.Millisecond).Unix()}, nil
+			return &Token{
+				Strategy:    auth.AuthStrategy{Type: "oauth2"},
+				Credentials: auth.Credentials{"access_token": "initial-token"},
+				ExpiresAt:   time.Now().Add(2 * time.Second).Unix(),
+			}, nil
 		},
 		refreshViaBrokerFunc: func(ctx context.Context, connectionID string) (*Token, error) {
 			refreshChan <- struct{}{}
 			// Refreshed token has a long expiry.
-			return &Token{AccessToken: "refreshed-token", ExpiresAt: time.Now().Add(1 * time.Hour).Unix()}, nil
+			return &Token{
+				Strategy:    auth.AuthStrategy{Type: "oauth2"},
+				Credentials: auth.Credentials{"access_token": "refreshed-token"},
+				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+			}, nil
 		},
 	}
 

@@ -8,7 +8,10 @@ import (
 	"net/http"
 	"time"
 
+	"dromos.io/bridge/internal/auth"
+	"dromos.io/bridge/telemetry"
 	"github.com/gorilla/websocket"
+	"google.golang.org/grpc"
 )
 
 // MOCK for dromos-oauth-sdk
@@ -18,7 +21,8 @@ type OAuthClient interface {
 }
 
 type Token struct {
-	AccessToken string
+	Strategy    auth.AuthStrategy
+	Credentials auth.Credentials
 	ExpiresAt   int64 // Unix timestamp
 }
 
@@ -62,6 +66,20 @@ func New(oauthClient OAuthClient, opts ...Option) *Bridge {
 	return bridge
 }
 
+// NewStandard creates a new Bridge with production-ready defaults:
+// - Structured JSON logging (Slog) to Stdout
+// - Prometheus metrics registered to the default registry
+func NewStandard(oauthClient OAuthClient, opts ...Option) *Bridge {
+	// Prepend telemetry options so user can still override them if needed (though unlikely)
+	defaultOpts := []Option{
+		WithLogger(telemetry.NewLogger()),
+		WithMetrics(telemetry.NewMetrics(nil)), // nil = use default registry
+	}
+	// Combine defaults + user opts
+	finalOpts := append(defaultOpts, opts...)
+	return New(oauthClient, finalOpts...)
+}
+
 // MaintainWebSocket is the main entry point. It runs a loop that attempts
 // to establish and manage a connection, with a backoff policy for retries.
 func (b *Bridge) MaintainWebSocket(ctx context.Context, connectionID string, endpointURL string, handler Handler) error {
@@ -91,6 +109,89 @@ func (b *Bridge) MaintainWebSocket(ctx context.Context, connectionID string, end
 	}
 }
 
+// MaintainGRPCConnection manages a persistent gRPC connection.
+// It handles authentication, dialing, and reconnection.
+// The 'run' function is called with the established ClientConn.
+func (b *Bridge) MaintainGRPCConnection(
+	ctx context.Context,
+	connectionID string,
+	target string,
+	run func(ctx context.Context, conn *grpc.ClientConn) error,
+	opts ...grpc.DialOption,
+) error {
+	for {
+		// 1. Prepare Credentials
+		// We use our custom PerRPCCredentials implementation
+		creds := NewBridgeCredentials(b.oauthClient, connectionID, b.refreshBuffer, b.logger)
+
+		// 2. Dial Options
+		// Default to TransportCredentials (TLS) usually, but allow insecure via opts if needed.
+		// However, PerRPCCredentials usually requires TLS.
+		// For simplicity/testing, we default to insecure if no transport creds provided,
+		// BUT BridgeCredentials.RequireTransportSecurity returns true, so gRPC will fail if insecure.
+		// We append our creds to the user provided options.
+		dialOpts := append(opts, grpc.WithPerRPCCredentials(creds))
+
+		// If user didn't provide transport credentials, we might need to add insecure for testing
+		// OR we assume user provides WithTransportCredentials.
+		// Let's assume user provides transport security options in 'opts'.
+		// But for a robust default, we check? No, we can't easily inspect DialOptions.
+		// We rely on the user to provide transport security (e.g. credentials.NewTLS) in 'opts'
+		// if they are connecting to a secure endpoint.
+
+		// 3. Dial
+		b.logger.Info("Dialing gRPC target", "target", target)
+		// Note: grpc.NewClient is the modern API, but Dial is still common. Using NewClient.
+		conn, err := grpc.NewClient(target, dialOpts...)
+		if err != nil {
+			b.logger.Error(err, "Failed to dial gRPC target", "target", target)
+			// Dial errors are usually retryable (e.g. DNS)
+			goto Retry
+		}
+
+		b.metrics.IncConnections()
+		b.metrics.SetConnectionStatus(1)
+		b.logger.Info("gRPC connection established", "target", target)
+
+		// 4. Run User Logic
+		err = run(ctx, conn)
+		
+		// Cleanup
+		conn.Close()
+		b.metrics.SetConnectionStatus(0)
+		b.metrics.IncDisconnects()
+
+		// 5. Handle Error
+		if err != nil {
+			// Check if permanent
+			var permanentErr *PermanentError
+			if errors.As(err, &permanentErr) {
+				b.logger.Error(err, "Permanent error in gRPC run loop; stopping", "connectionID", connectionID)
+				return err
+			}
+			// Check if Context Done
+			if errors.Is(err, ctx.Err()) {
+				b.logger.Info("Context cancelled; shutting down gRPC bridge")
+				return err
+			}
+			
+			b.logger.Error(err, "gRPC run loop exited with error", "connectionID", connectionID)
+		} else {
+			b.logger.Info("gRPC run loop exited cleanly", "connectionID", connectionID)
+		}
+
+	Retry:
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			backoff := b.calculateBackoff()
+			b.logger.Info("Reconnecting gRPC", "after", backoff)
+			time.Sleep(backoff)
+		}
+	}
+}
+
 // manageConnection handles a single connection lifecycle: get token, connect, and operate.
 func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endpointURL string, handler Handler) error {
 	// Step 1: Get an initial token.
@@ -102,9 +203,19 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 	b.logger.Info("Successfully obtained initial token", "connectionID", connectionID)
 
 	// Step 2: Establish the WebSocket connection.
-	headers := http.Header{}
-	headers.Set("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
-	conn, _, err := b.dialer.Dial(endpointURL, headers)
+	// We create a dummy request to let the auth package inject the credentials.
+	req, err := http.NewRequest("GET", endpointURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request for auth injection: %w", err)
+	}
+
+	// Apply the authentication strategy.
+	if err := auth.ApplyAuthentication(req, token.Strategy, token.Credentials); err != nil {
+		return NewPermanentError(fmt.Errorf("failed to apply authentication strategy: %w", err))
+	}
+
+	// Dial uses the headers and the potentially modified URL (for query params).
+	conn, _, err := b.dialer.Dial(req.URL.String(), req.Header)
 	if err != nil {
 		// WebSocket dialing errors are typically recoverable, so we don't wrap this.
 		return fmt.Errorf("failed to establish WebSocket connection: %w", err)
@@ -224,7 +335,10 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 			close(done)
 			return ctx.Err()
 
-		case err := <-readErrChan:
+		case err, ok := <-readErrChan:
+			if !ok {
+				err = fmt.Errorf("connection closed")
+			}
 			b.logger.Info("Select case: read error")
 			if timer != nil {
 				timer.Stop()

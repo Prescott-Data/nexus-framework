@@ -43,3 +43,14 @@ This work needs to be implemented by the team managing the backend infrastructur
 ### Rationale:
 
 Server-side metrics provide the ground truth for server load and overall connection counts. Client-side metrics provide the crucial context of the client's experience (reconnect loops, latency, etc.). Both are required for a complete picture of system health.
+
+---
+
+## 3. Design Decisions & Trade-offs
+
+### `RequireTransportSecurity` in gRPC Credentials
+
+*   **Decision:** The `BridgeCredentials.RequireTransportSecurity()` method defaults to `false`.
+*   **Reasoning:** When this method returns `true`, the gRPC client will fail to connect if the user provides `grpc.WithTransportCredentials(insecure.NewCredentials())`. This makes local testing and connecting to internal services on a trusted network difficult. By defaulting to `false`, we prioritize ease of use for the most common development scenarios.
+*   **Trade-off:** This is a "secure-by-default" vs. "easy-by-default" choice. We chose the latter because security is still easily enforced by the user. An application connecting to a secure production endpoint **must** provide `grpc.WithTransportCredentials(credentials.NewTLS(...))` in the dial options, which will correctly establish a secure connection regardless of this setting.
+*   **Future Work:** We could add a `WithSecurity(bool)` option to `NewBridgeCredentials` to allow users to explicitly override this default if their internal policies require it.
