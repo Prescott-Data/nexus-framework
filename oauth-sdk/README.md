@@ -6,24 +6,49 @@ Status: experimental; API surface is frozen to v1 paths.
 
 ## Usage
 
+The SDK acts as a generic credential fetcher. The `TokenResponse` contains the specific authentication details provided by your backend.
+
 ```go
-ctx := context.Background()
-client := oauthsdk.New("https://gateway.example.com")
+package main
 
-// 1) Request connection
-rc, err := client.RequestConnection(ctx, oauthsdk.RequestConnectionInput{
-    UserID:       "workspace-123",
-    ProviderName: "Google",
-    Scopes:       []string{"openid", "email", "profile"},
-    ReturnURL:    "https://app.example.com/oauth/return",
-})
-fmt.Println(rc.AuthURL, rc.ConnectionID)
+import (
+	"context"
+	"fmt"
+	"log"
 
-// 2) Wait for active
-status, _ := client.WaitForActive(ctx, rc.ConnectionID, 0)
+	"bitbucket.org/dromos/oauth-framework/oauth-sdk"
+)
 
-// 3) Get token
-tr, _ := client.GetToken(ctx, rc.ConnectionID)
+func main() {
+	ctx := context.Background()
+	client := oauthsdk.New("https://gateway.example.com")
+
+	// 1) Request a connection (this part of the flow is typically for user-interactive OAuth2)
+	// For service-to-service connections, you would likely have a pre-existing connection ID.
+	connectionID := "pre-existing-connection-id"
+
+	// 2) Get the credential payload for the connection
+	tr, err := client.GetToken(ctx, connectionID)
+	if err != nil {
+		log.Fatalf("Failed to get token: %v", err)
+	}
+	
+	// 3) Inspect the response to determine how to authenticate
+	
+	// The Strategy field tells you how to authenticate.
+	// It's a map that can be deserialized into a struct or inspected directly.
+	strategyType, _ := tr.Strategy["type"].(string)
+	fmt.Printf("Authentication Strategy: %s\n", strategyType)
+	
+	// The Credentials field contains the secrets.
+	// It's a map that can be passed to an auth engine like the Bridge.
+	fmt.Printf("Credentials Map: %v\n", tr.Credentials)
+	
+	// For backward compatibility with simple OAuth2 flows, AccessToken is still populated.
+	if strategyType == "oauth2" {
+		fmt.Printf("Access Token: %s\n", tr.AccessToken)
+	}
+}
 ```
 
 ### Options

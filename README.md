@@ -7,6 +7,8 @@ This repository contains two services that together provide a secure, providerâ€
 
 Both services support OIDC discovery and JWKS-based `id_token` verification (issuer/audience/exp/iat/nonce), Prometheus metrics, structured logs, and production hardening controls (API key, allowlist, return URL enforcement).
 
+- `bridge` (Go client library): A universal connector for agents that need persistent, observable, and authenticated connections using **WebSocket** or **gRPC**. It integrates with the Gateway to handle multiple authentication strategies (`OAuth2`, `Basic Auth`, `API Key`, `AWS SigV4`, etc.) and provides production-ready telemetry out of the box.
+
 ---
 
 ## Architecture Overview
