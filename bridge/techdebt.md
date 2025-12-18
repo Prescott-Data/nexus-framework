@@ -1,48 +1,64 @@
-# Technical Debt & Infrastructure Requirements for Bridge Monitoring
+# Technical Debt & Design Log for the Bridge Library
 
-This document outlines the necessary work to enable robust, end-to-end monitoring of agents using the `bridge` library. This requires coordination between the agent development team and the infrastructure/gateway team.
+This document outlines outstanding work, design decisions, and requirements for the `bridge` and its surrounding ecosystem.
 
-## The Goal
+## 1. Observability: Agent-Side Requirements (CRITICAL)
 
-To gain a complete view of agent connectivity health by capturing metrics from both the client-side (agent/bridge) and server-side (gateway) and correlating them in a central monitoring system (Prometheus).
+The `telemetry` package and `NewStandard` constructor provide out-of-the-box Prometheus metrics. However, to make this data useful in a dynamic environment like Kubernetes, one final step is required.
 
-## 1. Agent-Side Requirements
+### Action Item: Add Per-Agent Labels to Metrics
 
-This work needs to be implemented by the developers of the agent application that consumes the `bridge` library.
+*   **Task:** The `telemetry/metrics.go` `NewMetrics` function should be updated to accept a map of `agent_labels` (e.g., `{"agent_id": "my-stable-id"}`). These labels **must** be applied as `const_labels` to all Prometheus metrics registered by the Bridge.
+*   **Rationale:** Without a stable, unique identifier for each agent instance, it is impossible to track an individual agent's health, perform accurate counts of running agents, or debug reconnnection loops for a specific agent. This is the final step to make the telemetry data actionable for production monitoring.
+*   **Status:** **TODO**. This is a high-priority item.
 
-### Action Items:
+---
 
-1.  **Implement a Stable Agent Identity:**
-    *   The agent application **must** generate a unique and persistent ID for itself. This ID must survive process restarts.
-    *   **Good ID Strategies:** A UUID generated on first launch and saved to a local file, the machine's hostname, or another stable identifier provided by the deployment environment.
-    *   This stable ID **must** be passed as the `connectionID` parameter to the `bridge.MaintainWebSocket()` function.
+## 2. Backend Dependency: Generic Provider Support in Broker
 
-2.  **Implement and Export Prometheus Metrics:**
-    *   The agent must implement the `bridge.Metrics` interface.
-    *   This implementation should use a Prometheus client library (e.g., `prometheus/client_golang`).
-    *   All exported metrics **must** include the stable agent ID as a label (e.g., `bridge_connection_status{agent_id="<your-stable-id>"}`).
-    *   The agent must expose a `/metrics` endpoint for Prometheus to scrape.
+This section outlines the critical backend work required in the `dromos-oauth-broker` service to enable the Bridge's new multi-protocol authentication capabilities.
+
+### Status: **BLOCKING**
+
+The `bridge` client has been upgraded to a "Universal Connector," capable of handling various authentication strategies (`basic_auth`, `hmac`, `aws_sigv4`, etc.). However, this functionality is **currently disabled** because the Broker is not yet capable of storing or serving these new configurations.
+
+### Action Items for `dromos-oauth-broker`:
+
+1.  **Database Schema Modifications:**
+    *   **Task:** Create a new database migration. The `provider_configurations` table (or equivalent) needs columns to store the generic authentication strategy.
+    *   **Required Fields:**
+        *   `auth_strategy_type` (string, e.g., "basic_auth", "aws_sigv4")
+        *   `auth_strategy_config` (jsonb, e.g., `{"header_name": "X-API-Key", "region": "us-east-1"}`)
+    *   **Note:** While some migrations like `04_refactor_providers_for_non_oauth.sql` exist, a new, comprehensive migration is likely needed to store the structured `strategy` and `config` JSON that the Bridge now expects.
+
+2.  **Update Broker API Endpoint (`/connections/{id}/token`):**
+    *   **Task:** The handler for this endpoint must be updated to serve the new generic credential payload.
+    *   **Logic:**
+        1.  Fetch the provider configuration for the given `connection_id`.
+        2.  If it's a generic provider, construct the JSON payload:
+            ```json
+            {
+              "strategy": {
+                "type": "<auth_strategy_type from DB>",
+                "config": <auth_strategy_config from DB>
+              },
+              "credentials": <the decrypted credentials map>
+            }
+            ```
+        3.  If it's a traditional OAuth2 provider, construct the backward-compatible payload:
+            ```json
+            {
+              "strategy": { "type": "oauth2" },
+              "credentials": { "access_token": "...", "expires_at": ... },
+              "access_token": "...",
+              "expires_at": ...
+            }
+            ```
+    *   **Rationale:** Without this change, the Broker will continue to send only OAuth2-style responses, and the Bridge's new authentication engine will never be used for other strategies.
 
 ### Rationale:
 
-The bridge library provides the hooks (`Metrics` interface, `connectionID` parameter), but the agent application is responsible for using them. Without a stable `agent_id` label, it is impossible to track an individual agent's health and history across ephemeral connections and restarts.
-
-## 2. Infrastructure/Gateway Requirements
-
-This work needs to be implemented by the team managing the backend infrastructure and the `oauth-gateway`.
-
-### Action Items:
-
-1.  **Implement Gateway Metrics:**
-    *   The `oauth-gateway` should be instrumented to collect and expose its own set of critical metrics (e.g., active connections, request/error rates, latency histograms).
-    *   These metrics should also be exported in a Prometheus-compatible format via a `/metrics` endpoint.
-
-2.  **Configure Prometheus Scraping:**
-    *   The Prometheus server must be configured to discover and scrape the `/metrics` endpoints from both the running agents and the `oauth-gateway` instances.
-
-### Rationale:
-
-Server-side metrics provide the ground truth for server load and overall connection counts. Client-side metrics provide the crucial context of the client's experience (reconnect loops, latency, etc.). Both are required for a complete picture of system health.
+The Bridge is the "engine," but the Broker is the "fuel tank." Until the Broker is upgraded to store and provide the correct "fuel" (the generic auth configurations), the engine can only run on its old "OAuth2" fuel. This backend work is the final step to unlock the full potential of the universal connector.
 
 ---
 
@@ -51,6 +67,5 @@ Server-side metrics provide the ground truth for server load and overall connect
 ### `RequireTransportSecurity` in gRPC Credentials
 
 *   **Decision:** The `BridgeCredentials.RequireTransportSecurity()` method defaults to `false`.
-*   **Reasoning:** When this method returns `true`, the gRPC client will fail to connect if the user provides `grpc.WithTransportCredentials(insecure.NewCredentials())`. This makes local testing and connecting to internal services on a trusted network difficult. By defaulting to `false`, we prioritize ease of use for the most common development scenarios.
-*   **Trade-off:** This is a "secure-by-default" vs. "easy-by-default" choice. We chose the latter because security is still easily enforced by the user. An application connecting to a secure production endpoint **must** provide `grpc.WithTransportCredentials(credentials.NewTLS(...))` in the dial options, which will correctly establish a secure connection regardless of this setting.
-*   **Future Work:** We could add a `WithSecurity(bool)` option to `NewBridgeCredentials` to allow users to explicitly override this default if their internal policies require it.
+*   **Reasoning:** This prioritizes ease of use for local testing and internal services on trusted networks.
+*   **Trade-off:** Security can still be enforced by the user by providing `grpc.WithTransportCredentials(...)` in the dial options. This was deemed an acceptable trade-off versus forcing users to disable a "secure-by-default" setting for common development scenarios.

@@ -1,6 +1,52 @@
-## Agent Integrations Guide
+# Agent Integrations Guide
 
-This guide explains how agents and services integrate with the OAuth framework using the Gateway (front door) and Broker (backend).
+This guide explains how agents and services integrate with the OAuth framework.
+
+## Recommended Integration: The Bridge Client (for Go)
+
+For Go-based agents and services, the **`bridge` client library** is the recommended integration path. It is a universal connector that handles the entire connection lifecycle, including authentication, polling, refreshing, and reconnection for both **WebSocket** and **gRPC** transports.
+
+Using the Bridge abstracts away the manual HTTP calls detailed below and provides production-ready observability out of the box.
+
+### Example: Persistent WebSocket Connection
+
+```go
+import (
+	"context"
+	"net/http"
+
+	"dromos.io/bridge"
+	"dromos.io/bridge/telemetry"
+	"bitbucket.org/dromos/oauth-framework/oauth-sdk"
+)
+
+func main() {
+	// 1. Create a client for the Dromos Gateway
+	authClient := oauthsdk.New("http://dromos-gateway.example.com")
+
+	// 2. Instantiate the Bridge with standard logging and metrics
+	b := bridge.NewStandard(authClient)
+	
+	// 3. Expose the /metrics endpoint
+	http.Handle("/metrics", telemetry.Handler())
+	go http.ListenAndServe(":9090", nil)
+
+	// 4. Run the connection loop
+	// The Bridge will fetch the correct credentials (OAuth2, Basic, API Key, etc.)
+	// and keep the connection alive indefinitely.
+	connectionID := "your-persistent-connection-id"
+	endpointURL := "wss://external.service.com/stream"
+	
+	b.MaintainWebSocket(context.Background(), connectionID, endpointURL, &myAppHandler{})
+}
+```
+See the [`bridge/README.md`](./bridge/README.md) for full documentation.
+
+---
+
+## Manual HTTP Integration Flow
+
+This flow is for non-Go clients or for understanding the low-level mechanics of the Gateway API. Go clients should prefer the `bridge` library.
 
 ### Concepts
 - `connection_id`: Opaque handle representing a user-approved connection. Agents store this; do not store tokens.
@@ -8,76 +54,57 @@ This guide explains how agents and services integrate with the OAuth framework u
 - Broker: Handles provider OAuth flows, token storage, and refresh; keep private.
 
 ### Typical Flow
-1) Initiate connection (agent → Gateway)
-   - POST `oauth-framework/dromos-oauth-gateway` → `/v1/request-connection`
-   - Body:
-     ```json
-     {"user_id":"<workspace-or-user>","provider_name":"Google","scopes":["openid","email","profile"],"return_url":"https://app.example.com/oauth/return"}
-     ```
-   - Response:
-     ```json
-     {"authUrl":"...","state":"...","scopes":[...],"provider_id":"...","connection_id":"..."}
-     ```
+1) **Initiate connection (for user-interactive OAuth2):**
+   - `POST /v1/request-connection`
+   - Body: `{"user_id":"...", "provider_name":"Google", "scopes":[...], "return_url":"..."}`
+   - Response: `{"authUrl":"...", "connection_id":"..."}`
    - Redirect the user to `authUrl` to consent.
 
-2) User completes consent (provider → Broker callback)
-   - Broker stores encrypted tokens, marks connection active, and redirects to `return_url?status=success&connection_id=...`.
+2) **User completes consent:**
+   - The provider redirects to the Broker, which stores tokens and redirects the user to your `return_url` with `status=success&connection_id=...`.
 
-3) Poll connection status (agent → Gateway)
-   - GET `/v1/check-connection/{connection_id}` → `{ "status": "active|pending|failed" }`
+3) **Poll connection status (optional):**
+   - `GET /v1/check-connection/{connection_id}` → `{ "status": "active|pending|failed" }`
 
-4) Use the connection (agent → Gateway)
-   - GET `/v1/token/{connection_id}` → token JSON (includes `access_token`, optional `id_token`, `expires_at`).
-   - Use `access_token` with the provider API.
+4) **Use the connection:**
+   - `GET /v1/token/{connection_id}`
+   - The response is a **generic credential payload**, not just a simple token. You must inspect the `strategy` field to determine how to authenticate.
+     ```json
+     {
+       "strategy": { "type": "oauth2" },
+       "credentials": { "access_token": "...", "expires_at": 123456 },
+       "expires_at": 123456
+     }
+     // OR
+     {
+       "strategy": { "type": "basic_auth" },
+       "credentials": { "username": "...", "password": "..." }
+     }
+     ```
 
-5) Refresh (until gateway proxy is added)
-   - POST Broker `/connections/{connection_id}/refresh` with header `X-API-Key: <broker_api_key>`.
-   - We will add a Gateway refresh proxy endpoint to keep agents gateway-only.
-
-### Endpoints Summary (current)
-- Gateway
-  - `POST /v1/request-connection`
-  - `GET  /v1/check-connection/{connection_id}`
-  - `GET  /v1/token/{connection_id}`
-- Broker
-  - `GET  /auth/callback` (provider redirect)
-  - `POST /connections/{connection_id}/refresh` (temporary until gateway proxy)
+5) **Refresh (until gateway proxy is added):**
+   - `POST Broker /connections/{connection_id}/refresh` with header `X-API-Key: <broker_api_key>`.
 
 ### Frontend Integration (browser flow)
 The browser initiates consent; server(s) hold secrets and call the gateway.
 
-1) Agent/server asks gateway to create a connection
-   - Your backend calls `POST /v1/request-connection` (see above) with a `return_url` hosted by your frontend (e.g., `https://app.example.com/oauth/return`).
+1) **Agent/server asks gateway to create a connection:**
+   - Your backend calls `POST /v1/request-connection` with a `return_url` hosted by your frontend (e.g., `https://app.example.com/oauth/return`).
 
-2) Redirect the user
+2) **Redirect the user:**
    - From your frontend, redirect the browser to the `authUrl` in the response.
 
-3) Provider → Broker → Frontend
-   - After consent, the provider redirects to the Broker callback; the Broker persists tokens and redirects the user back to your `return_url` with `status=success&connection_id=...`.
+3) **Provider → Broker → Frontend:**
+   - After consent, the Broker redirects the user back to your `return_url` with `status=success&connection_id=...`.
 
-4) Frontend → Backend to consume connection
-   - Your frontend extracts `connection_id` and sends it to your backend (e.g., via POST). Your backend stores only the `connection_id`.
+4) **Frontend → Backend to consume connection:**
+   - Your frontend extracts `connection_id` and sends it to your backend. Your backend stores only the `connection_id`.
 
-5) Backend fetches tokens on-demand
-   - Your backend calls Gateway `GET /v1/token/{connection_id}` to retrieve tokens when needed. Do not store tokens long-term; cache short-lived if required.
-
-Frontend notes:
-- Ensure the Broker `BASE_URL` is public and the exact callback URL is registered in provider consoles.
-- Set Broker `ENFORCE_RETURN_URL=true` and list allowed domains in `ALLOWED_RETURN_DOMAINS`.
-- You do not need to expose secrets to the browser. The browser only handles redirects.
-
-### Security & Production Notes
-- OIDC discovery and JWKS verification enabled; id_token is verified when present.
-- Prefer tenant-specific issuer for Azure in production; `common` allowed for multi-tenant/personal.
-- Keep Broker private; allowlist agent CIDRs and protect with API key if agents must call refresh directly.
-- Agents should store only `connection_id`. Fetch tokens on-demand.
-
-### Errors & Retries
-- Gateway `GET /v1/token/{id}` returns upstream status codes. Handle 502/503 by retrying with backoff.
-- If token expired/invalid, call refresh (Broker for now) then retry token fetch.
+5) **Backend fetches credentials on-demand:**
+   - Your backend calls Gateway `GET /v1/token/{connection_id}` to retrieve the generic credential payload.
 
 ### Using the Go SDK (server-side)
-Add the module and call the Gateway via the SDK:
+The `oauth-sdk` is a thin client for the Gateway API.
 
 ```go
 import (
@@ -85,24 +112,12 @@ import (
   oauthsdk "bitbucket.org/dromos/oauth-framework/oauth-sdk"
 )
 
-client := oauthsdk.New(
-  "https://<gateway-base-url>",
-  oauthsdk.WithRetry(oauthsdk.RetryPolicy{Retries: 3}),
-)
+client := oauthsdk.New("https://<gateway-base-url>")
 
-rc, _ := client.RequestConnection(context.Background(), oauthsdk.RequestConnectionInput{
-  UserID:       "workspace-123",
-  ProviderName: "Google",
-  Scopes:       []string{"openid","email","profile"},
-  ReturnURL:    "https://app.example.com/oauth/return",
-})
-// Redirect user to rc.AuthURL
+// Fetch the credential payload:
+payload, _ := client.GetToken(context.Background(), "your-connection-id")
 
-// Later, fetch token:
-tok, _ := client.GetToken(context.Background(), rc.ConnectionID)
+// Inspect the strategy to decide how to authenticate
+strategyType := payload.Strategy["type"]
 ```
-
-### Roadmap (Tech Debt)
-- Gateway refresh proxy: `POST /v1/refresh/{connection_id}` and `auto_refresh` support on token fetch.
-- Persistent discovery/JWKS cache and richer metrics.
-
+See the [`oauth-sdk/README.md`](./oauth-sdk/README.md) for more details.
