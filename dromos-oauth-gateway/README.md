@@ -40,6 +40,12 @@ Retrieve the access token for a completed connection.
 GET /v1/token/{connection_id}
 ```
 
+### 5. Refresh Connection
+Force a refresh of the tokens associated with the connection. This proxies the request to the Broker to perform the actual refresh grant flow.
+```http
+POST /v1/refresh/{connection_id}
+```
+
 ## Provider Management
 
 The Gateway exposes endpoints to manage provider configurations. These proxy directly to the Broker, allowing for standardized management UIs.

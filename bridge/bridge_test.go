@@ -19,16 +19,16 @@ import (
 // mockOAuthClient is a mock implementation of the OAuthClient interface for testing.
 type mockOAuthClient struct {
 	getTokenFunc         func(ctx context.Context, connectionID string) (*Token, error)
-	refreshViaBrokerFunc func(ctx context.Context, connectionID string) (*Token, error)
+	refreshConnectionFunc func(ctx context.Context, connectionID string) (*Token, error)
 }
 
 func (m *mockOAuthClient) GetToken(ctx context.Context, connectionID string) (*Token, error) {
 	return m.getTokenFunc(ctx, connectionID)
 }
 
-func (m *mockOAuthClient) RefreshViaBroker(ctx context.Context, connectionID string) (*Token, error) {
-	if m.refreshViaBrokerFunc != nil {
-		return m.refreshViaBrokerFunc(ctx, connectionID)
+func (m *mockOAuthClient) RefreshConnection(ctx context.Context, connectionID string) (*Token, error) {
+	if m.refreshConnectionFunc != nil {
+		return m.refreshConnectionFunc(ctx, connectionID)
 	}
 	return nil, errors.New("not implemented")
 }
@@ -372,7 +372,7 @@ func TestBridge_TokenRefreshWithoutDisconnect(t *testing.T) {
 				ExpiresAt:   time.Now().Add(2 * time.Second).Unix(),
 			}, nil
 		},
-		refreshViaBrokerFunc: func(ctx context.Context, connectionID string) (*Token, error) {
+		refreshConnectionFunc: func(ctx context.Context, connectionID string) (*Token, error) {
 			refreshChan <- struct{}{}
 			// Refreshed token has a long expiry.
 			return &Token{

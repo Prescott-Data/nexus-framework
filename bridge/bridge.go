@@ -17,7 +17,7 @@ import (
 // MOCK for dromos-oauth-sdk
 type OAuthClient interface {
 	GetToken(ctx context.Context, connectionID string) (*Token, error)
-	RefreshViaBroker(ctx context.Context, connectionID string) (*Token, error)
+	RefreshConnection(ctx context.Context, connectionID string) (*Token, error)
 }
 
 type Token struct {
@@ -69,11 +69,11 @@ func New(oauthClient OAuthClient, opts ...Option) *Bridge {
 // NewStandard creates a new Bridge with production-ready defaults:
 // - Structured JSON logging (Slog) to Stdout
 // - Prometheus metrics registered to the default registry
-func NewStandard(oauthClient OAuthClient, opts ...Option) *Bridge {
+func NewStandard(oauthClient OAuthClient, agentLabels map[string]string, opts ...Option) *Bridge {
 	// Prepend telemetry options so user can still override them if needed (though unlikely)
 	defaultOpts := []Option{
 		WithLogger(telemetry.NewLogger()),
-		WithMetrics(telemetry.NewMetrics(nil)), // nil = use default registry
+		WithMetrics(telemetry.NewMetrics(nil, agentLabels)), // nil = use default registry
 	}
 	// Combine defaults + user opts
 	finalOpts := append(defaultOpts, opts...)
@@ -355,7 +355,7 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 			b.metrics.IncTokenRefreshes()
 			b.logger.Info("Starting background token refresh", "connectionID", connectionID)
 			go func() {
-				refreshedToken, refreshErr := b.oauthClient.RefreshViaBroker(ctx, connectionID)
+				refreshedToken, refreshErr := b.oauthClient.RefreshConnection(ctx, connectionID)
 				if refreshErr != nil {
 					refreshErrChan <- refreshErr
 				} else {

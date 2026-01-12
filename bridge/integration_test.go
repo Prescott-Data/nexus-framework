@@ -41,8 +41,8 @@ func (a *SDKAdapter) GetToken(ctx context.Context, connectionID string) (*bridge
 	return a.convertToken(resp), nil
 }
 
-func (a *SDKAdapter) RefreshViaBroker(ctx context.Context, connectionID string) (*bridge.Token, error) {
-	resp, err := a.client.RefreshViaBroker(ctx, connectionID)
+func (a *SDKAdapter) RefreshConnection(ctx context.Context, connectionID string) (*bridge.Token, error) {
+	resp, err := a.client.RefreshConnection(ctx, connectionID)
 	if err != nil {
 		return nil, err
 	}
