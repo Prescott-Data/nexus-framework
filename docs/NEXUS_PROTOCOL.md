@@ -53,6 +53,17 @@ The Client requests a new connection from the Authority.
 1.  The Authority redirects the User back to the Client's `return_url` with the `connection_id` and status.
 2.  (Optional) The Client may also Poll the Authority to check when the `connection_id` becomes `ACTIVE`.
 
+### 2.1. Connection States
+The Protocol defines a standard state machine for connections.
+
+| State | Definition |
+| :--- | :--- |
+| **PENDING** | Initial state. Handshake initiated, awaiting user consent. |
+| **ACTIVE** | Healthy. Credentials are valid, token refreshes are succeeding. |
+| **REVOKED** | Terminated. Explicitly disabled by Admin/User. Client receives `401`. |
+| **EXPIRED** | Dead. Credentials expired and cannot be refreshed (e.g., password changed). Requires re-consent. |
+| **FAILED** | Error. Setup failed during consent or initial exchange. |
+
 ---
 
 ## 3. The Nexus Interface (Data Plane)
