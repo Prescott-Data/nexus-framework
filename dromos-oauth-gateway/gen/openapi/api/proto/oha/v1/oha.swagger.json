@@ -46,6 +46,36 @@
         ]
       }
     },
+    "/v1/refresh/{connectionId}": {
+      "post": {
+        "operationId": "OHAService_RefreshConnection",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1RefreshConnectionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "connectionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OHAService"
+        ]
+      }
+    },
     "/v1/request-connection": {
       "post": {
         "operationId": "OHAService_RequestConnection",
@@ -161,6 +191,14 @@
         "token": {
           "type": "object",
           "title": "proxied token payload from broker"
+        }
+      }
+    },
+    "v1RefreshConnectionResponse": {
+      "type": "object",
+      "properties": {
+        "token": {
+          "type": "object"
         }
       }
     },

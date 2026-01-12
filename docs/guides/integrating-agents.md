@@ -25,7 +25,9 @@ func main() {
 	authClient := oauthsdk.New("http://dromos-gateway.example.com")
 
 	// 2. Instantiate the Bridge with standard logging and metrics
-	b := bridge.NewStandard(authClient)
+	// agentLabels are applied as const_labels to all Prometheus metrics
+	agentLabels := map[string]string{"agent_id": "my-stable-id"}
+	b := bridge.NewStandard(authClient, agentLabels)
 	
 	// 3. Expose the /metrics endpoint
 	http.Handle("/metrics", telemetry.Handler())
@@ -40,7 +42,7 @@ func main() {
 	b.MaintainWebSocket(context.Background(), connectionID, endpointURL, &myAppHandler{})
 }
 ```
-See the [`bridge/README.md`](./bridge/README.md) for full documentation.
+See the [`bridge/README.md`](../../bridge/README.md) for full documentation.
 
 ---
 
@@ -120,4 +122,4 @@ payload, _ := client.GetToken(context.Background(), "your-connection-id")
 // Inspect the strategy to decide how to authenticate
 strategyType := payload.Strategy["type"]
 ```
-See the [`oauth-sdk/README.md`](./oauth-sdk/README.md) for more details.
+See the [`oauth-sdk/README.md`](../../oauth-sdk/README.md) for more details.

@@ -448,6 +448,55 @@ func (h *Handler) GetTokenCore(ctx context.Context, connectionID string) (map[st
 	return tokenMap, http.StatusOK, nil
 }
 
+// RefreshConnectionCore forces a token refresh via the broker.
+func (h *Handler) RefreshConnectionCore(ctx context.Context, connectionID string) (map[string]any, int, error) {
+	resp, err := h.brokerClient.PostConnectionsConnectionIDRefreshWithResponse(ctx, connectionID)
+	if err != nil {
+		return nil, http.StatusBadGateway, fmt.Errorf("broker request failed: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, resp.StatusCode(), nil
+	}
+
+	if resp.JSON200 == nil {
+		return nil, resp.StatusCode(), fmt.Errorf("empty response")
+	}
+
+	// Convert TokenResponse struct back to map[string]any
+	data, _ := json.Marshal(resp.JSON200)
+	var tokenMap map[string]any
+	_ = json.Unmarshal(data, &tokenMap)
+
+	return tokenMap, http.StatusOK, nil
+}
+
+func (h *Handler) RefreshConnection(w http.ResponseWriter, r *http.Request) {
+	connectionID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/v1/refresh/"))
+	if connectionID == "" {
+		writeError(w, http.StatusBadRequest, "missing_fields", "missing connection id", nil)
+		return
+	}
+
+	logging.Info(r.Context(), "refresh_connection.start", map[string]any{"connection_id": connectionID})
+
+	tokenMap, status, err := h.RefreshConnectionCore(r.Context(), connectionID)
+	if err != nil {
+		logging.Error(r.Context(), "refresh_connection.broker_error", map[string]any{"error": err.Error()})
+		writeError(w, status, "broker_unavailable", "broker request failed", nil)
+		return
+	}
+
+	if status != http.StatusOK {
+		logging.Error(r.Context(), "refresh_connection.broker_status", map[string]any{"status": status})
+		w.WriteHeader(status)
+		return
+	}
+
+	logging.Info(r.Context(), "refresh_connection.success", map[string]any{"connection_id": connectionID})
+	writeJSON(w, http.StatusOK, tokenMap)
+}
+
 // GetProvidersCore fetches provider metadata from the broker
 func (h *Handler) GetProvidersCore(ctx context.Context) (map[string]any, error) {
 	resp, err := h.brokerClient.GetProvidersMetadataWithResponse(ctx)

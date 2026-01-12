@@ -14,31 +14,35 @@ type PromMetrics struct {
 
 // NewMetrics creates and registers standard bridge metrics.
 // If registry is nil, it uses the global default registry.
-func NewMetrics(registry prometheus.Registerer) *PromMetrics {
+func NewMetrics(registry prometheus.Registerer, agentLabels map[string]string) *PromMetrics {
 	if registry == nil {
 		registry = prometheus.DefaultRegisterer
 	}
 
 	m := &PromMetrics{
 		connections: prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: "bridge",
-			Name:      "connections_total",
-			Help:      "Total number of successful WebSocket connections established.",
+			Namespace:   "bridge",
+			Name:        "connections_total",
+			Help:        "Total number of successful WebSocket connections established.",
+			ConstLabels: agentLabels,
 		}),
 		disconnects: prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: "bridge",
-			Name:      "disconnects_total",
-			Help:      "Total number of WebSocket disconnects.",
+			Namespace:   "bridge",
+			Name:        "disconnects_total",
+			Help:        "Total number of WebSocket disconnects.",
+			ConstLabels: agentLabels,
 		}),
 		tokenRefreshes: prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: "bridge",
-			Name:      "token_refreshes_total",
-			Help:      "Total number of token refresh operations.",
+			Namespace:   "bridge",
+			Name:        "token_refreshes_total",
+			Help:        "Total number of token refresh operations.",
+			ConstLabels: agentLabels,
 		}),
 		connStatus: prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: "bridge",
-			Name:      "connection_status",
-			Help:      "Current status of the connection (1 = connected, 0 = disconnected).",
+			Namespace:   "bridge",
+			Name:        "connection_status",
+			Help:        "Current status of the connection (1 = connected, 0 = disconnected).",
+			ConstLabels: agentLabels,
 		}),
 	}
 

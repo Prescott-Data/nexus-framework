@@ -363,15 +363,22 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if connection exists and is active
+	// Check if connection exists and is active, and fetch provider config
 	var connection struct {
-		Status     string `db:"status"`
-		ProviderID string `db:"provider_id"`
+		Status     string           `db:"status"`
+		ProviderID string           `db:"provider_id"`
+		AuthType   string           `db:"auth_type"`
+		Params     *json.RawMessage `db:"params"`
 	}
 
-	err = h.db.QueryRow("SELECT status, provider_id FROM connections WHERE id = $1", connectionID).Scan(&connection.Status, &connection.ProviderID)
+	err = h.db.QueryRow(`
+		SELECT c.status, c.provider_id, p.auth_type, p.params
+		FROM connections c
+		JOIN provider_profiles p ON c.provider_id = p.id
+		WHERE c.id = $1`, connectionID).Scan(&connection.Status, &connection.ProviderID, &connection.AuthType, &connection.Params)
+
 	if err != nil {
-		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "connection not found", "id": connectionID.String()}, r)
+		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "connection not found or db error", "id": connectionID.String()}, r)
 		http.Error(w, "Connection not found", http.StatusNotFound)
 		return
 	}
@@ -403,33 +410,77 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse the JSON token data
-	var tokenData map[string]interface{}
-	if err := json.Unmarshal(decryptedData, &tokenData); err != nil {
+	// Parse the JSON token data (the credentials)
+	var credentials map[string]interface{}
+	if err := json.Unmarshal(decryptedData, &credentials); err != nil {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "invalid token format"}, r)
 		http.Error(w, "Invalid token format", http.StatusInternalServerError)
 		return
 	}
 
-	// Add expiration info if available
+	// Add expiration info to credentials if available (for back-compat and ease of use)
 	if token.ExpiresAt != nil {
-		tokenData["expires_at"] = token.ExpiresAt.Format(time.RFC3339)
-		tokenData["expired"] = token.ExpiresAt.Before(time.Now())
+		credentials["expires_at"] = token.ExpiresAt.Format(time.RFC3339)
+		credentials["expired"] = token.ExpiresAt.Before(time.Now())
 	}
+
+	// Construct the final response payload
+	response := make(map[string]interface{})
+
+	// 1. Determine Strategy
+	var strategy map[string]interface{}
+
+	if connection.AuthType == "oauth2" || connection.AuthType == "" {
+		strategy = map[string]interface{}{
+			"type": "oauth2",
+		}
+		// For backward compatibility: flatten credentials into the root for OAuth2
+		for k, v := range credentials {
+			response[k] = v
+		}
+	} else {
+		// Generic Provider: Look for auth_strategy in params
+		foundStrategy := false
+		if connection.Params != nil {
+			var paramsMap map[string]interface{}
+			if err := json.Unmarshal(*connection.Params, &paramsMap); err == nil {
+				if s, ok := paramsMap["auth_strategy"].(map[string]interface{}); ok {
+					strategy = s
+					foundStrategy = true
+				}
+			}
+		}
+		// Fallback if not explicitly defined but we know the high-level type
+		if !foundStrategy {
+			// Map high-level broker auth_types to default bridge strategies if possible
+			// This is a "best effort" mapping if the explicit config is missing
+			switch connection.AuthType {
+			case "api_key":
+				strategy = map[string]interface{}{"type": "header", "config": map[string]string{"header_name": "X-API-Key", "credential_field": "api_key"}}
+			case "basic_auth":
+				strategy = map[string]interface{}{"type": "basic_auth"}
+			default:
+				strategy = map[string]interface{}{"type": connection.AuthType} // Hope for the best
+			}
+		}
+	}
+
+	response["strategy"] = strategy
+	response["credentials"] = credentials
 
 	// Log successful retrieval
 	h.logAuditEvent(&connectionID, "token_retrieved", map[string]string{}, r)
 
 	// Emit metric for token retrieval
 	hasID := "false"
-	if _, ok := tokenData["id_token"]; ok {
+	if _, ok := credentials["id_token"]; ok {
 		hasID = "true"
 	}
 	h.metricTokenGet.WithLabelValues(connection.ProviderID, hasID).Inc()
 
-	// Return the decrypted token
+	// Return the response
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tokenData)
+	json.NewEncoder(w).Encode(response)
 }
 
 // exchangeCodeForTokens exchanges authorization code for access tokens

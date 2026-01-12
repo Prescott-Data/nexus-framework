@@ -84,6 +84,23 @@ func (s *Service) GetToken(ctx context.Context, req *ohapb.GetTokenRequest) (*oh
 	return &ohapb.GetTokenResponse{Token: st}, nil
 }
 
+// RefreshConnection implements OHAServiceServer.RefreshConnection.
+func (s *Service) RefreshConnection(ctx context.Context, req *ohapb.RefreshConnectionRequest) (*ohapb.RefreshConnectionResponse, error) {
+	if req == nil || req.GetConnectionId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing connection_id")
+	}
+	data, code, err := s.usecaseHandler.RefreshConnectionCore(ctx, req.GetConnectionId())
+	if err != nil {
+		_ = code // unused
+		return nil, status.Errorf(codes.Internal, "refresh connection failed: %v", err)
+	}
+	st, err := structpb.NewStruct(data)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "encode token failed: %v", err)
+	}
+	return &ohapb.RefreshConnectionResponse{Token: st}, nil
+}
+
 type Server struct {
 	grpcAddress string
 	httpAddress string

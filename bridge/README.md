@@ -47,7 +47,9 @@ func main() {
 	authClient := oauthsdk.New("http://dromos-gateway.example.com")
 
 	// 3. Instantiate the Bridge with production-ready telemetry
-	b := bridge.NewStandard(authClient)
+	// agentLabels are applied as const_labels to all Prometheus metrics
+	agentLabels := map[string]string{"agent_id": "my-stable-id"}
+	b := bridge.NewStandard(authClient, agentLabels)
 
 	// 4. Run the Bridge in a goroutine
 	go func() {
@@ -91,7 +93,9 @@ func main() {
 	defer cancel()
 
 	authClient := oauthsdk.New("http://dromos-gateway.example.com")
-	b := bridge.NewStandard(authClient)
+	// agentLabels are applied as const_labels to all Prometheus metrics
+	agentLabels := map[string]string{"agent_id": "my-stable-id"}
+	b := bridge.NewStandard(authClient, agentLabels)
 
 	// This function contains your business logic. The Bridge will call it
 	// every time a fresh, authenticated connection is established.

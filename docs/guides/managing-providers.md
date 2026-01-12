@@ -129,45 +129,144 @@ This will return the access token, refresh token, and expiry information.
 
 ### Registration
 
-Non-OAuth providers are configured by defining a **JSON schema** that describes the credentials the broker needs to collect. This allows for maximum flexibility, as the broker does not need to know the specific fields in advance.
+Non-OAuth providers are configured by defining a **JSON schema** that describes the credentials the broker needs to collect, AND an **Authentication Strategy** that tells the Bridge client how to use those credentials.
 
 #### **Payload Fields:**
 
 *   `name` (string, required): A unique name for the provider.
-*   `auth_type` (string, required): Must be set to `"api_key"`.
-*   `params` (json, required): A JSON object containing a `credential_schema`.
-    *   `credential_schema` (json, required): A valid JSON schema defining the fields to be collected.
+*   `auth_type` (string, required): Must be set to `"api_key"` (which implies a form-capture flow) or `"basic_auth"`.
+*   `params` (json, required): A JSON object containing configuration for both the frontend (schema) and the client (strategy).
+    *   `credential_schema` (json, required): A valid JSON schema defining the fields to be collected from the user (e.g., "Enter your API Key").
+    *   `auth_strategy` (json, required): Defines how the Bridge client should inject these credentials into HTTP requests.
 
-#### **Example: Registering a Custom API Provider**
+### Authentication Strategies (`auth_strategy`)
 
-This provider requires an `api_key` and an `api_secret`.
+The `auth_strategy` object inside `params` determines how the credentials are applied.
+
+#### **1. Header Authentication (`header`)**
+Injects a value into a specific HTTP header.
+
+```json
+"auth_strategy": {
+  "type": "header",
+  "config": {
+    "header_name": "X-API-Key",      // The header key (default: Authorization)
+    "credential_field": "api_key",   // The key from the collected credentials to use
+    "value_prefix": "Bearer "        // Optional prefix (e.g., for standard tokens)
+  }
+}
+```
+
+#### **2. Query Parameter Authentication (`query_param`)**
+Injects a value into the query string.
+
+```json
+"auth_strategy": {
+  "type": "query_param",
+  "config": {
+    "param_name": "api_key",         // The query param key (e.g., ?api_key=...)
+    "credential_field": "my_key"     // The key from the collected credentials
+  }
+}
+```
+
+#### **3. Basic Authentication (`basic_auth`)**
+Uses standard HTTP Basic Auth (base64 encoded user:pass).
+
+```json
+"auth_strategy": {
+  "type": "basic_auth",
+  "config": {
+    "username_field": "username",    // Key for the username in credentials
+    "password_field": "password"     // Key for the password in credentials
+  }
+}
+```
+
+#### **4. AWS Signature V4 (`aws_sigv4`)**
+Signs requests using AWS standard signing.
+
+```json
+"auth_strategy": {
+  "type": "aws_sigv4",
+  "config": {
+    "service": "execute-api",        // AWS Service (e.g., s3, execute-api)
+    "region": "us-east-1"            // AWS Region
+  }
+}
+```
+*Note: The credentials map must contain `access_key` and `secret_key`.*
+
+---
+
+### **Example: Registering a Custom API Provider (Header Auth)**
+
+This provider requires an `api_key` which must be sent in the `X-Freedcamp-Key` header.
 
 ```bash
-# Define the schema as a shell variable
-SCHEMA='{
-  "type": "object",
-  "properties": {
-    "api_key": {
-      "type": "string",
-      "title": "API Key"
+# Define the schema and strategy as a shell variable
+PARAMS='{
+  "base_url": "https://freedcamp.com/api/v1/",
+  "credential_schema": {
+    "type": "object",
+    "properties": {
+      "user_key": {
+        "type": "string",
+        "title": "API Key"
+      }
     },
-    "api_secret": {
-      "type": "string",
-      "title": "API Secret"
-    }
+    "required": ["user_key"]
   },
-  "required": ["api_key", "api_secret"]
+  "auth_strategy": {
+    "type": "header",
+    "config": {
+      "header_name": "X-Freedcamp-Key",
+      "credential_field": "user_key"
+    }
+  }
 }'
 
 # Use jq to construct the final JSON payload
-jq -n --argjson schema "$SCHEMA" '{
+jq -n --argjson params "$PARAMS" '{
     "profile": {
         "name": "freedcamp",
         "auth_type": "api_key",
-        "params": {
-          "base_url": "https://freedcamp.com/api/v1/",
-          "credential_schema": $schema
-        }
+        "params": $params
+    }
+}' | curl -X POST http://localhost:8080/providers \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key: dev-api-key-12345" \
+     -d @- | jq . 
+```
+
+### **Example: Registering an AWS Service**
+
+This provider collects AWS credentials and signs requests for API Gateway.
+
+```bash
+PARAMS='{
+  "credential_schema": {
+    "type": "object",
+    "properties": {
+      "access_key": { "type": "string", "title": "AWS Access Key ID" },
+      "secret_key": { "type": "string", "title": "AWS Secret Access Key" }
+    },
+    "required": ["access_key", "secret_key"]
+  },
+  "auth_strategy": {
+    "type": "aws_sigv4",
+    "config": {
+      "service": "execute-api",
+      "region": "us-west-2"
+    }
+  }
+}'
+
+jq -n --argjson params "$PARAMS" '{
+    "profile": {
+        "name": "my-aws-service",
+        "auth_type": "api_key",
+        "params": $params
     }
 }' | curl -X POST http://localhost:8080/providers \
      -H "Content-Type: application/json" \
@@ -226,8 +325,7 @@ curl -s -i -X POST http://localhost:8080/auth/capture-credential \
     -d '{
         "state": "'$STATE'",
         "credentials": {
-            "api_key": "my-user-supplied-api-key",
-            "api_secret": "my-user-supplied-secret"
+            "user_key": "my-user-supplied-api-key"
         }
     }'
 ```
@@ -246,7 +344,22 @@ curl -s -H "X-API-Key: dev-api-key-12345" \
     "http://localhost:8080/connections/''$CONNECTION_ID''/token" | jq . 
 ```
 
-This will return the credentials you submitted in Step 3, now securely stored and encrypted by the broker.
+The response will now include the strategy:
+
+```json
+{
+  "strategy": {
+    "type": "header",
+    "config": {
+      "header_name": "X-Freedcamp-Key",
+      "credential_field": "user_key"
+    }
+  },
+  "credentials": {
+    "user_key": "my-user-supplied-api-key"
+  }
+}
+```
 
 ---
 

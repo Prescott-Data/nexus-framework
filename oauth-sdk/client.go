@@ -160,14 +160,10 @@ func (c *Client) GetToken(ctx context.Context, connectionID string) (*TokenRespo
     return tr, nil
 }
 
-// RefreshViaBroker calls Broker refresh (temporary) if configured.
-func (c *Client) RefreshViaBroker(ctx context.Context, connectionID string) (*TokenResponse, error) {
-    if c.BrokerBaseURL == "" { return nil, errors.New("broker not configured") }
+// RefreshConnection calls the Gateway to force a token refresh.
+func (c *Client) RefreshConnection(ctx context.Context, connectionID string) (*TokenResponse, error) {
     if strings.TrimSpace(connectionID) == "" { return nil, errors.New("missing connection_id") }
-    endpoint := fmt.Sprintf("%s/connections/%s/refresh", c.BrokerBaseURL, url.PathEscape(connectionID))
-    headers := map[string]string{}
-    if c.BrokerAPIKey != "" { headers["X-API-Key"] = c.BrokerAPIKey }
-    resp, err := c.do(ctx, http.MethodPost, endpoint, headers, nil)
+    resp, err := c.do(ctx, http.MethodPost, c.GatewayBaseURL+"/v1/refresh/"+url.PathEscape(connectionID), nil, nil)
     if err != nil { return nil, err }
     defer resp.Body.Close()
     var raw map[string]any
@@ -184,6 +180,12 @@ func (c *Client) RefreshViaBroker(ctx context.Context, connectionID string) (*To
     if v, ok := raw["strategy"].(map[string]interface{}); ok { tr.Strategy = v }
     if v, ok := raw["credentials"].(map[string]interface{}); ok { tr.Credentials = v }
     return tr, nil
+}
+
+// RefreshViaBroker calls RefreshConnection (Gateway Proxy).
+// Deprecated: Use RefreshConnection instead. This method no longer calls the Broker directly.
+func (c *Client) RefreshViaBroker(ctx context.Context, connectionID string) (*TokenResponse, error) {
+    return c.RefreshConnection(ctx, connectionID)
 }
 
 func readGatewayError(r io.Reader, status int) error {

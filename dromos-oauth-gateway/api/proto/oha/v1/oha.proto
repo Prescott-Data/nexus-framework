@@ -26,6 +26,12 @@ service OHAService {
       get: "/v1/token/{connection_id}"
     };
   }
+
+  rpc RefreshConnection(RefreshConnectionRequest) returns (RefreshConnectionResponse) {
+    option (google.api.http) = {
+      post: "/v1/refresh/{connection_id}"
+    };
+  }
 }
 
 message RequestConnectionRequest {
@@ -61,4 +67,10 @@ message GetTokenResponse {
   google.protobuf.Struct token = 1; // proxied token payload from broker
 }
 
+message RefreshConnectionRequest {
+  string connection_id = 1;
+}
 
+message RefreshConnectionResponse {
+  google.protobuf.Struct token = 1;
+}
