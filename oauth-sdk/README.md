@@ -70,19 +70,15 @@ client := oauthsdk.New(
   oauthsdk.WithRetry(oauthsdk.RetryPolicy{Retries: 3, MinDelay: 200*time.Millisecond, MaxDelay: 2*time.Second, RetryOn429: true}),
 )
 ```
-- Broker refresh (temporary):
+- Force Refresh:
 ```go
-client := oauthsdk.New(
-  "https://gateway.example.com",
-  oauthsdk.WithBroker("https://broker.internal", os.Getenv("BROKER_API_KEY")),
-)
-newToken, err := client.RefreshViaBroker(ctx, connectionID)
+// Force a refresh of the connection credentials via the Gateway
+newToken, err := client.RefreshConnection(ctx, connectionID)
 ```
 
 ## Notes
 - The SDK never logs token bodies.
-- Keep Broker private; allowlist callers and require API key for refresh.
-- Prefer Gateway-only flows; `RefreshViaBroker` is temporary until a Gateway refresh proxy exists.
+- Prefer Gateway-only flows. The `RefreshConnection` method uses the Gateway's proxy, keeping the Broker private.
 
 ## Install
 ```bash
