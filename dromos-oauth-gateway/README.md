@@ -153,3 +153,4 @@ go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest
 mkdir -p internal/broker
 oapi-codegen -package broker -generate types,client -o internal/broker/client.gen.go ../dromos-oauth-broker/openapi.yaml
 ```
+<!-- trigger build Mon Jan 26 11:07:00 EAT 2026 -->

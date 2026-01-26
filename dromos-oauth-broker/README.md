@@ -253,3 +253,4 @@ go build -o oauth-broker ./cmd/oauth-broker
 
 Touching to test pipeline
 
+<!-- trigger build Mon Jan 26 11:07:00 EAT 2026 -->
