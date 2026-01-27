@@ -12,6 +12,7 @@ import (
 	ohapb "dromos-oauth-gateway/gen/go/api/proto/oha/v1"
 	"dromos-oauth-gateway/internal/usecase"
 
+	"github.com/go-chi/cors"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -157,9 +158,19 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("register gateway: %w", err)
 	}
 
+	// CORS Setup
+	corsMiddleware := cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"https://*", "http://*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "Grpc-Metadata-X-Request-ID"},
+		ExposedHeaders:   []string{"Link", "Grpc-Metadata-X-Request-ID"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	})
+
 	httpSrv := &http.Server{
 		Addr:              s.httpAddress,
-		Handler:           gwMux,
+		Handler:           corsMiddleware(gwMux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,
