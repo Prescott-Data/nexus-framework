@@ -100,3 +100,15 @@ Implement the `ATTENTION_REQUIRED` state to signal unrecoverable, interactive fa
 1.  **Broker Logic:** Modify `RefreshToken` logic to detect `invalid_grant` or specific MFA error codes. Transition connection status to `attention_required` instead of `failed`.
 2.  **Bridge Logic:** Update Bridge to recognize `attention_required` status. It should stop retrying and emit a specific error/metric (e.g., `ErrInteractionRequired`).
 3.  **Frontend/Notification:** Enable the system to trigger a webhook or UI alert inviting the human User to perform a new Handshake (re-consent) to unblock the agent.
+
+## 9. Hardcoded CORS Origins (Gateway)
+
+**Status:** Open
+**Priority:** Low (Staging/Dev only)
+**Date Logged:** 2026-01-27
+
+**Description:**
+The AllowedOrigins for CORS in `dromos-oauth-gateway` (both REST and gRPC) are currently hardcoded to `["https://*", "http://*"]` to unblock staging.
+
+**Required Action:**
+Refactor the CORS configuration to read the allowed origins from an environment variable (e.g., `CORS_ALLOWED_ORIGINS`). This will allow strict enforcement of the frontend domain in production environments without code modification.
