@@ -49,17 +49,17 @@ Add a `POST /v1/refresh/{connection_id}` endpoint to the **Gateway**.
 - The `bridge` library defaults to insecure transport for gRPC to facilitate local development.
 - **Trade-off:** Users must explicitly enable TLS credentials when deploying to production. This is documented in the Bridge README.
 
-## 5. Formal Connection States (Database Migration)
+## 7. Formal Connection States (Implemented)
 
-**Status:** Planned
-**Impact:** Currently, connection states are loosely defined (`active`, `pending`, `failed`). The Nexus Protocol now defines formal states (`REVOKED`, `EXPIRED`) which are not yet enforced in the DB.
+**Status:** Completed
+**Impact:** Explicit handling of unrecoverable refresh errors.
 
-**Goal:**
-- Update `connections` table to use a formal Enum or Constraint for states.
-- Update Broker logic to explicitly transition to `EXPIRED` (for unrecoverable refreshes) and `REVOKED` (for admin actions).
-- Ensure Bridge handles `401` by transitioning local state effectively.
+**Implementation:**
+- **Broker Logic:** `RefreshToken` logic detects 4xx errors (e.g., `invalid_grant`) and transitions connection status to `attention`.
+- **API Response:** Broker returns `409 Conflict` with `error: attention_required` when a connection is in this state.
+- **Bridge Logic:** (Pending) Update Bridge to recognize `attention_required` error and stop retrying.
 
-## 6. Agent Isolation & The Sidecar Model (Security Roadmap)
+## 8. Agent Isolation & The Sidecar Model (Security Roadmap)
 
 **Status:** Proposed / Long-Term
 **Context:** Currently, the `bridge` runs as a library within the Agent's process.
@@ -87,3 +87,16 @@ Develop `dromos-sidecar`, a standalone proxy service deployed alongside the Agen
 - Increased infrastructure complexity (managing sidecars).
 - Added network latency (hop to localhost).
 - Higher resource consumption (CPU/RAM for the sidecar process).
+
+## 7. Interactive Challenge Handling (Human-in-the-Loop)
+
+**Status:** Planned / Protocol Requirement
+**Impact:** If a provider refresh fails due to MFA (e.g., YubiKey required) or CAPTCHA, the Broker currently marks the connection as `failed`. The Agent endlessly retries until backoff maxes out.
+
+**Goal:**
+Implement the `ATTENTION_REQUIRED` state to signal unrecoverable, interactive failures.
+
+**Implementation Details:**
+1.  **Broker Logic:** Modify `RefreshToken` logic to detect `invalid_grant` or specific MFA error codes. Transition connection status to `attention_required` instead of `failed`.
+2.  **Bridge Logic:** Update Bridge to recognize `attention_required` status. It should stop retrying and emit a specific error/metric (e.g., `ErrInteractionRequired`).
+3.  **Frontend/Notification:** Enable the system to trigger a webhook or UI alert inviting the human User to perform a new Handshake (re-consent) to unblock the agent.

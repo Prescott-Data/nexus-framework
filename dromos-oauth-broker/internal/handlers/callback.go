@@ -385,6 +385,17 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 
 	if connection.Status != "active" {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "connection not active", "status": connection.Status}, r)
+		
+		if connection.Status == "attention" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "attention_required", 
+				"detail": "Connection requires attention. The user must re-authenticate.",
+			})
+			return
+		}
+
 		http.Error(w, "Connection not active", http.StatusForbidden)
 		return
 	}
@@ -541,7 +552,7 @@ func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret
 }
 
 // refreshTokens refreshes using a refresh_token
-func (h *CallbackHandler) refreshTokens(tokenURL, clientID, clientSecret, refreshToken string) (map[string]interface{}, error) {
+func (h *CallbackHandler) refreshTokens(tokenURL, clientID, clientSecret, refreshToken string) (map[string]interface{}, int, error) {
 	data := url.Values{}
 	data.Set("grant_type", "refresh_token")
 	data.Set("refresh_token", refreshToken)
@@ -550,24 +561,28 @@ func (h *CallbackHandler) refreshTokens(tokenURL, clientID, clientSecret, refres
 
 	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json") // Ensure JSON response
+
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("token refresh failed: %s", string(body))
+		return nil, resp.StatusCode, fmt.Errorf("token refresh failed: %s", string(body))
 	}
+
 	var tokens map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
-		return nil, err
+		return nil, resp.StatusCode, err
 	}
-	return tokens, nil
+	return tokens, resp.StatusCode, nil
 }
 
 // Refresh handles POST /connections/{connection_id}/refresh
@@ -642,8 +657,23 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Refresh
-		newTokens, err := h.refreshTokens(provider.TokenURL, provider.ClientID, provider.ClientSecret, refreshToken)
+		newTokens, statusCode, err := h.refreshTokens(provider.TokenURL, provider.ClientID, provider.ClientSecret, refreshToken)
 		if err != nil {
+			// Check for unrecoverable errors (400-499 usually implies invalid_grant, revoked, or expired)
+			if statusCode >= 400 && statusCode < 500 {
+				h.logAuditEvent(&connectionID, "token_refresh_fatal", map[string]string{"error": err.Error(), "status_code": fmt.Sprintf("%d", statusCode)}, r)
+				h.updateConnectionStatus(connectionID, "attention")
+				
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusConflict) // 409 Conflict is a good signal for "state issue"
+				json.NewEncoder(w).Encode(map[string]string{
+					"error":  "attention_required",
+					"detail": "The connection credentials are invalid or expired and cannot be refreshed. User re-consent is required.",
+				})
+				return
+			}
+			
+			// For 5xx or network errors, we don't change state, just fail the request (Agent will retry)
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
