@@ -24,15 +24,28 @@ const (
 
 // Defines values for ProviderProfileAuthHeader.
 const (
-	ClientSecretBasic ProviderProfileAuthHeader = "client_secret_basic"
-	ClientSecretPost  ProviderProfileAuthHeader = "client_secret_post"
+	ProviderProfileAuthHeaderClientSecretBasic ProviderProfileAuthHeader = "client_secret_basic"
+	ProviderProfileAuthHeaderClientSecretPost  ProviderProfileAuthHeader = "client_secret_post"
 )
 
 // Defines values for ProviderProfileAuthType.
 const (
-	ApiKey    ProviderProfileAuthType = "api_key"
-	BasicAuth ProviderProfileAuthType = "basic_auth"
-	Oauth2    ProviderProfileAuthType = "oauth2"
+	ProviderProfileAuthTypeApiKey    ProviderProfileAuthType = "api_key"
+	ProviderProfileAuthTypeBasicAuth ProviderProfileAuthType = "basic_auth"
+	ProviderProfileAuthTypeOauth2    ProviderProfileAuthType = "oauth2"
+)
+
+// Defines values for ProviderProfilePatchAuthHeader.
+const (
+	ProviderProfilePatchAuthHeaderClientSecretBasic ProviderProfilePatchAuthHeader = "client_secret_basic"
+	ProviderProfilePatchAuthHeaderClientSecretPost  ProviderProfilePatchAuthHeader = "client_secret_post"
+)
+
+// Defines values for ProviderProfilePatchAuthType.
+const (
+	ProviderProfilePatchAuthTypeApiKey    ProviderProfilePatchAuthType = "api_key"
+	ProviderProfilePatchAuthTypeBasicAuth ProviderProfilePatchAuthType = "basic_auth"
+	ProviderProfilePatchAuthTypeOauth2    ProviderProfilePatchAuthType = "oauth2"
 )
 
 // ConsentSpecRequest defines model for ConsentSpecRequest.
@@ -90,6 +103,37 @@ type ProviderProfileAuthHeader string
 // ProviderProfileAuthType defines model for ProviderProfile.AuthType.
 type ProviderProfileAuthType string
 
+// ProviderProfilePatch defines model for ProviderProfilePatch.
+type ProviderProfilePatch struct {
+	// ApiBaseUrl Root URL for the provider's API (e.g., https://api.github.com)
+	ApiBaseUrl *string `json:"api_base_url,omitempty"`
+
+	// AuthHeader Method for sending client secret during token exchange.
+	AuthHeader   *ProviderProfilePatchAuthHeader `json:"auth_header,omitempty"`
+	AuthType     *ProviderProfilePatchAuthType   `json:"auth_type,omitempty"`
+	AuthUrl      *string                         `json:"auth_url,omitempty"`
+	ClientId     *string                         `json:"client_id,omitempty"`
+	ClientSecret *string                         `json:"client_secret,omitempty"`
+	Id           *openapi_types.UUID             `json:"id,omitempty"`
+
+	// Name Unique slug for the provider (e.g. "google", "github")
+	Name *string `json:"name,omitempty"`
+
+	// Params Provider-specific extra parameters (e.g., prompt, access_type)
+	Params   *map[string]interface{} `json:"params,omitempty"`
+	Scopes   *[]string               `json:"scopes,omitempty"`
+	TokenUrl *string                 `json:"token_url,omitempty"`
+
+	// UserInfoEndpoint Path to fetch user info (e.g., /user)
+	UserInfoEndpoint *string `json:"user_info_endpoint,omitempty"`
+}
+
+// ProviderProfilePatchAuthHeader Method for sending client secret during token exchange.
+type ProviderProfilePatchAuthHeader string
+
+// ProviderProfilePatchAuthType defines model for ProviderProfilePatch.AuthType.
+type ProviderProfilePatchAuthType string
+
 // TokenResponse defines model for TokenResponse.
 type TokenResponse struct {
 	AccessToken  *string    `json:"access_token,omitempty"`
@@ -117,7 +161,7 @@ type PostAuthConsentSpecJSONRequestBody = ConsentSpecRequest
 type PostProvidersJSONRequestBody PostProvidersJSONBody
 
 // PatchProvidersIdJSONRequestBody defines body for PatchProvidersId for application/json ContentType.
-type PatchProvidersIdJSONRequestBody = ProviderProfile
+type PatchProvidersIdJSONRequestBody = ProviderProfilePatch
 
 // PutProvidersIdJSONRequestBody defines body for PutProvidersId for application/json ContentType.
 type PutProvidersIdJSONRequestBody = ProviderProfile
