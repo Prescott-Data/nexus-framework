@@ -39,3 +39,8 @@ oauth-framework/dromos-oauth-gateway/bin/
 
 # WHITE_PAPER.md
 # WHITE_PAPER_OUTLINE.md
+
+dromos-oauth-broker/dromos-oauth-broker-bin
+dromos-oauth-gateway/provider_test_dashboard.html
+# providers_oauth2_audit.csv
+test_all_providers.sh
