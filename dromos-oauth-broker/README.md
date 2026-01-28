@@ -64,6 +64,14 @@ curl -s http://localhost:8080/health
 
 Endpoint requires payload under `profile`.
 
+### Partial Updates (PATCH)
+Use `PATCH /providers/{id}` to update specific fields without overwriting the entire profile (e.g. updating scopes only).
+```bash
+curl -X PATCH http://localhost:8080/providers/<id> \
+  -H "Content-Type: application/json" \
+  -d '{"scopes": ["new", "scope"]}'
+```
+
 ### New Fields (v2)
 - `auth_header`: Set to `"client_secret_basic"` for providers requiring Basic Auth (Twitter, GitHub). Default is `"client_secret_post"` (Body).
 - `api_base_url`: Root URL for the provider's API (e.g., `https://api.github.com`). Used by frontend.
