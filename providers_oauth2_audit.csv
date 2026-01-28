@@ -1,7 +1,6 @@
 Provider Name,Status,Scope Count,Registered Scopes
 3dcart,PENDING,5,listings orders customers products store
 airtable,PASS,7,data.recordComments:read data.recordComments:write data.records:read data.records:write schema.bases:read schema.bases:write user.email:read
-airtable-api,PENDING,0,
 asana,PENDING,10,users:read tasks:read tasks:write projects:read projects:write attachments:read attachments:write custom_fields:read custom_fields:write workspaces:read
 assembla,PENDING,2,read write
 atlassian,PENDING,20,read:jira-user read:jira-work write:jira-work manage:jira-project read:board-scope.admin:jira-software write:board-scope.admin:jira-software read:customer:jira-service-management write:customer:jira-service-management read:organization:jira-service-management write:confluence-content read:confluence-space.summary write:confluence-file read:confluence-props read:cmdb-object:jira write:cmdb-object:jira read:repository:bitbucket write:repository:bitbucket read:pullrequest:bitbucket write:pullrequest:bitbucket read:account
