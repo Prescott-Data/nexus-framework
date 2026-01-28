@@ -171,6 +171,91 @@ func (s *Store) UpdateProfile(p *Profile) error {
 	return nil
 }
 
+// PatchProfile updates specific fields of a provider profile
+func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	query := "UPDATE provider_profiles SET "
+	args := []interface{}{}
+	i := 1
+
+	for key, value := range updates {
+		// Whitelist all allowed columns and map them to snake_case if coming from JSON
+		var column string
+		switch key {
+		case "name":
+			column = "name"
+		case "client_id":
+			column = "client_id"
+		case "client_secret":
+			column = "client_secret"
+		case "auth_url":
+			column = "auth_url"
+		case "token_url":
+			column = "token_url"
+		case "issuer":
+			column = "issuer"
+		case "enable_discovery":
+			column = "enable_discovery"
+		case "scopes":
+			column = "scopes"
+			// Handle array conversion for pq
+			if slice, ok := value.([]interface{}); ok {
+				strSlice := make([]string, len(slice))
+				for j, v := range slice {
+					strSlice[j] = fmt.Sprint(v)
+				}
+				value = pq.Array(strSlice)
+			} else if slice, ok := value.([]string); ok {
+				value = pq.Array(slice)
+			}
+		case "auth_type":
+			column = "auth_type"
+		case "auth_header":
+			column = "auth_header"
+		case "api_base_url":
+			column = "api_base_url"
+		case "user_info_endpoint":
+			column = "user_info_endpoint"
+		case "params":
+			column = "params"
+			// Handle JSON RawMessage or map conversion if needed
+			if m, ok := value.(map[string]interface{}); ok {
+				b, _ := json.Marshal(m)
+				value = b
+			}
+		default:
+			// Ignore unknown fields
+			continue
+		}
+
+		if i > 1 {
+			query += ", "
+		}
+		query += fmt.Sprintf("%s = $%d", column, i)
+		args = append(args, value)
+		i++
+	}
+
+	// Always update updated_at
+	if i > 1 {
+		query += ", "
+	}
+	query += "updated_at = NOW()"
+
+	query += fmt.Sprintf(" WHERE id = $%d AND deleted_at IS NULL", i)
+	args = append(args, id)
+
+	_, err := s.db.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to patch provider profile: %w", err)
+	}
+
+	return nil
+}
+
 // DeleteProfile soft-deletes a provider profile by ID
 func (s *Store) DeleteProfile(id uuid.UUID) error {
 	query := `UPDATE provider_profiles SET deleted_at = NOW() WHERE id = $1`
@@ -232,7 +317,7 @@ func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
 		var name, authType, apiBaseURL, userInfoEndpoint string
 		var scopes []string
 
-		// auth_type usually defaults to 'oauth2' if empty in some contexts, 
+		// auth_type usually defaults to 'oauth2' if empty in some contexts,
 		// but here we trust the DB value.
 		if err := rows.Scan(&id, &name, &authType, &apiBaseURL, &userInfoEndpoint, pq.Array(&scopes)); err != nil {
 			return nil, fmt.Errorf("failed to scan metadata: %w", err)

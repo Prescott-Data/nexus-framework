@@ -193,6 +193,23 @@ paths:
       responses:
         '200':
           description: Updated successfully
+    patch:
+      summary: Partially update provider details
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderProfile'
+      responses:
+        '200':
+          description: Patched successfully
     delete:
       summary: Delete provider
       security: [{ ApiKeyAuth: [] }]

@@ -15,8 +15,11 @@ type ProfileStorer interface {
 	RegisterProfile(profileJSON string) (*Profile, error)
 	GetProfile(id uuid.UUID) (*Profile, error)
 	GetProfileByName(name string) (*Profile, error)
+	// ...
 	UpdateProfile(p *Profile) error
+	PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 	DeleteProfile(id uuid.UUID) error
+	// ...
 	DeleteProfileByName(name string) (int64, error)
 	ListProfiles() ([]ProfileList, error)
 	GetMetadata() (map[string]map[string]interface{}, error)
