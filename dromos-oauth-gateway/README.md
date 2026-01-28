@@ -155,3 +155,4 @@ oapi-codegen -package broker -generate types,client -o internal/broker/client.ge
 ```
 <!-- trigger build Mon Jan 26 11:07:00 EAT 2026 -->
 <!-- trigger build Tue Jan 27 12:39:45 EAT 2026 env update -->
+<- This allows the Gateway to be the public facade for OAuth Trigger gateway deployment for PATCH feature -->
