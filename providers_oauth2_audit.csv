@@ -1,6 +1,6 @@
 Provider Name,Status,Scope Count,Registered Scopes,Smoke Test Result
 3dcart,PASS,5,listings orders customers products store,SUCCESS: Auth URL generated.
-airtable,PASS,2,data.records:read user.email:read,SUCCESS: Full login flow verified (Basic Auth).
+airtable,PASS,7,data.recordComments:read data.recordComments:write data.records:read data.records:write schema.bases:read schema.bases:write user.email:read,SUCCESS: Full login flow verified (Non-Enterprise Scopes).
 asana,PASS,10,users:read tasks:read tasks:write projects:read projects:write attachments:read attachments:write custom_fields:read custom_fields:write workspaces:read,SUCCESS: Auth URL generated.
 assembla,PASS,2,read write,SUCCESS: Auth URL generated.
 atlassian,PASS,20,read:jira-user read:jira-work write:jira-work manage:jira-project read:board-scope.admin:jira-software write:board-scope.admin:jira-software read:customer:jira-service-management write:customer:jira-service-management read:organization:jira-service-management write:confluence-content read:confluence-space.summary write:confluence-file read:confluence-props read:cmdb-object:jira write:cmdb-object:jira read:repository:bitbucket write:repository:bitbucket read:pullrequest:bitbucket write:pullrequest:bitbucket read:account,SUCCESS: Auth URL generated.
