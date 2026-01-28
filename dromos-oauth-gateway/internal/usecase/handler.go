@@ -652,6 +652,38 @@ func (h *Handler) UpdateProvider(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// PatchProvider updates specific fields of a provider by ID
+func (h *Handler) PatchProvider(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	providerID, err := uuid.Parse(idStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_id", "invalid provider id", nil)
+		return
+	}
+
+	logging.Info(r.Context(), "patch_provider.start", map[string]any{"id": idStr})
+
+	var body broker.PatchProvidersIdJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "invalid json body", nil)
+		return
+	}
+
+	resp, err := h.brokerClient.PatchProvidersIdWithResponse(r.Context(), providerID, body)
+	if err != nil {
+		logging.Error(r.Context(), "patch_provider.broker_error", map[string]any{"error": err.Error()})
+		writeError(w, http.StatusBadGateway, "broker_unavailable", "broker request failed", nil)
+		return
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		w.WriteHeader(resp.StatusCode())
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 // DeleteProvider deletes a provider by ID
 func (h *Handler) DeleteProvider(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")

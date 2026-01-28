@@ -63,6 +63,7 @@ func (s *Server) routes() {
 	s.mux.Post("/v1/providers", s.handler.CreateProvider)
 	s.mux.Get("/v1/providers/{id}", s.handler.GetProvider)
 	s.mux.Put("/v1/providers/{id}", s.handler.UpdateProvider)
+	s.mux.Patch("/v1/providers/{id}", s.handler.PatchProvider)
 	s.mux.Delete("/v1/providers/{id}", s.handler.DeleteProvider)
 
 	// Callback Proxy
