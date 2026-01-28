@@ -57,7 +57,7 @@ WHERE name = 'clickup';
 
 -- Airtable
 UPDATE provider_profiles 
-SET api_base_url = 'https://api.airtable.com/v0', user_info_endpoint = '/meta/whoami' 
+SET api_base_url = 'https://api.airtable.com/v0', user_info_endpoint = '/meta/whoami', auth_header = 'client_secret_basic' 
 WHERE name = 'airtable';
 
 -- Monday
