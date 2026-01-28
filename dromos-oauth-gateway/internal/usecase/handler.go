@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -75,7 +77,7 @@ func NewHandler(brokerBaseURL string, stateKey []byte, httpClient *http.Client) 
 	apiKey := strings.TrimSpace(getEnv("BROKER_API_KEY", ""))
 
 	// Create the generated client
-	client, err := broker.NewClientWithResponses(baseURL, 
+	client, err := broker.NewClientWithResponses(baseURL,
 		broker.WithHTTPClient(httpClient),
 		broker.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 			if apiKey != "" {
@@ -198,12 +200,12 @@ func (h *Handler) RequestConnectionCore(ctx context.Context, in RequestConnectio
 		logging.Error(ctx, "request_connection.core_broker_error", map[string]any{"error": err.Error()})
 		return RequestConnectionOutput{}, fmt.Errorf("%w: %v", ErrBrokerUnavailable, err)
 	}
-	
+
 	if resp.StatusCode() != http.StatusOK {
 		logging.Error(ctx, "request_connection.core_broker_status", map[string]any{"status": resp.StatusCode()})
 		return RequestConnectionOutput{}, &BrokerStatusError{Status: resp.StatusCode()}
 	}
-	
+
 	if resp.JSON200 == nil {
 		logging.Error(ctx, "request_connection.core_empty_response", nil)
 		return RequestConnectionOutput{}, fmt.Errorf("%w: empty response", ErrBrokerInvalidResponse)
@@ -212,16 +214,20 @@ func (h *Handler) RequestConnectionCore(ctx context.Context, in RequestConnectio
 
 	// The generated struct fields might be pointers if nullable in YAML.
 	// In our YAML, they are strings (not nullable). oapi-codegen usually generates pointers for optional fields.
-	// Checking yaml: fields are not 'required' in the response schema? 
-	// Wait, in openapi.yaml ConsentSpecResponse fields were NOT marked required explicitly in the schema object, 
+	// Checking yaml: fields are not 'required' in the response schema?
+	// Wait, in openapi.yaml ConsentSpecResponse fields were NOT marked required explicitly in the schema object,
 	// so they will likely be pointers.
 	// Let's handle pointers safely.
-	
+
 	state := ""
-	if spec.State != nil { state = *spec.State }
-	
+	if spec.State != nil {
+		state = *spec.State
+	}
+
 	authURL := ""
-	if spec.AuthUrl != nil { authURL = *spec.AuthUrl }
+	if spec.AuthUrl != nil {
+		authURL = *spec.AuthUrl
+	}
 
 	connectionID, err := VerifyAndExtractConnectionID(h.stateKey, state)
 	if err != nil {
@@ -230,10 +236,14 @@ func (h *Handler) RequestConnectionCore(ctx context.Context, in RequestConnectio
 	}
 
 	var scopes []string
-	if spec.Scopes != nil { scopes = *spec.Scopes }
-	
+	if spec.Scopes != nil {
+		scopes = *spec.Scopes
+	}
+
 	var pid string
-	if spec.ProviderId != nil { pid = *spec.ProviderId }
+	if spec.ProviderId != nil {
+		pid = *spec.ProviderId
+	}
 
 	out := RequestConnectionOutput{
 		AuthURL:      authURL,
@@ -256,7 +266,7 @@ func (h *Handler) resolveProviderID(ctx context.Context, providerName string) (s
 	if name == "" {
 		return "", fmt.Errorf("empty provider_name")
 	}
-	
+
 	// Try canonical by-name endpoint
 	resp, err := h.brokerClient.GetProvidersByNameNameWithResponse(ctx, name)
 	if err == nil && resp.StatusCode() == http.StatusOK && resp.JSON200 != nil && resp.JSON200.Id != nil {
@@ -278,7 +288,7 @@ func (h *Handler) resolveProviderID(ctx context.Context, providerName string) (s
 	lower := strings.ToLower(name)
 	var matchedID string
 	matches := 0
-	
+
 	for _, p := range *listResp.JSON200 {
 		if p.Name != nil && strings.ToLower(strings.TrimSpace(*p.Name)) == lower {
 			if p.Id != nil {
@@ -304,7 +314,7 @@ func (h *Handler) CheckConnectionCore(ctx context.Context, connectionID string) 
 	if err != nil {
 		return "", fmt.Errorf("broker request failed: %w", err)
 	}
-	
+
 	status := "pending"
 	if resp.StatusCode() == http.StatusOK {
 		status = "active"
@@ -409,7 +419,7 @@ func (h *Handler) GetToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logging.Info(r.Context(), "get_token.proxy", map[string]any{"connection_id": connectionID, "status": resp.StatusCode()})
-	
+
 	if resp.StatusCode() == http.StatusOK && resp.JSON200 != nil {
 		writeJSON(w, http.StatusOK, resp.JSON200)
 		return
@@ -420,7 +430,7 @@ func (h *Handler) GetToken(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(resp.StatusCode())
 		return
 	}
-	
+
 	w.WriteHeader(resp.StatusCode())
 }
 
@@ -431,11 +441,11 @@ func (h *Handler) GetTokenCore(ctx context.Context, connectionID string) (map[st
 	if err != nil {
 		return nil, http.StatusBadGateway, fmt.Errorf("broker request failed: %w", err)
 	}
-	
+
 	if resp.StatusCode() != http.StatusOK {
 		return nil, resp.StatusCode(), nil
 	}
-	
+
 	if resp.JSON200 == nil {
 		return nil, resp.StatusCode(), fmt.Errorf("empty response")
 	}
@@ -444,7 +454,7 @@ func (h *Handler) GetTokenCore(ctx context.Context, connectionID string) (map[st
 	data, _ := json.Marshal(resp.JSON200)
 	var tokenMap map[string]any
 	_ = json.Unmarshal(data, &tokenMap)
-	
+
 	return tokenMap, http.StatusOK, nil
 }
 
@@ -503,7 +513,7 @@ func (h *Handler) GetProvidersCore(ctx context.Context) (map[string]any, error) 
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBrokerUnavailable, err)
 	}
-	
+
 	if resp.StatusCode() != http.StatusOK {
 		return nil, &BrokerStatusError{Status: resp.StatusCode()}
 	}
@@ -512,24 +522,24 @@ func (h *Handler) GetProvidersCore(ctx context.Context) (map[string]any, error) 
 		return nil, fmt.Errorf("%w: empty response", ErrBrokerInvalidResponse)
 	}
 
-	// The generated type MetadataResponse is already a map[string]... structure 
+	// The generated type MetadataResponse is already a map[string]... structure
 	// defined as AdditionalProperties in YAML.
 	// oapi-codegen generates: type MetadataResponse map[string]map[string]interface{}
-	// Wait, the YAML says: 
-	// MetadataResponse: 
-	//   additionalProperties: 
+	// Wait, the YAML says:
+	// MetadataResponse:
+	//   additionalProperties:
 	//     type: object
 	//     additionalProperties: ...
 	// So `resp.JSON200` should be `*MetadataResponse`.
 	// We can cast it or marshal/unmarshal if types don't align exactly with map[string]any.
 	// Since `MetadataResponse` IS a map type in Go (usually), let's see.
 	// Ideally we return the struct, but the signature here asks for map[string]any.
-	
+
 	// Let's marshal/unmarshal to be safe and generic
 	data, _ := json.Marshal(resp.JSON200)
 	var metadata map[string]any
 	_ = json.Unmarshal(data, &metadata)
-	
+
 	return metadata, nil
 }
 
@@ -545,7 +555,7 @@ func (h *Handler) GetProviders(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "broker_unavailable", "failed to fetch providers", map[string]any{"error": err.Error()})
 		return
 	}
-	
+
 	writeJSON(w, http.StatusOK, metadata)
 }
 
@@ -666,4 +676,37 @@ func (h *Handler) DeleteProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// ProxyCallback forwards the OAuth callback to the Broker
+func (h *Handler) ProxyCallback(w http.ResponseWriter, r *http.Request) {
+	// We construct a target URL to the Broker's callback endpoint
+	target, err := url.Parse(h.brokerBaseURL)
+	if err != nil {
+		logging.Error(r.Context(), "proxy_callback.parse_error", map[string]any{"error": err.Error()})
+		http.Error(w, "invalid broker url", http.StatusInternalServerError)
+		return
+	}
+
+	// Create reverse proxy
+	proxy := httputil.NewSingleHostReverseProxy(target)
+
+	// Update the director to set the correct path
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.URL.Path = "/auth/callback" // Force path to broker's callback
+		req.Host = target.Host          // Set host header to broker's host
+
+		// Pass query params (code, state) as is
+		// originalDirector already copies URL, so query params are preserved
+	}
+
+	// Logging
+	logging.Info(r.Context(), "proxy_callback.start", map[string]any{
+		"path":  r.URL.Path,
+		"query": r.URL.RawQuery,
+	})
+
+	proxy.ServeHTTP(w, r)
 }

@@ -64,6 +64,9 @@ func (s *Server) routes() {
 	s.mux.Get("/v1/providers/{id}", s.handler.GetProvider)
 	s.mux.Put("/v1/providers/{id}", s.handler.UpdateProvider)
 	s.mux.Delete("/v1/providers/{id}", s.handler.DeleteProvider)
+
+	// Callback Proxy
+	s.mux.Handle("/auth/callback", http.HandlerFunc(s.handler.ProxyCallback))
 }
 
 func (s *Server) Start() error {
