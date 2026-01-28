@@ -20,3 +20,4 @@ The SQL query in the `GetToken` function was updated to include `ORDER BY create
 ### Verification
 
 The fix was verified by adding a temporary test case that creates multiple tokens for a connection and asserts that `GetToken` returns the latest one. The test passed, confirming the solution is effective.
+

@@ -385,12 +385,12 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 
 	if connection.Status != "active" {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "connection not active", "status": connection.Status}, r)
-		
+
 		if connection.Status == "attention" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(map[string]string{
-				"error": "attention_required", 
+				"error":  "attention_required",
 				"detail": "Connection requires attention. The user must re-authenticate.",
 			})
 			return
@@ -501,7 +501,7 @@ func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret
 	data.Set("code", code)
 	data.Set("code_verifier", codeVerifier)
 	data.Set("redirect_uri", redirectURI)
-	
+
 	// Determine auth method based on authHeader configuration
 	// Default to "client_secret_post" (sending in body) if not specified or explicitly set
 	useBasicAuth := false
@@ -663,7 +663,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 			if statusCode >= 400 && statusCode < 500 {
 				h.logAuditEvent(&connectionID, "token_refresh_fatal", map[string]string{"error": err.Error(), "status_code": fmt.Sprintf("%d", statusCode)}, r)
 				h.updateConnectionStatus(connectionID, "attention")
-				
+
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusConflict) // 409 Conflict is a good signal for "state issue"
 				json.NewEncoder(w).Encode(map[string]string{
@@ -672,7 +672,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 				})
 				return
 			}
-			
+
 			// For 5xx or network errors, we don't change state, just fail the request (Agent will retry)
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
