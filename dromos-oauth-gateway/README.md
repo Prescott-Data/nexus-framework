@@ -23,7 +23,8 @@ POST /v1/request-connection
 {
   "user_id": "workspace-123",
   "provider_name": "google",
-  "scopes": ["email", "profile"],
+  "provider_name": "google",
+  "scopes": ["email", "profile"], // Optional for API Key providers
   "return_url": "https://myapp.com/callback"
 }
 ```
