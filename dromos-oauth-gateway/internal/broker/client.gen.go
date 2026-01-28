@@ -116,6 +116,9 @@ type PostAuthConsentSpecJSONRequestBody = ConsentSpecRequest
 // PostProvidersJSONRequestBody defines body for PostProviders for application/json ContentType.
 type PostProvidersJSONRequestBody PostProvidersJSONBody
 
+// PatchProvidersIdJSONRequestBody defines body for PatchProvidersId for application/json ContentType.
+type PatchProvidersIdJSONRequestBody = ProviderProfile
+
 // PutProvidersIdJSONRequestBody defines body for PutProvidersId for application/json ContentType.
 type PutProvidersIdJSONRequestBody = ProviderProfile
 
@@ -228,6 +231,11 @@ type ClientInterface interface {
 
 	// GetProvidersId request
 	GetProvidersId(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PatchProvidersIdWithBody request with any body
+	PatchProvidersIdWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PatchProvidersId(ctx context.Context, id openapi_types.UUID, body PatchProvidersIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PutProvidersIdWithBody request with any body
 	PutProvidersIdWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -381,6 +389,30 @@ func (c *Client) DeleteProvidersId(ctx context.Context, id openapi_types.UUID, r
 
 func (c *Client) GetProvidersId(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetProvidersIdRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchProvidersIdWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchProvidersIdRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchProvidersId(ctx context.Context, id openapi_types.UUID, body PatchProvidersIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchProvidersIdRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
 	}
@@ -811,6 +843,53 @@ func NewGetProvidersIdRequest(server string, id openapi_types.UUID) (*http.Reque
 	return req, nil
 }
 
+// NewPatchProvidersIdRequest calls the generic PatchProvidersId builder with application/json body
+func NewPatchProvidersIdRequest(server string, id openapi_types.UUID, body PatchProvidersIdJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPatchProvidersIdRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewPatchProvidersIdRequestWithBody generates requests for PatchProvidersId with any type of body
+func NewPatchProvidersIdRequestWithBody(server string, id openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "id", runtime.ParamLocationPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/providers/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewPutProvidersIdRequest calls the generic PutProvidersId builder with application/json body
 func NewPutProvidersIdRequest(server string, id openapi_types.UUID, body PutProvidersIdJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -937,6 +1016,11 @@ type ClientWithResponsesInterface interface {
 
 	// GetProvidersIdWithResponse request
 	GetProvidersIdWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*GetProvidersIdResponse, error)
+
+	// PatchProvidersIdWithBodyWithResponse request with any body
+	PatchProvidersIdWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchProvidersIdResponse, error)
+
+	PatchProvidersIdWithResponse(ctx context.Context, id openapi_types.UUID, body PatchProvidersIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchProvidersIdResponse, error)
 
 	// PutProvidersIdWithBodyWithResponse request with any body
 	PutProvidersIdWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutProvidersIdResponse, error)
@@ -1191,6 +1275,27 @@ func (r GetProvidersIdResponse) StatusCode() int {
 	return 0
 }
 
+type PatchProvidersIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r PatchProvidersIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PatchProvidersIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type PutProvidersIdResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1325,6 +1430,23 @@ func (c *ClientWithResponses) GetProvidersIdWithResponse(ctx context.Context, id
 		return nil, err
 	}
 	return ParseGetProvidersIdResponse(rsp)
+}
+
+// PatchProvidersIdWithBodyWithResponse request with arbitrary body returning *PatchProvidersIdResponse
+func (c *ClientWithResponses) PatchProvidersIdWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchProvidersIdResponse, error) {
+	rsp, err := c.PatchProvidersIdWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchProvidersIdResponse(rsp)
+}
+
+func (c *ClientWithResponses) PatchProvidersIdWithResponse(ctx context.Context, id openapi_types.UUID, body PatchProvidersIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchProvidersIdResponse, error) {
+	rsp, err := c.PatchProvidersId(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchProvidersIdResponse(rsp)
 }
 
 // PutProvidersIdWithBodyWithResponse request with arbitrary body returning *PutProvidersIdResponse
@@ -1603,6 +1725,22 @@ func ParseGetProvidersIdResponse(rsp *http.Response) (*GetProvidersIdResponse, e
 		}
 		response.JSON200 = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParsePatchProvidersIdResponse parses an HTTP response from a PatchProvidersIdWithResponse call
+func ParsePatchProvidersIdResponse(rsp *http.Response) (*PatchProvidersIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PatchProvidersIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
 	}
 
 	return response, nil
