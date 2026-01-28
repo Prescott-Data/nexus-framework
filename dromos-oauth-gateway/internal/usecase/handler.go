@@ -330,8 +330,8 @@ func (h *Handler) RequestConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_json", "invalid json", nil)
 		return
 	}
-	if len(req.Scopes) == 0 || req.ReturnURL == "" || (req.ProviderID == "" && req.ProviderName == "") {
-		writeError(w, http.StatusBadRequest, "missing_fields", "scopes, return_url, and provider are required", nil)
+	if req.ReturnURL == "" || (req.ProviderID == "" && req.ProviderName == "") {
+		writeError(w, http.StatusBadRequest, "missing_fields", "return_url and provider are required", nil)
 		return
 	}
 

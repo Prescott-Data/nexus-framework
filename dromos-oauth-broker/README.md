@@ -122,6 +122,12 @@ jq -n '{
 ```
 **Note:** Ensure your Azure App Registration has a **Web** platform configured with the correct Redirect URI.
 
+### OIDC & Self-Discovery
+If you request the `openid` scope, the Broker attempts **OIDC Discovery**:
+1. It uses the configured `auth_url` or `token_url` as a hint to find `/.well-known/openid-configuration`.
+2. If found, it **dynamically uses** the endpoints (Authorization, Token, UserInfo) declared in the metadata, ignoring your manually configured values if they differ.
+3. This simplifies maintenance for providers like Google, Okta, and Microsoft—you just need a valid "base" URL.
+
 ---
 
 ## Provider Metadata (Frontend Integration)

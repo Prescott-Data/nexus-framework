@@ -82,7 +82,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate required fields
-	if request.WorkspaceID == "" || request.ProviderID == "" || len(request.Scopes) == 0 || request.ReturnURL == "" {
+	if request.WorkspaceID == "" || request.ProviderID == "" || request.ReturnURL == "" {
 		http.Error(w, "Missing required fields", http.StatusBadRequest)
 		return
 	}
