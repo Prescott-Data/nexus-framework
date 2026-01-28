@@ -58,6 +58,44 @@ components:
           type: object
           description: Provider-specific extra parameters (e.g., prompt, access_type)
     
+    ProviderProfilePatch:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Unique slug for the provider (e.g. "google", "github")
+        auth_type:
+          type: string
+          enum: [oauth2, api_key, basic_auth]
+        auth_header:
+          type: string
+          enum: [client_secret_post, client_secret_basic]
+          description: Method for sending client secret during token exchange.
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        auth_url:
+          type: string
+        token_url:
+          type: string
+        api_base_url:
+          type: string
+          description: Root URL for the provider's API (e.g., https://api.github.com)
+        user_info_endpoint:
+          type: string
+          description: Path to fetch user info (e.g., /user)
+        scopes:
+          type: array
+          items: { type: string }
+        params:
+          type: object
+          description: Provider-specific extra parameters (e.g., prompt, access_type)
+    
     ConsentSpecRequest:
       type: object
       required: [workspace_id, return_url]
@@ -206,7 +244,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ProviderProfile'
+              $ref: '#/components/schemas/ProviderProfilePatch'
       responses:
         '200':
           description: Patched successfully

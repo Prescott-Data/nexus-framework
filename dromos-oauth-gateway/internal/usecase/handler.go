@@ -677,6 +677,10 @@ func (h *Handler) PatchProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if resp.StatusCode() != http.StatusOK {
+		logging.Error(r.Context(), "patch_provider.broker_status", map[string]any{
+			"status": resp.StatusCode(),
+			"body":   string(resp.Body),
+		})
 		w.WriteHeader(resp.StatusCode())
 		return
 	}
