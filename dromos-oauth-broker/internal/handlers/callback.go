@@ -229,6 +229,9 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	query.Set("status", "success")
 	query.Set("connection_id", connectionID.String())
 	query.Set("provider", provider.Name)
+	if stateData.WorkspaceID != "" {
+		query.Set("user_id", stateData.WorkspaceID)
+	}
 	returnURL.RawQuery = query.Encode()
 
 	http.Redirect(w, r, returnURL.String(), http.StatusFound)

@@ -11,6 +11,8 @@ import (
 )
 
 type StateData struct {
+	// WorkspaceID originates from Gateway user_id
+	// and is reused as the user identifier during callback redirects
 	WorkspaceID string    `json:"workspace_id"`
 	ProviderID  string    `json:"provider_id"`
 	Nonce       string    `json:"nonce"` // connection ID
