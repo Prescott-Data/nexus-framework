@@ -450,28 +450,43 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 			response[k] = v
 		}
 	} else {
-		// Generic Provider: Look for auth_strategy in params
-		foundStrategy := false
+		// Generic Provider Logic
+		// 1. Start with the auth_type defined in the profile
+		strategyType := connection.AuthType
+
+		// 2. Prepare the config map from the provider's params
+		var config map[string]interface{}
 		if connection.Params != nil {
-			var paramsMap map[string]interface{}
-			if err := json.Unmarshal(*connection.Params, &paramsMap); err == nil {
-				if s, ok := paramsMap["auth_strategy"].(map[string]interface{}); ok {
-					strategy = s
-					foundStrategy = true
-				}
+			if err := json.Unmarshal(*connection.Params, &config); err != nil {
+				// If params are corrupt, we log but proceed with empty config
+				h.logAuditEvent(&connectionID, "token_retrieval_warning", map[string]string{"warning": "failed to parse params"}, r)
+				config = make(map[string]interface{})
 			}
+		} else {
+			config = make(map[string]interface{})
 		}
-		// Fallback if not explicitly defined but we know the high-level type
-		if !foundStrategy {
-			// Map high-level broker auth_types to default bridge strategies if possible
-			// This is a "best effort" mapping if the explicit config is missing
-			switch connection.AuthType {
-			case "api_key":
-				strategy = map[string]interface{}{"type": "header", "config": map[string]string{"header_name": "X-API-Key", "credential_field": "api_key"}}
-			case "basic_auth":
-				strategy = map[string]interface{}{"type": "basic_auth"}
-			default:
-				strategy = map[string]interface{}{"type": connection.AuthType} // Hope for the best
+
+		// 3. Handle Legacy "auth_strategy" nesting (Backwards Compatibility)
+		// If the user explicitly nested config inside "auth_strategy", use that instead.
+		if nested, ok := config["auth_strategy"].(map[string]interface{}); ok {
+			strategy = nested
+		} else {
+			// 4. Default Behavior: Use AuthType as type, and Params as config
+			// We might need to map specific legacy types if they differ from Bridge expectations
+			if strategyType == "api_key" {
+				// Map "api_key" (Broker) -> "header" (Bridge) if not explicitly overridden
+				// But only if "type" isn't already set in config (unlikely for top-level params)
+				if _, ok := config["header_name"]; !ok {
+					// Apply defaults for api_key if they are missing
+					config["header_name"] = "X-API-Key"
+					config["credential_field"] = "api_key"
+				}
+				strategyType = "header"
+			}
+
+			strategy = map[string]interface{}{
+				"type":   strategyType,
+				"config": config,
 			}
 		}
 	}

@@ -134,67 +134,50 @@ Non-OAuth providers are configured by defining a **JSON schema** that describes 
 #### **Payload Fields:**
 
 *   `name` (string, required): A unique name for the provider.
-*   `auth_type` (string, required): Must be set to `"api_key"` (which implies a form-capture flow) or `"basic_auth"`.
+*   `auth_type` (string, required): The authentication strategy type.
+    *   `"header"`: Inject a value into an HTTP header (e.g., API Keys).
+    *   `"query_param"`: Inject a value into the query string.
+    *   `"basic_auth"`: Standard HTTP Basic Auth (username/password).
+    *   `"aws_sigv4"`: AWS Signature Version 4.
+    *   `"hmac_payload"`: HMAC signature of the request body.
+    *   `"api_key"`: (Legacy) Alias for `header` type.
 *   `params` (json, required): A JSON object containing configuration for both the frontend (schema) and the client (strategy).
     *   `credential_schema` (json, required): A valid JSON schema defining the fields to be collected from the user (e.g., "Enter your API Key").
-    *   `auth_strategy` (json, required): Defines how the Bridge client should inject these credentials into HTTP requests.
+    *   **Strategy Config**: Any other fields in `params` are treated as configuration for the chosen `auth_type` (e.g., `header_name`, `region`).
 
-### Authentication Strategies (`auth_strategy`)
+### Authentication Strategies & Configuration
 
-The `auth_strategy` object inside `params` determines how the credentials are applied.
+The following table shows the required configuration fields in `params` for each strategy.
 
 #### **1. Header Authentication (`header`)**
 Injects a value into a specific HTTP header.
 
-```json
-"auth_strategy": {
-  "type": "header",
-  "config": {
-    "header_name": "X-API-Key",      // The header key (default: Authorization)
-    "credential_field": "api_key",   // The key from the collected credentials to use
-    "value_prefix": "Bearer "        // Optional prefix (e.g., for standard tokens)
-  }
-}
-```
+**Params Config:**
+*   `header_name` (string): The header key (e.g., `X-API-Key`, `Authorization`). Default: `Authorization`.
+*   `credential_field` (string): The key from the collected credentials to use. Default: `api_key`.
+*   `value_prefix` (string): Optional prefix (e.g., `Bearer `).
 
 #### **2. Query Parameter Authentication (`query_param`)**
 Injects a value into the query string.
 
-```json
-"auth_strategy": {
-  "type": "query_param",
-  "config": {
-    "param_name": "api_key",         // The query param key (e.g., ?api_key=...)
-    "credential_field": "my_key"     // The key from the collected credentials
-  }
-}
-```
+**Params Config:**
+*   `param_name` (string, required): The query param key (e.g., `api_key` for `?api_key=...`).
+*   `credential_field` (string): The key from the collected credentials. Default: `api_key`.
 
 #### **3. Basic Authentication (`basic_auth`)**
 Uses standard HTTP Basic Auth (base64 encoded user:pass).
 
-```json
-"auth_strategy": {
-  "type": "basic_auth",
-  "config": {
-    "username_field": "username",    // Key for the username in credentials
-    "password_field": "password"     // Key for the password in credentials
-  }
-}
-```
+**Params Config:**
+*   `username_field` (string): Key for the username in credentials. Default: `username`.
+*   `password_field` (string): Key for the password in credentials. Default: `password`.
 
 #### **4. AWS Signature V4 (`aws_sigv4`)**
 Signs requests using AWS standard signing.
 
-```json
-"auth_strategy": {
-  "type": "aws_sigv4",
-  "config": {
-    "service": "execute-api",        // AWS Service (e.g., s3, execute-api)
-    "region": "us-east-1"            // AWS Region
-  }
-}
-```
+**Params Config:**
+*   `service` (string, required): AWS Service (e.g., `s3`, `execute-api`).
+*   `region` (string): AWS Region. Default: `us-east-1`.
+
 *Note: The credentials map must contain `access_key` and `secret_key`.*
 
 ---
@@ -204,9 +187,11 @@ Signs requests using AWS standard signing.
 This provider requires an `api_key` which must be sent in the `X-Freedcamp-Key` header.
 
 ```bash
-# Define the schema and strategy as a shell variable
+# Define the schema and params as a shell variable
 PARAMS='{
   "base_url": "https://freedcamp.com/api/v1/",
+  "header_name": "X-Freedcamp-Key",
+  "credential_field": "user_key",
   "credential_schema": {
     "type": "object",
     "properties": {
@@ -216,13 +201,6 @@ PARAMS='{
       }
     },
     "required": ["user_key"]
-  },
-  "auth_strategy": {
-    "type": "header",
-    "config": {
-      "header_name": "X-Freedcamp-Key",
-      "credential_field": "user_key"
-    }
   }
 }'
 
@@ -230,7 +208,7 @@ PARAMS='{
 jq -n --argjson params "$PARAMS" '{
     "profile": {
         "name": "freedcamp",
-        "auth_type": "api_key",
+        "auth_type": "header",
         "params": $params
     }
 }' | curl -X POST http://localhost:8080/providers \
@@ -245,6 +223,8 @@ This provider collects AWS credentials and signs requests for API Gateway.
 
 ```bash
 PARAMS='{
+  "service": "execute-api",
+  "region": "us-west-2",
   "credential_schema": {
     "type": "object",
     "properties": {
@@ -252,20 +232,13 @@ PARAMS='{
       "secret_key": { "type": "string", "title": "AWS Secret Access Key" }
     },
     "required": ["access_key", "secret_key"]
-  },
-  "auth_strategy": {
-    "type": "aws_sigv4",
-    "config": {
-      "service": "execute-api",
-      "region": "us-west-2"
-    }
   }
 }'
 
 jq -n --argjson params "$PARAMS" '{
     "profile": {
         "name": "my-aws-service",
-        "auth_type": "api_key",
+        "auth_type": "aws_sigv4",
         "params": $params
     }
 }' | curl -X POST http://localhost:8080/providers \

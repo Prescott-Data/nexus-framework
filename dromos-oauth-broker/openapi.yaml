@@ -31,7 +31,7 @@ components:
           description: Unique slug for the provider (e.g. "google", "github")
         auth_type:
           type: string
-          enum: [oauth2, api_key, basic_auth]
+          enum: [oauth2, api_key, basic_auth, header, query_param, hmac_payload, aws_sigv4]
           default: oauth2
         auth_header:
           type: string
@@ -70,7 +70,7 @@ components:
           description: Unique slug for the provider (e.g. "google", "github")
         auth_type:
           type: string
-          enum: [oauth2, api_key, basic_auth]
+          enum: [oauth2, api_key, basic_auth, header, query_param, hmac_payload, aws_sigv4]
         auth_header:
           type: string
           enum: [client_secret_post, client_secret_basic]
@@ -131,6 +131,14 @@ components:
         refresh_token: { type: string }
         expiry: { type: string, format: date-time }
         id_token: { type: string }
+        strategy:
+          type: object
+          description: Auth strategy configuration (e.g. type, config)
+          additionalProperties: true
+        credentials:
+          type: object
+          description: Decrypted credentials map
+          additionalProperties: true
     
     MetadataResponse:
       type: object
