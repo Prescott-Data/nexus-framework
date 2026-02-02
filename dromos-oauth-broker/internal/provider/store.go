@@ -59,7 +59,7 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		if p.Name == "" || p.ClientID == "" || p.ClientSecret == "" || (!p.EnableDiscovery && (p.AuthURL == "" || p.TokenURL == "")) {
 			return nil, fmt.Errorf("missing required oauth2 fields (name, client_id, client_secret, auth_url, token_url)")
 		}
-	case "api_key", "basic_auth":
+	case "api_key", "basic_auth", "header", "query_param", "hmac_payload", "aws_sigv4":
 		if p.Name == "" {
 			return nil, fmt.Errorf("missing required field: name")
 		}

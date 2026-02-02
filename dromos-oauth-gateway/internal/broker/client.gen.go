@@ -136,11 +136,13 @@ type ProviderProfilePatchAuthType string
 
 // TokenResponse defines model for TokenResponse.
 type TokenResponse struct {
-	AccessToken  *string    `json:"access_token,omitempty"`
-	Expiry       *time.Time `json:"expiry,omitempty"`
-	IdToken      *string    `json:"id_token,omitempty"`
-	RefreshToken *string    `json:"refresh_token,omitempty"`
-	TokenType    *string    `json:"token_type,omitempty"`
+	AccessToken  *string                 `json:"access_token,omitempty"`
+	Expiry       *time.Time              `json:"expiry,omitempty"`
+	IdToken      *string                 `json:"id_token,omitempty"`
+	RefreshToken *string                 `json:"refresh_token,omitempty"`
+	TokenType    *string                 `json:"token_type,omitempty"`
+	Strategy     *map[string]interface{} `json:"strategy,omitempty"`
+	Credentials  *map[string]interface{} `json:"credentials,omitempty"`
 }
 
 // GetAuthCallbackParams defines parameters for GetAuthCallback.
