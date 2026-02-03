@@ -152,20 +152,23 @@ func (h *ProvidersHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // GetByName handles GET /providers/by-name/{name}
 func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "name")
-	if name == "" {
-		http.Error(w, "missing name", http.StatusBadRequest)
-		return
-	}
+    name := chi.URLParam(r, "name")
+    if name == "" {
+        http.Error(w, "missing name", http.StatusBadRequest)
+        return
+    }
 
-	profile, err := h.store.GetProfileByName(name)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
+    // Normalize to lowercase
+    name = strings.ToLower(strings.TrimSpace(name))
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"id": profile.ID.String()})
+    profile, err := h.store.GetProfileByName(name)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusNotFound)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    _ = json.NewEncoder(w).Encode(map[string]string{"id": profile.ID.String()})
 }
 
 // DeleteByName handles DELETE /providers/by-name/{name} to delete ALL providers with that name
