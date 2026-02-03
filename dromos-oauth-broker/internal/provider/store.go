@@ -111,9 +111,19 @@ func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 
 // GetProfileByName retrieves a provider profile by name
 func (s *Store) GetProfileByName(name string) (*Profile, error) {
-	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params FROM provider_profiles WHERE name = $1 AND deleted_at IS NULL`
+	// Normalize input to lowercase
+	nameLower := strings.ToLower(name)
 
-	rows, err := s.db.Query(query, name)
+	// Use LOWER(name) in SQL for case-insensitive match
+	query := `
+		SELECT id, name, client_id, client_secret, auth_url, token_url, issuer,
+		       enable_discovery, scopes, auth_type, COALESCE(auth_header, ''),
+		       COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params
+		FROM provider_profiles
+		WHERE LOWER(name) = $1 AND deleted_at IS NULL
+	`
+
+	rows, err := s.db.Query(query, nameLower)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider profile by name: %w", err)
 	}
@@ -122,7 +132,11 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 	var profiles []Profile
 	for rows.Next() {
 		var p Profile
-		err := rows.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params)
+		err := rows.Scan(
+			&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL,
+			&p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType,
+			&p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan provider profile: %w", err)
 		}
@@ -137,7 +151,10 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 		return nil, fmt.Errorf("provider '%s' not found", name)
 	}
 	if len(profiles) > 1 {
-		return nil, fmt.Errorf("multiple providers found with name '%s' (found %d) - database integrity issue, please contact administrator", name, len(profiles))
+		return nil, fmt.Errorf(
+			"multiple providers found with name '%s' (found %d) - database integrity issue, please contact administrator",
+			name, len(profiles),
+		)
 	}
 	return &profiles[0], nil
 }
