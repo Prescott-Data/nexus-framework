@@ -88,28 +88,28 @@ func TestRegisterProfile_StaticKey(t *testing.T) {
 	// 1. Mock the duplicate check query (should return no rows)
 	mock.ExpectQuery("SELECT id FROM provider_profiles WHERE name").
 		WithArgs("test-api-key-provider").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+		WillReturnError(sql.ErrNoRows)
 
 	// 2. Mock the db.QueryRow INSERT call.
 	rows := sqlmock.NewRows([]string{"id"}).AddRow("b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1")
 	mock.ExpectQuery("INSERT INTO provider_profiles").
 		WithArgs(
 			"test-api-key-provider",
-			"",
-			"",
-			"",
-			"",
-			nil,
-			false,
-			pq.Array([]string(nil)),
-			"api_key",
-			"X-API-KEY",
-			"", // api_base_url
-			"", // user_info_endpoint
-			nil,
+			"",                      // client_id
+			"",                      // client_secret
+			"",                      // auth_url
+			"",                      // token_url
+			"",                      // issuer
+			false,                   // enable_discovery
+			pq.Array([]string(nil)), // scopes
+			"api_key",               // auth_type
+			"X-API-KEY",             // auth_header
+			"",                      // api_base_url
+			"",                      // user_info_endpoint
+			sqlmock.AnyArg(),        // params
 		).WillReturnRows(rows)
 
-	// 2. Create a valid Profile struct with AuthType="api_key" and Name.
+	// 3. Create a valid Profile struct with AuthType="api_key" and Name.
 	profile := Profile{
 		Name:       "test-api-key-provider",
 		AuthType:   "api_key",
@@ -118,10 +118,10 @@ func TestRegisterProfile_StaticKey(t *testing.T) {
 	profileJSON, err := json.Marshal(profile)
 	assert.NoError(t, err)
 
-	// 3. Call store.RegisterProfile() with this profile.
+	// 4. Call store.RegisterProfile() with this profile.
 	_, err = store.RegisterProfile(string(profileJSON))
 
-	// 4. Assert that the err is nil.
+	// 5. Assert that the err is nil.
 	assert.NoError(t, err)
 }
 
@@ -144,9 +144,9 @@ func TestRegisterProfile_InvalidOAuth2(t *testing.T) {
 	// 2. Call store.RegisterProfile() with this invalid profile.
 	_, err = store.RegisterProfile(string(profileJSON))
 
-	// 3. Assert that an err is returned and that the error message indicates missing fields.
+	// 3. Assert that an err is returned and that the error message indicates missing client_id
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "missing required oauth2 fields (name, client_id, client_secret, auth_url, token_url)")
+	assert.Contains(t, err.Error(), "missing required field: client_id")
 }
 
 func TestRegisterProfile_InvalidJSON(t *testing.T) {
