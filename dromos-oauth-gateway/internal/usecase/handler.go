@@ -577,18 +577,36 @@ func (h *Handler) CreateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if resp.StatusCode() != http.StatusCreated && resp.StatusCode() != http.StatusOK {
-		var errMsg string
+		// Parse the broker's error response
+		var brokerError struct {
+			Error   string `json:"error"`
+			Message string `json:"message"`
+		}
 
-		if resp.Body != nil {
-			// resp.Body is already []byte, no need for io.ReadAll
-			errMsg = string(resp.Body)
+		var errCode, errMsg string
+
+		if resp.Body != nil && len(resp.Body) > 0 {
+			// Try to parse as JSON first
+			if err := json.Unmarshal(resp.Body, &brokerError); err == nil {
+				errCode = brokerError.Error
+				errMsg = brokerError.Message
+			} else {
+				// Fall back to raw body if not JSON
+				errCode = "broker_error"
+				errMsg = string(resp.Body)
+			}
 		} else {
+			errCode = "broker_error"
 			errMsg = fmt.Sprintf("broker returned status %d", resp.StatusCode())
 		}
 
-		logging.Error(r.Context(), "create_provider.broker_error", map[string]any{"status": resp.StatusCode(), "body": errMsg})
+		logging.Error(r.Context(), "create_provider.broker_error", map[string]any{
+			"status":  resp.StatusCode(),
+			"error":   errCode,
+			"message": errMsg,
+		})
 
-		writeError(w, resp.StatusCode(), "broker_error", errMsg, nil)
+		writeError(w, resp.StatusCode(), errCode, errMsg, nil)
 		return
 	}
 
