@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/DATA-DOG/go-sqlmock.v1"
 )
@@ -24,7 +23,7 @@ func TestRegisterProfile_OAuth2(t *testing.T) {
 		WithArgs("test-oauth2-provider").
 		WillReturnError(sql.ErrNoRows)
 
-	// Mock INSERT query (match exact types: empty string for issuer, empty array for scopes)
+	// Mock INSERT query
 	rows := sqlmock.NewRows([]string{"id"}).AddRow("a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0")
 	mock.ExpectQuery(`INSERT INTO provider_profiles`).
 		WithArgs(
@@ -33,13 +32,13 @@ func TestRegisterProfile_OAuth2(t *testing.T) {
 			"test-client-secret",        // client_secret
 			"http://provider.com/auth",  // auth_url
 			"http://provider.com/token", // token_url
-			"",                          // issuer as empty string
+			nil,                         // issuer
 			false,                       // enable_discovery
-			pq.Array([]string{}),        // empty scopes array
+			nil,                         // scopes
 			"oauth2",                    // auth_type
-			"",                          // auth_header
-			"",                          // api_base_url
-			"",                          // user_info_endpoint
+			"",                          // auth_header (empty string)
+			"",                          // api_base_url (empty string)
+			"",                          // user_info_endpoint (empty string)
 			sqlmock.AnyArg(),            // params
 		).
 		WillReturnRows(rows)
@@ -85,12 +84,19 @@ func TestRegisterProfile_StaticKey(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"id"}).AddRow("b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1")
 	mock.ExpectQuery(`INSERT INTO provider_profiles`).
 		WithArgs(
-			"test-api-key-provider",
-			"", "", "", "", "", false,
-			pq.Array([]string{}),
-			"api_key",
-			"X-API-KEY",
-			"", "", sqlmock.AnyArg(),
+			"test-api-key-provider", // name
+			"",                      // client_id
+			"",                      // client_secret
+			"",                      // auth_url
+			"",                      // token_url
+			nil,                     // issuer
+			false,                   // enable_discovery
+			nil,                     // scopes (nil, not pq.Array)
+			"api_key",               // auth_type
+			"X-API-KEY",             // auth_header
+			"",                      // api_base_url
+			"",                      // user_info_endpoint
+			sqlmock.AnyArg(),        // params
 		).
 		WillReturnRows(rows)
 
