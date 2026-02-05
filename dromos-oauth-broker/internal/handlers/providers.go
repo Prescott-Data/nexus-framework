@@ -106,42 +106,60 @@ func (h *ProvidersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // Register handles POST /providers for registering a new provider profile
 func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	var request struct {
 		Profile json.RawMessage `json:"profile"`
 	}
 
+	// Decode request
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "invalid_json",
+			"message": "Invalid JSON payload",
+		})
 		return
 	}
 
 	if request.Profile == nil {
-		http.Error(w, "Invalid JSON: missing 'profile' key", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "missing_profile",
+			"message": "Missing 'profile' key in JSON",
+		})
 		return
 	}
 
-	// Call the store, which now contains all validation and SQL logic.
-	// The RegisterProfile function takes a string, so we just pass the RawMessage.
+	// Register the profile using the store
 	profile, err := h.store.RegisterProfile(string(request.Profile))
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 
+		// Default error key
+		errorKey := "provider_creation_failed"
+
+		// Use error prefix from store if present
+		if strings.Contains(err.Error(), "name:") || strings.Contains(err.Error(), "invalid provider name") {
+			errorKey = "invalid_provider_name"
+		} else if strings.Contains(err.Error(), "missing required field") {
+			field := strings.Split(err.Error(), ":")[1]
+			errorKey = "missing_" + strings.TrimSpace(field)
+		}
+
 		json.NewEncoder(w).Encode(map[string]string{
-			"error":   "provider_creation_failed",
+			"error":   errorKey,
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// This part stays the same
-	response := map[string]interface{}{
+	// Success response
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"id":      profile.ID,
 		"message": "Provider profile created successfully",
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response)
+	})
 }
 
 // List handles GET /providers to list provider ids and names
