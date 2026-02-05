@@ -79,6 +79,11 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	default:
 		return nil, fmt.Errorf("unsupported auth_type: %s", p.AuthType)
 	}
+	// Normalize optional fields
+	if p.Issuer == nil {
+		empty := ""
+		p.Issuer = &empty
+	}
 
 	// Check for duplicate provider
 	var existingID uuid.UUID
