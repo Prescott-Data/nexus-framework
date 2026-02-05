@@ -45,44 +45,39 @@ type Profile struct {
 func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	var p Profile
 	if err := json.Unmarshal([]byte(profileJSON), &p); err != nil {
-		return nil, fmt.Errorf("invalid profile JSON: %w", err)
+		return nil, fmt.Errorf("profile: invalid JSON: %w", err)
 	}
 
-	// Validate provider name format
+	// Validate provider name format: lowercase letters, numbers, hyphens
 	validNamePattern := regexp.MustCompile(`^[a-z0-9-]+$`)
 	if p.Name == "" {
-		return nil, fmt.Errorf("missing required field: name")
+		return nil, fmt.Errorf("name: missing required field")
 	}
 	if !validNamePattern.MatchString(p.Name) {
-		return nil, fmt.Errorf("invalid provider name '%s': must contain only lowercase letters, numbers, and hyphens", p.Name)
+		return nil, fmt.Errorf("name: invalid provider name '%s', must contain only lowercase letters, numbers, and hyphens", p.Name)
 	}
 
-	// Validate required fields based on auth type
+	// Validate fields based on auth type
 	switch p.AuthType {
 	case "oauth2", "": // Default oauth2
 		if p.ClientID == "" {
-			return nil, fmt.Errorf("missing required field: client_id")
+			return nil, fmt.Errorf("client_id: missing required field")
 		}
 		if p.ClientSecret == "" {
-			return nil, fmt.Errorf("missing required field: client_secret")
+			return nil, fmt.Errorf("client_secret: missing required field")
 		}
 		if !p.EnableDiscovery {
 			if p.AuthURL == "" {
-				return nil, fmt.Errorf("missing required field: auth_url")
+				return nil, fmt.Errorf("auth_url: missing required field")
 			}
 			if p.TokenURL == "" {
-				return nil, fmt.Errorf("missing required field: token_url")
+				return nil, fmt.Errorf("token_url: missing required field")
 			}
 		}
 	case "api_key", "basic_auth", "header", "query_param", "hmac_payload", "aws_sigv4":
 		// Only name is required for static auth types
 	default:
-		return nil, fmt.Errorf("unsupported auth_type: %s", p.AuthType)
-	}
-	// Normalize optional fields
-	if p.Issuer == nil {
-		empty := ""
-		p.Issuer = &empty
+		return nil, fmt.Errorf("auth_type: unsupported value '%s'", p.AuthType)
 	}
 
 	// Check for duplicate provider
@@ -90,10 +85,10 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	checkQuery := `SELECT id FROM provider_profiles WHERE name = $1 AND deleted_at IS NULL LIMIT 1`
 	err := s.db.QueryRow(checkQuery, p.Name).Scan(&existingID)
 	if err == nil {
-		return nil, fmt.Errorf("provider with name '%s' already exists", p.Name)
+		return nil, fmt.Errorf("name: provider with name '%s' already exists", p.Name)
 	}
 	if !strings.Contains(err.Error(), "no rows in result set") {
-		return nil, fmt.Errorf("database error checking provider existence: %w", err)
+		return nil, fmt.Errorf("database: error checking provider existence: %w", err)
 	}
 
 	// Insert into DB
@@ -110,7 +105,7 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		p.APIBaseURL, p.UserInfoEndpoint, p.Params,
 	).Scan(&id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create provider profile: %w", err)
+		return nil, fmt.Errorf("database: failed to create provider profile: %w", err)
 	}
 
 	p.ID = id
