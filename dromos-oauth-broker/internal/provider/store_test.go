@@ -19,28 +19,28 @@ func TestRegisterProfile_OAuth2(t *testing.T) {
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 	store := NewStore(sqlxDB)
 
-	// Mock duplicate check: no rows found
+	// Duplicate check: no rows found
 	mock.ExpectQuery(`SELECT id FROM provider_profiles WHERE name = \$1`).
 		WithArgs("test-oauth2-provider").
 		WillReturnError(sql.ErrNoRows)
 
-	// Mock INSERT query
+	// Mock INSERT query (match exact types: empty string for issuer, empty array for scopes)
 	rows := sqlmock.NewRows([]string{"id"}).AddRow("a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0")
 	mock.ExpectQuery(`INSERT INTO provider_profiles`).
 		WithArgs(
-			"test-oauth2-provider",
-			"test-client-id",
-			"test-client-secret",
-			"http://provider.com/auth",
-			"http://provider.com/token",
-			"",                   // issuer
-			false,                // enable_discovery
-			pq.Array([]string{}), // scopes
-			"oauth2",
-			"",               // auth_header
-			"",               // api_base_url
-			"",               // user_info_endpoint
-			sqlmock.AnyArg(), // params
+			"test-oauth2-provider",      // name
+			"test-client-id",            // client_id
+			"test-client-secret",        // client_secret
+			"http://provider.com/auth",  // auth_url
+			"http://provider.com/token", // token_url
+			"",                          // issuer as empty string
+			false,                       // enable_discovery
+			pq.Array([]string{}),        // empty scopes array
+			"oauth2",                    // auth_type
+			"",                          // auth_header
+			"",                          // api_base_url
+			"",                          // user_info_endpoint
+			sqlmock.AnyArg(),            // params
 		).
 		WillReturnRows(rows)
 
@@ -114,7 +114,6 @@ func TestRegisterProfile_InvalidOAuth2(t *testing.T) {
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 	store := NewStore(sqlxDB)
 
-	// Missing client_id, client_secret, auth_url, token_url
 	profile := Profile{
 		Name:     "test-invalid-provider",
 		AuthType: "oauth2",
@@ -124,6 +123,7 @@ func TestRegisterProfile_InvalidOAuth2(t *testing.T) {
 
 	_, err = store.RegisterProfile(string(profileJSON))
 	assert.Error(t, err)
+	// Check for field-specific error from updated RegisterProfile
 	assert.Contains(t, err.Error(), "client_id: missing required field")
 }
 
