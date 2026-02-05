@@ -124,9 +124,13 @@ func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// The RegisterProfile function takes a string, so we just pass the RawMessage.
 	profile, err := h.store.RegisterProfile(string(request.Profile))
 	if err != nil {
-		// The store's validation error will be passed back.
-		// We can return a 400 since it's most likely a validation failure.
-		http.Error(w, fmt.Sprintf("Failed to create provider: %v", err), http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "provider_creation_failed",
+			"message": err.Error(),
+		})
 		return
 	}
 

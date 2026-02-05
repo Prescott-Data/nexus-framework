@@ -48,46 +48,62 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		return nil, fmt.Errorf("invalid profile JSON: %w", err)
 	}
 
-	// Validate provider name format: lowercase alphanumeric with hyphens only
+	// Validate provider name format
 	validNamePattern := regexp.MustCompile(`^[a-z0-9-]+$`)
+	if p.Name == "" {
+		return nil, fmt.Errorf("missing required field: name")
+	}
 	if !validNamePattern.MatchString(p.Name) {
-		return nil, fmt.Errorf("invalid provider name '%s': must contain only lowercase letters, numbers, and hyphens (e.g., 'twitter', 'azure-ad', 'google-workspace')", p.Name)
+		return nil, fmt.Errorf("invalid provider name '%s': must contain only lowercase letters, numbers, and hyphens", p.Name)
 	}
 
-	// Validate fields based on the authentication type
+	// Validate required fields based on auth type
 	switch p.AuthType {
-	case "oauth2", "": // Default to "oauth2"
-		if p.Name == "" || p.ClientID == "" || p.ClientSecret == "" || (!p.EnableDiscovery && (p.AuthURL == "" || p.TokenURL == "")) {
-			return nil, fmt.Errorf("missing required oauth2 fields (name, client_id, client_secret, auth_url, token_url)")
+	case "oauth2", "": // Default oauth2
+		if p.ClientID == "" {
+			return nil, fmt.Errorf("missing required field: client_id")
+		}
+		if p.ClientSecret == "" {
+			return nil, fmt.Errorf("missing required field: client_secret")
+		}
+		if !p.EnableDiscovery {
+			if p.AuthURL == "" {
+				return nil, fmt.Errorf("missing required field: auth_url")
+			}
+			if p.TokenURL == "" {
+				return nil, fmt.Errorf("missing required field: token_url")
+			}
 		}
 	case "api_key", "basic_auth", "header", "query_param", "hmac_payload", "aws_sigv4":
-		if p.Name == "" {
-			return nil, fmt.Errorf("missing required field: name")
-		}
+		// Only name is required for static auth types
 	default:
 		return nil, fmt.Errorf("unsupported auth_type: %s", p.AuthType)
 	}
 
-	// Check if a provider with this name already exists
+	// Check for duplicate provider
 	var existingID uuid.UUID
 	checkQuery := `SELECT id FROM provider_profiles WHERE name = $1 AND deleted_at IS NULL LIMIT 1`
 	err := s.db.QueryRow(checkQuery, p.Name).Scan(&existingID)
 	if err == nil {
-		// A provider with this name already exists
 		return nil, fmt.Errorf("provider with name '%s' already exists", p.Name)
 	}
-	// If error is not "no rows", it's a real database error
-	if err.Error() != "sql: no rows in result set" {
-		return nil, fmt.Errorf("failed to check for existing provider: %w", err)
+	if !strings.Contains(err.Error(), "no rows in result set") {
+		return nil, fmt.Errorf("database error checking provider existence: %w", err)
 	}
 
+	// Insert into DB
 	query := `
-		INSERT INTO provider_profiles (name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, api_base_url, user_info_endpoint, params)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO provider_profiles
+		(name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, api_base_url, user_info_endpoint, params)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		RETURNING id`
 
 	var id uuid.UUID
-	err = s.db.QueryRow(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params).Scan(&id)
+	err = s.db.QueryRow(query,
+		p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer,
+		p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader,
+		p.APIBaseURL, p.UserInfoEndpoint, p.Params,
+	).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create provider profile: %w", err)
 	}

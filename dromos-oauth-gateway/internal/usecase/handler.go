@@ -577,9 +577,18 @@ func (h *Handler) CreateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if resp.StatusCode() != http.StatusCreated && resp.StatusCode() != http.StatusOK {
-		logging.Error(r.Context(), "create_provider.broker_status", map[string]any{"status": resp.StatusCode()})
-		// Try to read error body if available or just return status
-		w.WriteHeader(resp.StatusCode())
+		var errMsg string
+
+		if resp.Body != nil {
+			// resp.Body is already []byte, no need for io.ReadAll
+			errMsg = string(resp.Body)
+		} else {
+			errMsg = fmt.Sprintf("broker returned status %d", resp.StatusCode())
+		}
+
+		logging.Error(r.Context(), "create_provider.broker_error", map[string]any{"status": resp.StatusCode(), "body": errMsg})
+
+		writeError(w, resp.StatusCode(), "broker_error", errMsg, nil)
 		return
 	}
 
