@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"database/sql"
 	"encoding/json"
 	"testing"
 
@@ -18,51 +19,62 @@ func TestRegisterProfile_OAuth2(t *testing.T) {
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 	store := NewStore(sqlxDB)
 
-	// 1. Mock the duplicate check query (should return no rows)
-	mock.ExpectQuery("SELECT id FROM provider_profiles WHERE name").
+	// 1. Mock duplicate provider check (no rows found)
+	mock.ExpectQuery(`SELECT id FROM provider_profiles WHERE name = \$1`).
 		WithArgs("test-oauth2-provider").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+		WillReturnError(sql.ErrNoRows)
 
-	// 2. Mock the db.QueryRow INSERT call.
-	rows := sqlmock.NewRows([]string{"id"}).AddRow("a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0")
-	mock.ExpectQuery("INSERT INTO provider_profiles").
+	// 2. Mock INSERT query
+	rows := sqlmock.NewRows([]string{"id"}).
+		AddRow("a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0")
+
+	mock.ExpectQuery(`INSERT INTO provider_profiles`).
 		WithArgs(
-			"test-oauth2-provider",
-			"test-client-id",
-			"test-client-secret",
-			"http://provider.com/auth",
-			"http://provider.com/token",
-			nil,
-			false,
-			pq.Array([]string(nil)),
-			"oauth2",
-			"",
-			"", // api_base_url
-			"", // user_info_endpoint
-			sqlmock.AnyArg(),
-		).WillReturnRows(rows)
+			"test-oauth2-provider",      // name
+			"test-client-id",            // client_id
+			"test-client-secret",        // client_secret
+			"http://provider.com/auth",  // auth_url
+			"http://provider.com/token", // token_url
+			"",                          // issuer
+			false,                       // enable_discovery
+			pq.Array([]string(nil)),     // scopes
+			"oauth2",                    // auth_type
+			"",                          // auth_header
+			"",                          // api_base_url
+			"",                          // user_info_endpoint
+			sqlmock.AnyArg(),            // params
+		).
+		WillReturnRows(rows)
 
-	// 2. Create a valid Profile struct with AuthType="oauth2" and optional params.
+	// 3. Valid OAuth2 profile
 	profile := Profile{
-		Name:         "test-oauth2-provider",
-		AuthType:     "oauth2",
-		ClientID:     "test-client-id",
-		ClientSecret: "test-client-secret",
-		AuthURL:      "http://provider.com/auth",
-		TokenURL:     "http://provider.com/token",
+		Name:            "test-oauth2-provider",
+		AuthType:        "oauth2",
+		ClientID:        "test-client-id",
+		ClientSecret:    "test-client-secret",
+		AuthURL:         "http://provider.com/auth",
+		TokenURL:        "http://provider.com/token",
+		EnableDiscovery: false,
 		Params: func() *json.RawMessage {
-			raw := json.RawMessage(`{"key": "value"}`)
+			raw := json.RawMessage(`{"key":"value"}`)
 			return &raw
 		}(),
 	}
+
 	profileJSON, err := json.Marshal(profile)
 	assert.NoError(t, err)
 
-	// 3. Call store.RegisterProfile() with this profile.
-	_, err = store.RegisterProfile(string(profileJSON))
+	// 4. Call RegisterProfile
+	result, err := store.RegisterProfile(string(profileJSON))
 
-	// 4. Assert that the err is nil.
+	// 5. Assertions
 	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, profile.Name, result.Name)
+	assert.Equal(t, profile.AuthType, result.AuthType)
+
+	// 6. Ensure all expectations were met
+	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestRegisterProfile_StaticKey(t *testing.T) {
