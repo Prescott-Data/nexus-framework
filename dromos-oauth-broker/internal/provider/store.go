@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -66,7 +67,14 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		if p.ClientSecret == "" {
 			return nil, fmt.Errorf("client_secret: missing required field")
 		}
-		if !p.EnableDiscovery {
+
+		if p.EnableDiscovery {
+			// When discovery is enabled, issuer must be set
+			if p.Issuer == nil || strings.TrimSpace(*p.Issuer) == "" {
+				return nil, fmt.Errorf("issuer: required when enable_discovery is true")
+			}
+		} else {
+			// When discovery is disabled, auth_url and token_url must be set
 			if p.AuthURL == "" {
 				return nil, fmt.Errorf("auth_url: missing required field")
 			}
@@ -74,8 +82,10 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 				return nil, fmt.Errorf("token_url: missing required field")
 			}
 		}
+
 	case "api_key", "basic_auth", "header", "query_param", "hmac_payload", "aws_sigv4":
 		// Only name is required for static auth types
+
 	default:
 		return nil, fmt.Errorf("auth_type: unsupported value '%s'", p.AuthType)
 	}
@@ -87,8 +97,28 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	if err == nil {
 		return nil, fmt.Errorf("name: provider with name '%s' already exists", p.Name)
 	}
-	if !strings.Contains(err.Error(), "no rows in result set") {
+	if err != nil && err != sql.ErrNoRows {
 		return nil, fmt.Errorf("database: error checking provider existence: %w", err)
+	}
+
+	// Normalize values for DB insertion - use nil for NULL
+	var issuer interface{}
+	if p.Issuer != nil {
+		issuer = *p.Issuer
+	}
+
+	var authURL, tokenURL interface{}
+	if p.EnableDiscovery {
+		authURL = nil
+		tokenURL = nil
+	} else {
+		authURL = p.AuthURL
+		tokenURL = p.TokenURL
+	}
+
+	scopes := pq.Array(p.Scopes)
+	if p.Scopes == nil {
+		scopes = pq.Array([]string{})
 	}
 
 	// Insert into DB
@@ -100,8 +130,8 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 
 	var id uuid.UUID
 	err = s.db.QueryRow(query,
-		p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer,
-		p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader,
+		p.Name, p.ClientID, p.ClientSecret, authURL, tokenURL, issuer,
+		p.EnableDiscovery, scopes, p.AuthType, p.AuthHeader,
 		p.APIBaseURL, p.UserInfoEndpoint, p.Params,
 	).Scan(&id)
 	if err != nil {

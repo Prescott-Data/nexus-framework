@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/DATA-DOG/go-sqlmock.v1"
 )
@@ -34,7 +35,7 @@ func TestRegisterProfile_OAuth2(t *testing.T) {
 			"http://provider.com/token", // token_url
 			nil,                         // issuer
 			false,                       // enable_discovery
-			nil,                         // scopes
+			pq.Array([]string{}),        // scopes (empty array, not nil)
 			"oauth2",                    // auth_type
 			"",                          // auth_header (empty string)
 			"",                          // api_base_url (empty string)
@@ -91,7 +92,7 @@ func TestRegisterProfile_StaticKey(t *testing.T) {
 			"",                      // token_url
 			nil,                     // issuer
 			false,                   // enable_discovery
-			nil,                     // scopes (nil, not pq.Array)
+			pq.Array([]string{}),    // scopes (empty array, not nil)
 			"api_key",               // auth_type
 			"X-API-KEY",             // auth_header
 			"",                      // api_base_url
