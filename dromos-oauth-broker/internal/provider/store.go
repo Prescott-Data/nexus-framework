@@ -73,8 +73,14 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 			if p.Issuer == nil || strings.TrimSpace(*p.Issuer) == "" {
 				return nil, fmt.Errorf("issuer: required when enable_discovery is true")
 			}
+			// Explicitly skip auth_url/token_url validation when discovery is enabled
 		} else {
 			// When discovery is disabled, auth_url and token_url must be set
+			// But also check: if issuer is provided without URLs, they probably meant to enable discovery
+			if p.Issuer != nil && *p.Issuer != "" && p.AuthURL == "" && p.TokenURL == "" {
+				return nil, fmt.Errorf("enable_discovery: must be set to true when using issuer without auth_url/token_url")
+			}
+
 			if p.AuthURL == "" {
 				return nil, fmt.Errorf("auth_url: missing required field")
 			}
