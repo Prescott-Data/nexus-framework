@@ -223,7 +223,7 @@ pipelines:
             - mkdir -p ~/.ssh
             
             # Decode the Base64 private key from the Workspace Variable
-            - echo "$GITHUB_MIRROR_KEY" > ~/.ssh/id_ed25519
+            - echo "$GITHUB_MIRROR_KEY" | base64 -d > ~/.ssh/id_ed25519
             - chmod 600 ~/.ssh/id_ed25519
             
             # Add GitHub to known hosts to prevent interactive prompt
