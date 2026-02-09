@@ -216,10 +216,15 @@ pipelines:
           name: Mirror to GitHub
           image: alpine/git:latest
           script:
+            - if [ -z "$GITHUB_MIRROR_KEY" ]; then echo "GITHUB_MIRROR_KEY is not set"; exit 1; fi
             - apk add --no-cache openssh-client
             - mkdir -p ~/.ssh
+            # Decode using -d and ignore garbage (-i) if available, or standard -d.
+            # Ensure proper handling of the variable content.
             - echo "$GITHUB_MIRROR_KEY" | base64 -d > ~/.ssh/id_ed25519
             - chmod 600 ~/.ssh/id_ed25519
+            # Verify file exists and has size
+            - if [ ! -s ~/.ssh/id_ed25519 ]; then echo "Decoded key file is empty"; exit 1; fi
             - ssh-keyscan github.com >> ~/.ssh/known_hosts
             - git push --mirror git@github.com:Prescott-Data/${BITBUCKET_REPO_SLUG}.git
 
