@@ -33,5 +33,6 @@ server.log
 tmp/
 *.tmp
 
-oha
-oha-grpc
+# Binaries (if built in root)
+/oha
+/oha-grpc
