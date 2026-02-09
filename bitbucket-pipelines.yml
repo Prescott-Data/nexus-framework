@@ -230,7 +230,7 @@ pipelines:
           services:
             - docker
           script:
-            - docker build -t tmp/broker -f nexus-broker/Dockerfile nexus-broker
+            - DOCKER_BUILDKIT=0 docker build -t tmp/broker -f nexus-broker/Dockerfile nexus-broker
           condition:
             changesets:
               includePaths:
@@ -241,7 +241,7 @@ pipelines:
           services:
             - docker
           script:
-            - docker build -t tmp/gateway -f nexus-gateway/Dockerfile nexus-gateway
+            - DOCKER_BUILDKIT=0 docker build -t tmp/gateway -f nexus-gateway/Dockerfile nexus-gateway
           condition:
             changesets:
               includePaths:
