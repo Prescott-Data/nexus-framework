@@ -14,6 +14,6 @@ The Dromos OAuth Framework is a provider-agnostic, secure integration layer for 
 
 ## Quick Links
 
-- **[Broker Service](dromos-oauth-broker/README.md)**: Backend service details.
-- **[Gateway Service](dromos-oauth-gateway/README.md)**: Frontend API service details.
+- **[Broker Service](nexus-broker/README.md)**: Backend service details.
+- **[Gateway Service](nexus-gateway/README.md)**: Frontend API service details.
 - **[Bridge Library](bridge/README.md)**: Go client library details.

@@ -1,5 +1,8 @@
 image: golang:1.23
 
+clone:
+  depth: full
+
 definitions:
   services:
     docker:
@@ -18,7 +21,7 @@ pipelines:
                 - godeps
               size: 2x
               script:
-                - cd dromos-oauth-gateway
+                - cd nexus-gateway
                 - go fmt ./...
                 - go vet ./...
                 - go mod tidy
@@ -26,14 +29,14 @@ pipelines:
               condition:
                 changesets:
                   includePaths:
-                    - 'dromos-oauth-gateway/**'
+                    - 'nexus-gateway/**'
           - step:
               name: Lint & Test (broker)
               caches:
                 - godeps
               size: 2x
               script:
-                - cd dromos-oauth-broker
+                - cd nexus-broker
                 - go fmt ./...
                 - go vet ./...
                 - go mod tidy
@@ -41,7 +44,7 @@ pipelines:
               condition:
                 changesets:
                   includePaths:
-                    - 'dromos-oauth-broker/**'
+                    - 'nexus-broker/**'
 
       - step:
           name: Build & Push Broker Image
@@ -64,12 +67,12 @@ pipelines:
               IMAGE_TAG="${BITBUCKET_COMMIT}"
               az login --service-principal -u "$AZURE_APP_ID" -p "$AZURE_CLIENT_SECRET" -t "$AZURE_TENANT_ID"
               az acr login --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP"
-              docker build -t "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}" -f dromos-oauth-broker/Dockerfile dromos-oauth-broker
+              docker build -t "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}" -f nexus-broker/Dockerfile nexus-broker
               docker push "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
           condition:
             changesets:
               includePaths:
-                - 'dromos-oauth-broker/**'
+                - 'nexus-broker/**'
 
       - step:
           name: Deploy Broker to Azure Container Apps
@@ -129,7 +132,7 @@ pipelines:
           condition:
             changesets:
               includePaths:
-                - 'dromos-oauth-broker/**'
+                - 'nexus-broker/**'
 
       - step:
           name: Build & Push Gateway Image
@@ -150,14 +153,15 @@ pipelines:
               : "${RESOURCE_GROUP:?RESOURCE_GROUP repo variable required}"
               IMAGE_NAME="oauth-gateway"
               IMAGE_TAG="${BITBUCKET_COMMIT}"
+              VERSION=$(cat VERSION || echo "dev")
               az login --service-principal -u "$AZURE_APP_ID" -p "$AZURE_CLIENT_SECRET" -t "$AZURE_TENANT_ID"
               az acr login --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP"
-              docker build -t "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}" -f dromos-oauth-gateway/Dockerfile dromos-oauth-gateway
+              docker build --build-arg VERSION="${VERSION}" -t "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}" -f nexus-gateway/Dockerfile nexus-gateway
               docker push "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
           condition:
             changesets:
               includePaths:
-                - 'dromos-oauth-gateway/**'
+                - 'nexus-gateway/**'
 
       - step:
           name: Deploy Gateway to Azure Container Apps
@@ -206,7 +210,18 @@ pipelines:
           condition:
             changesets:
               includePaths:
-                - 'dromos-oauth-gateway/**'
+                - 'nexus-gateway/**'
+
+      - step:
+          name: Mirror to GitHub
+          image: alpine/git:latest
+          script:
+            - apk add --no-cache openssh-client
+            - mkdir -p ~/.ssh
+            - echo "$GITHUB_MIRROR_KEY" | base64 -d > ~/.ssh/id_ed25519
+            - chmod 600 ~/.ssh/id_ed25519
+            - ssh-keyscan github.com >> ~/.ssh/known_hosts
+            - git push --mirror git@github.com:Prescott-Data/${BITBUCKET_REPO_SLUG}.git
 
     "feature/*":
       - step:
@@ -215,20 +230,20 @@ pipelines:
           services:
             - docker
           script:
-            - docker build -t tmp/broker -f dromos-oauth-broker/Dockerfile dromos-oauth-broker
+            - DOCKER_BUILDKIT=0 docker build -t tmp/broker -f nexus-broker/Dockerfile nexus-broker
           condition:
             changesets:
               includePaths:
-                - 'dromos-oauth-broker/**'
+                - 'nexus-broker/**'
       - step:
           name: Build (if gateway changed)
           image: docker:24
           services:
             - docker
           script:
-            - docker build -t tmp/gateway -f dromos-oauth-gateway/Dockerfile dromos-oauth-gateway
+            - DOCKER_BUILDKIT=0 docker build -t tmp/gateway -f nexus-gateway/Dockerfile nexus-gateway
           condition:
             changesets:
               includePaths:
-                - 'dromos-oauth-gateway/**'
+                - 'nexus-gateway/**'
 
