@@ -11,7 +11,7 @@ When `POST /connections/{id}/refresh` is called, the broker successfully refresh
 
 ### Root Cause
 
-The `GetToken` function in `dromos-oauth-broker/internal/handlers/callback.go` was not explicitly ordering the tokens by creation date. When multiple tokens existed for a single connection (as is the case after a refresh), the database's default retrieval order was not guaranteed, leading to an older token being returned.
+The `GetToken` function in `nexus-broker/internal/handlers/callback.go` was not explicitly ordering the tokens by creation date. When multiple tokens existed for a single connection (as is the case after a refresh), the database's default retrieval order was not guaranteed, leading to an older token being returned.
 
 ### Solution
 
