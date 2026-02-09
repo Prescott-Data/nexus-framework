@@ -4,13 +4,13 @@
 
 The Dromos OAuth Framework consists of three main components:
 
-- **dromos-oauth-broker (Backend)**: The core "brain" of the operation. It handles:
+- **nexus-broker (Backend)**: The core "brain" of the operation. It handles:
     - Provider discovery and registry.
     - Consent specification (PKCE + signed state).
     - Callback handling and code exchange.
     - Token encryption and storage (PostgreSQL).
     - Token retrieval and refresh.
-- **dromos-oauth-gateway (Front Door)**: A stateless proxy that exposes a stable gRPC/HTTP API for agents. It:
+- **nexus-gateway (Front Door)**: A stateless proxy that exposes a stable gRPC/HTTP API for agents. It:
     - Initiates connections via the Broker.
     - Allows clients to poll for connection status.
     - Fetches tokens on demand (never storing them).
@@ -53,13 +53,13 @@ Both services expose Prometheus metrics at `/metrics`.
 
 **Prometheus Config Example:**
 ```yaml
-- job_name: 'oauth-broker'
+- job_name: 'nexus-broker'
   scheme: https
   metrics_path: /metrics
   static_configs:
     - targets: ['<broker-domain>']
 
-- job_name: 'oauth-gateway'
+- job_name: 'nexus-gateway'
   scheme: https
   metrics_path: /metrics
   static_configs:

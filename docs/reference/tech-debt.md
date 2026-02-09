@@ -108,7 +108,7 @@ Implement the `ATTENTION_REQUIRED` state to signal unrecoverable, interactive fa
 **Date Logged:** 2026-01-27
 
 **Description:**
-The AllowedOrigins for CORS in `dromos-oauth-gateway` (both REST and gRPC) are currently hardcoded to `["https://*", "http://*"]` to unblock staging.
+The AllowedOrigins for CORS in `nexus-gateway` (both REST and gRPC) are currently hardcoded to `["https://*", "http://*"]` to unblock staging.
 
 **Required Action:**
 Refactor the CORS configuration to read the allowed origins from an environment variable (e.g., `CORS_ALLOWED_ORIGINS`). This will allow strict enforcement of the frontend domain in production environments without code modification.
