@@ -1,7 +1,7 @@
 # Binaries and Build Output
 bin/
 tmp/
-server
+/server
 *.exe
 *.dll
 *.so
