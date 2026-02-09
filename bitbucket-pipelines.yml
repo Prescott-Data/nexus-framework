@@ -216,25 +216,20 @@ pipelines:
           name: Mirror to GitHub
           image: alpine/git:latest
           script:
+            # Install SSH client
             - apk add --no-cache openssh-client
+            
+            # Setup SSH directory
             - mkdir -p ~/.ssh
-            - if [ -z "$GITHUB_MIRROR_KEY" ]; then echo "GITHUB_MIRROR_KEY is empty"; exit 1; fi
-            # Debug: Print length and start/end characters to verify format (safe)
-            - echo "Key length: ${#GITHUB_MIRROR_KEY}"
-            - echo "Key start: ${GITHUB_MIRROR_KEY:0:10}..."
-            # Try decoding. If the var is NOT base64 (e.g. it is the raw key), just write it directly.
-            # Check if it starts with 'LS0t' (Base64 for '---') or '-----' (Raw key)
-            - if echo "$GITHUB_MIRROR_KEY" | grep -q "^-----"; then
-                echo "Variable appears to be raw private key. Using directly." &&
-                echo "$GITHUB_MIRROR_KEY" > ~/.ssh/id_ed25519;
-              else
-                echo "Variable appears to be base64 encoded. Decoding." &&
-                echo "$GITHUB_MIRROR_KEY" | base64 -d > ~/.ssh/id_ed25519;
-              fi
+            
+            # Decode the Base64 private key from the Workspace Variable
+            - echo "$GITHUB_MIRROR_KEY" | base64 -d > ~/.ssh/id_ed25519
             - chmod 600 ~/.ssh/id_ed25519
-            # Validation
-            - if ! grep -q "PRIVATE KEY" ~/.ssh/id_ed25519; then echo "Error: Decoded file does not look like a private key"; exit 1; fi
+            
+            # Add GitHub to known hosts to prevent interactive prompt
             - ssh-keyscan github.com >> ~/.ssh/known_hosts
+            
+            # Push to the GitHub repo with the SAME NAME as this Bitbucket repo
             - git push --mirror git@github.com:Prescott-Data/${BITBUCKET_REPO_SLUG}.git
 
     "feature/*":
