@@ -1,4 +1,4 @@
-module oauth-framework
+module nexus-framework
 
 go 1.24.6
 

@@ -38,3 +38,11 @@ We maintain audit logs for provider verification status:
 ### Asana
 *   **Auth Type**: OAuth2
 *   **Documentation**: [Asana OAuth](https://developers.asana.com/docs/oauth)
+
+### Snapchat (Snap Kit)
+*   **Auth Type**: OAuth2
+*   **Documentation**: [Snap Kit (Login Kit)](https://kit.snapchat.com/docs/login-kit)
+*   **Auth URL**: `https://accounts.snapchat.com/accounts/oauth2/auth`
+*   **Token URL**: `https://accounts.snapchat.com/accounts/oauth2/token`
+*   **Scopes**: `https://auth.snapchat.com/oauth2/api/user.display_name`, `https://auth.snapchat.com/oauth2/api/user.bitmoji.avatar`
+*   **Portal**: [Snap Kit Developer Portal](https://kit.snapchat.com/portal/)

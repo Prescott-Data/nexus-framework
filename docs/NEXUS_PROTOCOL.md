@@ -177,7 +177,7 @@ The **Dromos Framework** is the reference implementation of the Nexus Protocol.
 
 | Protocol Concept | Dromos Implementation |
 | :--- | :--- |
-| **Authority** | `dromos-oauth-broker` + `dromos-oauth-gateway` |
+| **Authority** | `nexus-broker` + `nexus-gateway` |
 | **Agent (Client)** | `bridge` (Go Library) |
 | **Handshake** | `POST /v1/request-connection` |
 | **Strategy Engine** | `bridge/internal/auth` package |

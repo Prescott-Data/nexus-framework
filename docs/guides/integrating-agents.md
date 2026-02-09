@@ -15,9 +15,9 @@ import (
 	"context"
 	"net/http"
 
-	"dromos.io/bridge"
-	"dromos.io/bridge/telemetry"
-	"bitbucket.org/dromos/oauth-framework/oauth-sdk"
+	"dromos.io/nexus-bridge"
+	"dromos.io/nexus-bridge/telemetry"
+	"bitbucket.org/dromos/nexus-framework/nexus-sdk"
 )
 
 func main() {
@@ -106,12 +106,12 @@ The browser initiates consent; server(s) hold secrets and call the gateway.
    - Your backend calls Gateway `GET /v1/token/{connection_id}` to retrieve the generic credential payload.
 
 ### Using the Go SDK (server-side)
-The `oauth-sdk` is a thin client for the Gateway API.
+The `nexus-sdk` is a thin client for the Gateway API.
 
 ```go
 import (
   "context"
-  oauthsdk "bitbucket.org/dromos/oauth-framework/oauth-sdk"
+  oauthsdk "bitbucket.org/dromos/nexus-framework/nexus-sdk"
 )
 
 client := oauthsdk.New("https://<gateway-base-url>")
@@ -122,4 +122,4 @@ payload, _ := client.GetToken(context.Background(), "your-connection-id")
 // Inspect the strategy to decide how to authenticate
 strategyType := payload.Strategy["type"]
 ```
-See the [`oauth-sdk/README.md`](../../oauth-sdk/README.md) for more details.
+See the [`nexus-sdk/README.md`](../../nexus-sdk/README.md) for more details.
