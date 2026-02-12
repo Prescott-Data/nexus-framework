@@ -138,17 +138,18 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// Get provider details
 	var provider struct {
-		TokenURL     string `db:"token_url"`
-		ClientID     string `db:"client_id"`
-		ClientSecret string `db:"client_secret"`
-		Name         string `db:"name"`
-		AuthHeader   string `db:"auth_header"`
+		TokenURL     string           `db:"token_url"`
+		ClientID     string           `db:"client_id"`
+		ClientSecret string           `db:"client_secret"`
+		Name         string           `db:"name"`
+		AuthHeader   string           `db:"auth_header"`
+		Params       *json.RawMessage `db:"params"`
 	}
 
 	err = h.db.QueryRow(`
-		SELECT token_url, client_id, client_secret, name, COALESCE(auth_header, '') as auth_header
+		SELECT token_url, client_id, client_secret, name, COALESCE(auth_header, '') as auth_header, params
 		FROM provider_profiles WHERE id = $1`,
-		connection.ProviderID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret, &provider.Name, &provider.AuthHeader)
+		connection.ProviderID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret, &provider.Name, &provider.AuthHeader, &provider.Params)
 
 	if err != nil {
 		h.logAuditEvent(&connectionID, "provider_not_found", map[string]string{"error": err.Error()}, r)
@@ -164,13 +165,24 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	base := strings.TrimSuffix(os.Getenv("BASE_URL"), "/")
 	redirectURI := base + redirectPath
 
+	// Check if provider wants to skip scope on token exchange (e.g., Salesforce rejects it)
+	skipScopeOnExchange := false
+	if provider.Params != nil {
+		var paramsMap map[string]interface{}
+		if err := json.Unmarshal(*provider.Params, &paramsMap); err == nil {
+			if skip, ok := paramsMap["skip_scope_on_exchange"].(bool); ok {
+				skipScopeOnExchange = skip
+			}
+		}
+	}
+
 	// Exchange code for tokens
 	start := time.Now()
 	useTokenURL := provider.TokenURL
 	if md, errD := discovery.Discover(r.Context(), h.httpClient, discovery.Hint{AuthURL: provider.TokenURL}); errD == nil && strings.TrimSpace(md.TokenEndpoint) != "" {
 		useTokenURL = md.TokenEndpoint
 	}
-	tokens, err := h.exchangeCodeForTokens(useTokenURL, provider.ClientID, provider.ClientSecret, code, connection.CodeVerifier, redirectURI, connection.Scopes, provider.AuthHeader)
+	tokens, err := h.exchangeCodeForTokens(useTokenURL, provider.ClientID, provider.ClientSecret, code, connection.CodeVerifier, redirectURI, connection.Scopes, provider.AuthHeader, skipScopeOnExchange)
 	h.histogramExchangeDur.Observe(time.Since(start).Seconds())
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_exchange_failed", map[string]string{"error": err.Error()}, r)
@@ -385,12 +397,12 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 
 	if connection.Status != "active" {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "connection not active", "status": connection.Status}, r)
-
+		
 		if connection.Status == "attention" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(map[string]string{
-				"error":  "attention_required",
+				"error": "attention_required", 
 				"detail": "Connection requires attention. The user must re-authenticate.",
 			})
 			return
@@ -450,43 +462,28 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 			response[k] = v
 		}
 	} else {
-		// Generic Provider Logic
-		// 1. Start with the auth_type defined in the profile
-		strategyType := connection.AuthType
-
-		// 2. Prepare the config map from the provider's params
-		var config map[string]interface{}
+		// Generic Provider: Look for auth_strategy in params
+		foundStrategy := false
 		if connection.Params != nil {
-			if err := json.Unmarshal(*connection.Params, &config); err != nil {
-				// If params are corrupt, we log but proceed with empty config
-				h.logAuditEvent(&connectionID, "token_retrieval_warning", map[string]string{"warning": "failed to parse params"}, r)
-				config = make(map[string]interface{})
-			}
-		} else {
-			config = make(map[string]interface{})
-		}
-
-		// 3. Handle Legacy "auth_strategy" nesting (Backwards Compatibility)
-		// If the user explicitly nested config inside "auth_strategy", use that instead.
-		if nested, ok := config["auth_strategy"].(map[string]interface{}); ok {
-			strategy = nested
-		} else {
-			// 4. Default Behavior: Use AuthType as type, and Params as config
-			// We might need to map specific legacy types if they differ from Bridge expectations
-			if strategyType == "api_key" {
-				// Map "api_key" (Broker) -> "header" (Bridge) if not explicitly overridden
-				// But only if "type" isn't already set in config (unlikely for top-level params)
-				if _, ok := config["header_name"]; !ok {
-					// Apply defaults for api_key if they are missing
-					config["header_name"] = "X-API-Key"
-					config["credential_field"] = "api_key"
+			var paramsMap map[string]interface{}
+			if err := json.Unmarshal(*connection.Params, &paramsMap); err == nil {
+				if s, ok := paramsMap["auth_strategy"].(map[string]interface{}); ok {
+					strategy = s
+					foundStrategy = true
 				}
-				strategyType = "header"
 			}
-
-			strategy = map[string]interface{}{
-				"type":   strategyType,
-				"config": config,
+		}
+		// Fallback if not explicitly defined but we know the high-level type
+		if !foundStrategy {
+			// Map high-level broker auth_types to default bridge strategies if possible
+			// This is a "best effort" mapping if the explicit config is missing
+			switch connection.AuthType {
+			case "api_key":
+				strategy = map[string]interface{}{"type": "header", "config": map[string]string{"header_name": "X-API-Key", "credential_field": "api_key"}}
+			case "basic_auth":
+				strategy = map[string]interface{}{"type": "basic_auth"}
+			default:
+				strategy = map[string]interface{}{"type": connection.AuthType} // Hope for the best
 			}
 		}
 	}
@@ -510,13 +507,13 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // exchangeCodeForTokens exchanges authorization code for access tokens
-func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret, code, codeVerifier, redirectURI string, scopes []string, authHeader string) (map[string]interface{}, error) {
+func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret, code, codeVerifier, redirectURI string, scopes []string, authHeader string, skipScopeOnExchange bool) (map[string]interface{}, error) {
 	data := url.Values{}
 	data.Set("grant_type", "authorization_code")
 	data.Set("code", code)
 	data.Set("code_verifier", codeVerifier)
 	data.Set("redirect_uri", redirectURI)
-
+	
 	// Determine auth method based on authHeader configuration
 	// Default to "client_secret_post" (sending in body) if not specified or explicitly set
 	useBasicAuth := false
@@ -528,8 +525,9 @@ func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret
 		data.Set("client_secret", clientSecret)
 	}
 
-	// Some providers (e.g., Microsoft identity platform v2) require scope on token exchange
-	if len(scopes) > 0 {
+	// Some providers (e.g., Microsoft identity platform v2) require scope on token exchange.
+	// Others (e.g., Salesforce) reject it. Use skip_scope_on_exchange to control this.
+	if len(scopes) > 0 && !skipScopeOnExchange {
 		data.Set("scope", strings.Join(scopes, " "))
 	}
 
@@ -678,7 +676,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 			if statusCode >= 400 && statusCode < 500 {
 				h.logAuditEvent(&connectionID, "token_refresh_fatal", map[string]string{"error": err.Error(), "status_code": fmt.Sprintf("%d", statusCode)}, r)
 				h.updateConnectionStatus(connectionID, "attention")
-
+				
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusConflict) // 409 Conflict is a good signal for "state issue"
 				json.NewEncoder(w).Encode(map[string]string{
@@ -687,7 +685,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 				})
 				return
 			}
-
+			
 			// For 5xx or network errors, we don't change state, just fail the request (Agent will retry)
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
