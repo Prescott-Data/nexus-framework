@@ -173,9 +173,9 @@ The Agent MUST monitor the validity of its credentials.
 
 ## 5. Implementation Reference
 
-The **Dromos Framework** is the reference implementation of the Nexus Protocol.
+The **Nexus Framework** is the reference implementation of the Nexus Protocol.
 
-| Protocol Concept | Dromos Implementation |
+| Protocol Concept | Nexus Implementation |
 | :--- | :--- |
 | **Authority** | `nexus-broker` + `nexus-gateway` |
 | **Agent (Client)** | `bridge` (Go Library) |

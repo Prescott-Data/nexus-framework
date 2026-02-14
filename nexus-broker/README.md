@@ -1,4 +1,4 @@
-## Dromos OAuth Broker
+## Nexus Broker
 
 Minimal, internal OAuth 2.0/OIDC broker written in Go. It initiates consent (PKCE + state), exchanges codes for tokens, and stores tokens encrypted in PostgreSQL. Tokens are treated as opaque; we do not rely on id_token claims by default.
 

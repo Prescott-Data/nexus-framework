@@ -15,14 +15,14 @@ import (
 	"context"
 	"net/http"
 
-	"dromos.io/nexus-bridge"
-	"dromos.io/nexus-bridge/telemetry"
-	"bitbucket.org/dromos/nexus-framework/nexus-sdk"
+	"nexus.io/nexus-bridge"
+	"nexus.io/nexus-bridge/telemetry"
+	"bitbucket.org/nexus/nexus-framework/nexus-sdk"
 )
 
 func main() {
-	// 1. Create a client for the Dromos Gateway
-	authClient := oauthsdk.New("http://dromos-gateway.example.com")
+	// 1. Create a client for the Nexus Gateway
+	authClient := oauthsdk.New("http://nexus-gateway.example.com")
 
 	// 2. Instantiate the Bridge with standard logging and metrics
 	// agentLabels are applied as const_labels to all Prometheus metrics
@@ -111,7 +111,7 @@ The `nexus-sdk` is a thin client for the Gateway API.
 ```go
 import (
   "context"
-  oauthsdk "bitbucket.org/dromos/nexus-framework/nexus-sdk"
+  oauthsdk "bitbucket.org/nexus/nexus-framework/nexus-sdk"
 )
 
 client := oauthsdk.New("https://<gateway-base-url>")

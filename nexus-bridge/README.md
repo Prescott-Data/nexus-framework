@@ -44,7 +44,7 @@ func main() {
 
 	// 2. Create a client for your auth backend
 	// This must implement the bridge.OAuthClient interface
-	authClient := oauthsdk.New("http://dromos-gateway.example.com")
+	authClient := oauthsdk.New("http://nexus-gateway.example.com")
 
 	// 3. Instantiate the Bridge with production-ready telemetry
 	// agentLabels are applied as const_labels to all Prometheus metrics
@@ -92,7 +92,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	authClient := oauthsdk.New("http://dromos-gateway.example.com")
+	authClient := oauthsdk.New("http://nexus-gateway.example.com")
 	// agentLabels are applied as const_labels to all Prometheus metrics
 	agentLabels := map[string]string{"agent_id": "my-stable-id"}
 	b := bridge.NewStandard(authClient, agentLabels)

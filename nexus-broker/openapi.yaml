@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
-  title: Dromos OAuth Broker API
+  title: Nexus Broker API
   version: 1.0.0
   description: |
-    Internal API for the Dromos OAuth Broker service. 
+    Internal API for the Nexus Broker service. 
     This service handles OAuth 2.0 and OIDC flows, encrypts tokens, and manages provider configurations.
     It is NOT intended to be exposed directly to the public internet, except for the `/auth/callback` endpoint.
 servers:

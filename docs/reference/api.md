@@ -1,6 +1,6 @@
 # API Reference
 
-The Dromos OAuth Framework uses OpenAPI 3.0 specifications to define its contracts.
+The Nexus Framework uses OpenAPI 3.0 specifications to define its contracts.
 
 ## Gateway API (Public)
 The Gateway provides the stable, public-facing API for agents and services.

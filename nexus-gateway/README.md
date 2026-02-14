@@ -1,6 +1,6 @@
-# Dromos OAuth Gateway
+# Nexus Gateway
 
-The **Gateway** is the public-facing entry point for the Dromos OAuth framework. It acts as a stateless proxy and abstraction layer over the internal **Broker**, providing a clean, versioned API for agents and frontend applications.
+The **Gateway** is the public-facing entry point for the Nexus Framework. It acts as a stateless proxy and abstraction layer over the internal **Broker**, providing a clean, versioned API for agents and frontend applications.
 
 ## Key Responsibilities
 *   **Abstraction:** Hides internal Broker APIs and implementation details.

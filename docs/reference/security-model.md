@@ -1,6 +1,6 @@
 # Broker Security Guide
 
-This document describes the security measures implemented in the Dromos OAuth Broker and how to operate them in development and production.
+This document describes the security measures implemented in the Nexus OAuth Broker and how to operate them in development and production.
 
 ## App-layer Guardrails
 

@@ -29,7 +29,7 @@
 *   **Auditability:** Every connection, refresh, and strategy resolution is an audit event.
 
 ## 6. Case Study / Implementation
-*   **Dromos Framework:** Briefly introduce Dromos as the reference implementation (Go Bridge + Broker).
+*   **Nexus Framework:** Briefly introduce Nexus as the reference implementation (Go Bridge + Broker).
 *   **Example Scenario:** An agent that needs to read Jira tickets (OAuth2), write to S3 (SigV4), and post to Slack (Bearer Token)—all handled via a single loop.
 
 ## 7. The Future of Agent Infrastructure

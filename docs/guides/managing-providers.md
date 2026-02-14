@@ -1,6 +1,6 @@
 # Provider Registration and Management Guide
 
-This guide provides a comprehensive overview of how to register, manage, and test identity providers within the Dromos OAuth Broker.
+This guide provides a comprehensive overview of how to register, manage, and test identity providers within the Nexus OAuth Broker.
 
 ## Provider Types
 
