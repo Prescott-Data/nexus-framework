@@ -2,7 +2,7 @@
 
 ## System Components
 
-The Dromos OAuth Framework consists of three main components:
+The Nexus Framework consists of three main components:
 
 - **nexus-broker (Backend)**: The core "brain" of the operation. It handles:
     - Provider discovery and registry.

@@ -3,7 +3,7 @@
 ## 1. Core Concepts
 
 ### What is a Provider?
-A **Provider** is any external service (e.g., Google, Slack, Airtable) that the Dromos platform connects to on behalf of a user.
+A **Provider** is any external service (e.g., Google, Slack, Airtable) that the Nexus platform connects to on behalf of a user.
 
 ### Types of Providers
 We support two primary authentication models:
@@ -15,7 +15,7 @@ We support two primary authentication models:
 ## 2. OAuth2 Providers (`oauth2`)
 
 ### Step 1: Provider Console Setup
-Before touching Dromos, you must create an "App" in the Provider's Developer Portal.
+Before touching Nexus, you must create an "App" in the Provider's Developer Portal.
 
 > **Tip:** Search Google for `[Provider Name] OAuth2 endpoints`.
 > You need two URLs:
@@ -31,7 +31,7 @@ Before touching Dromos, you must create an "App" in the Provider's Developer Por
     *   **Value:** `https://nexus-broker.bravesea-3f5f7e75.eastus.azurecontainerapps.io/auth/callback`
 3.  **Compliance Fields:**
     *   Most providers will strictly limit your app (making it "Development Mode" only) until you fill these out:
-    *   **App Name:** `Dromos`
+    *   **App Name:** `Nexus`
     *   **App Logo:** (Use Company Logo)
     *   **Website URL:** `https://prescottdata.io/`
     *   **Privacy Policy URL:** `https://support.prescottdata.io/privacy`
@@ -42,7 +42,7 @@ Before touching Dromos, you must create an "App" in the Provider's Developer Por
     *   Copy them securely.
 
 ### Step 2: Registration Command
-Use this template to register the provider in Dromos.
+Use this template to register the provider in Nexus.
 
 ```bash
 GATEWAY_URL="https://nexus-gateway.bravesea-3f5f7e75.eastus.azurecontainerapps.io"
@@ -77,7 +77,7 @@ curl -s -X POST "$GATEWAY_URL/v1/request-connection" \
     "user_id": "test-user-001",
     "provider_name": "[provider-slug]",
     "scopes": ["scope1", "scope2"],
-    "return_url": "https://dromos-frontend-staging.bravesea-3f5f7e75.eastus.azurecontainerapps.io/app-launcher/connected-apps/all-connected-apps/" 
+    "return_url": "https://nexus-frontend-staging.bravesea-3f5f7e75.eastus.azurecontainerapps.io/app-launcher/connected-apps/all-connected-apps/" 
     # ^ Client App URL. httpbin.org is used to visualize the success params.
   }' | jq .
 ```
@@ -237,7 +237,7 @@ Non-OAuth providers do not use a browser redirect. You must verify them via API.
       -d '{
         "user_id": "test-user-123",
         "provider_id": "'$PROVIDER_ID'",
-        "return_url": "https://dromos-frontend-staging.bravesea-3f5f7e75.eastus.azurecontainerapps.io/app-launcher/connected-apps/all-connected-apps/"
+        "return_url": "https://nexus-frontend-staging.bravesea-3f5f7e75.eastus.azurecontainerapps.io/app-launcher/connected-apps/all-connected-apps/"
       }' | jq -r .authUrl)
     ```
 

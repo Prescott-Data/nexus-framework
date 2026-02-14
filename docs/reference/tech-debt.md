@@ -1,6 +1,6 @@
 # Technical Debt & Roadmap
 
-This document consolidates technical debt and future roadmap items across the Dromos OAuth Framework.
+This document consolidates technical debt and future roadmap items across the Nexus Framework.
 
 ## 1. Gateway Refresh Proxy (High Priority)
 
@@ -65,7 +65,7 @@ Add a `POST /v1/refresh/{connection_id}` endpoint to the **Gateway**.
 **Context:** Currently, the `bridge` runs as a library within the Agent's process.
 - **Risk:** If the Agent process is compromised (RCE), the attacker can dump process memory. This reveals the **Usage Secrets** (Access Tokens, API Keys, Signing Secrets) currently held in the Bridge's RAM.
 - **Mitigation (Current):**
-    - Dromos ensures these are *only* Usage Secrets. The Master Secrets (Refresh Tokens) remain encrypted in the Broker.
+    - Nexus ensures these are *only* Usage Secrets. The Master Secrets (Refresh Tokens) remain encrypted in the Broker.
     - Usage Secrets are short-lived (OAuth) or can be centrally rotated/revoked (Static Keys) without redeploying the Agent.
     - This offers a significantly smaller blast radius than finding a `.env` file with long-lived root keys.
 
@@ -73,7 +73,7 @@ Add a `POST /v1/refresh/{connection_id}` endpoint to the **Gateway**.
 To achieve perfect isolation where the Agent *never* holds a secret in RAM, we must move the signing logic out of the process.
 
 **Goal:**
-Develop `dromos-sidecar`, a standalone proxy service deployed alongside the Agent (e.g., in the same Kubernetes Pod).
+Develop `nexus-sidecar`, a standalone proxy service deployed alongside the Agent (e.g., in the same Kubernetes Pod).
 1.  **Traffic Flow:** Agent sends unauthenticated HTTP/gRPC requests to `localhost:sidecar_port`.
 2.  **Interception:** The Sidecar intercepts the request.
 3.  **Signing:** The Sidecar fetches the credentials from the Gateway/Broker and signs the request (injects headers, calculates SigV4).
@@ -81,7 +81,7 @@ Develop `dromos-sidecar`, a standalone proxy service deployed alongside the Agen
 
 **Benefits:**
 - **Zero-Knowledge Agent:** Even with RCE, an attacker finds no keys in the Agent's memory.
-- **Polyglot Support:** Any language (Python, Rust, Node) can use Dromos just by sending HTTP requests to localhost; no language-specific SDK/Bridge required.
+- **Polyglot Support:** Any language (Python, Rust, Node) can use Nexus just by sending HTTP requests to localhost; no language-specific SDK/Bridge required.
 
 **Trade-offs:**
 - Increased infrastructure complexity (managing sidecars).

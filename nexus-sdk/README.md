@@ -1,6 +1,6 @@
-# Dromos OAuth SDK (Go)
+# Nexus SDK (Go)
 
-Thin Go client for the Dromos OAuth Gateway v1 endpoints defined in `../openapi.yaml`.
+Thin Go client for the Nexus Gateway v1 endpoints defined in `../openapi.yaml`.
 
 Status: experimental; API surface is frozen to v1 paths.
 
