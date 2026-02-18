@@ -12,7 +12,7 @@ COPY . .
 
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 ARG VERSION=dev
-RUN go build -ldflags "-X main.Version=${VERSION}" -o /out/nexus-gateway-rest ./cmd/oha
+RUN go build -ldflags "-X main.Version=${VERSION}" -o /out/nexus-gateway-rest ./cmd/nexus-rest
 
 FROM alpine:3.19 AS runtime
 WORKDIR /app

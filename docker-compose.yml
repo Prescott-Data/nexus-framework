@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # --- Infrastructure ---
+  postgres:
+    image: postgres:15-alpine
+    container_name: nexus-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./nexus-broker/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: nexus-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- Applications ---
+  broker:
+    build:
+      context: ./nexus-broker
+      dockerfile: Dockerfile
+    container_name: nexus-broker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${PORT_BROKER}:${PORT_BROKER}"
+    environment:
+      # Database & Redis
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: ${REDIS_URL}
+      
+      # Core Configuration
+      PORT: ${PORT_BROKER}
+      BASE_URL: ${BASE_URL}
+      REDIRECT_PATH: ${REDIRECT_PATH}
+      
+      # Security
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      STATE_KEY: ${STATE_KEY}
+      API_KEY: ${API_KEY}
+      
+      # Policies
+      ALLOWED_CIDRS: ${ALLOWED_CIDRS}
+      ALLOWED_RETURN_DOMAINS: ${ALLOWED_RETURN_DOMAINS}
+      REQUIRE_API_KEY: ${REQUIRE_API_KEY}
+      REQUIRE_ALLOWLIST: ${REQUIRE_ALLOWLIST}
+
+  gateway:
+    build:
+      context: ./nexus-gateway
+      dockerfile: Dockerfile
+    container_name: nexus-gateway
+    depends_on:
+      - broker
+    ports:
+      - "${PORT_GATEWAY}:${PORT_GATEWAY}"
+    environment:
+      PORT: ${PORT_GATEWAY}
+      BROKER_BASE_URL: ${BROKER_BASE_URL}
+      
+      # Security (Must match Broker)
+      STATE_KEY: ${STATE_KEY}
+      BROKER_API_KEY: ${BROKER_API_KEY}
+      
+      # Policies
+      ALLOWED_CIDRS: ${ALLOWED_CIDRS}
+      ALLOWED_RETURN_DOMAINS: ${ALLOWED_RETURN_DOMAINS}
+      REQUIRE_API_KEY: ${REQUIRE_API_KEY}
+
+volumes:
+  postgres_data:

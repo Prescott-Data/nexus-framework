@@ -24,17 +24,17 @@ coverage.out
 server.log
 
 # Environment files
-# .env
-# .env.*
-# !.env.example
+.env
+.env.*
+!.env.example
 
 # Temp
 tmp/
 *.tmp
 
 
-nexus-gateway/oha
-nexus-gateway/oha-grpc
+nexus-gateway/nexus-gateway-rest
+nexus-gateway/nexus-gateway-grpc
 nexus-gateway/bin/
 
 # WHITE_PAPER.md

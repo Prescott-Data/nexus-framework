@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	ohapb "nexus-gateway/gen/go/api/proto/oha/v1"
+	nexuspb "nexus-gateway/gen/go/api/proto/nexus/v1"
 	"nexus-gateway/internal/usecase"
 
 	"github.com/go-chi/cors"
@@ -23,15 +23,15 @@ import (
 
 type Service struct {
 	usecaseHandler *usecase.Handler
-	ohapb.UnimplementedOHAServiceServer
+	nexuspb.UnimplementedNexusServiceServer
 }
 
 func NewService(handler *usecase.Handler) *Service {
 	return &Service{usecaseHandler: handler}
 }
 
-// RequestConnection implements OHAServiceServer.RequestConnection.
-func (s *Service) RequestConnection(ctx context.Context, req *ohapb.RequestConnectionRequest) (*ohapb.RequestConnectionResponse, error) {
+// RequestConnection implements NexusServiceServer.RequestConnection.
+func (s *Service) RequestConnection(ctx context.Context, req *nexuspb.RequestConnectionRequest) (*nexuspb.RequestConnectionResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is nil")
 	}
@@ -46,7 +46,7 @@ func (s *Service) RequestConnection(ctx context.Context, req *ohapb.RequestConne
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "request connection failed: %v", err)
 	}
-	return &ohapb.RequestConnectionResponse{
+	return &nexuspb.RequestConnectionResponse{
 		AuthUrl:      out.AuthURL,
 		State:        out.State,
 		Scopes:       out.Scopes,
@@ -55,9 +55,9 @@ func (s *Service) RequestConnection(ctx context.Context, req *ohapb.RequestConne
 	}, nil
 }
 
-// CheckConnection implements OHAServiceServer.CheckConnection.
+// CheckConnection implements NexusServiceServer.CheckConnection.
 
-func (s *Service) CheckConnection(ctx context.Context, req *ohapb.CheckConnectionRequest) (*ohapb.CheckConnectionResponse, error) {
+func (s *Service) CheckConnection(ctx context.Context, req *nexuspb.CheckConnectionRequest) (*nexuspb.CheckConnectionResponse, error) {
 	if req == nil || req.GetConnectionId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing connection_id")
 	}
@@ -65,11 +65,11 @@ func (s *Service) CheckConnection(ctx context.Context, req *ohapb.CheckConnectio
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "check connection failed: %v", err)
 	}
-	return &ohapb.CheckConnectionResponse{Status: statusStr}, nil
+	return &nexuspb.CheckConnectionResponse{Status: statusStr}, nil
 }
 
-// GetToken implements OHAServiceServer.GetToken.
-func (s *Service) GetToken(ctx context.Context, req *ohapb.GetTokenRequest) (*ohapb.GetTokenResponse, error) {
+// GetToken implements NexusServiceServer.GetToken.
+func (s *Service) GetToken(ctx context.Context, req *nexuspb.GetTokenRequest) (*nexuspb.GetTokenResponse, error) {
 	if req == nil || req.GetConnectionId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing connection_id")
 	}
@@ -82,11 +82,11 @@ func (s *Service) GetToken(ctx context.Context, req *ohapb.GetTokenRequest) (*oh
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "encode token failed: %v", err)
 	}
-	return &ohapb.GetTokenResponse{Token: st}, nil
+	return &nexuspb.GetTokenResponse{Token: st}, nil
 }
 
-// RefreshConnection implements OHAServiceServer.RefreshConnection.
-func (s *Service) RefreshConnection(ctx context.Context, req *ohapb.RefreshConnectionRequest) (*ohapb.RefreshConnectionResponse, error) {
+// RefreshConnection implements NexusServiceServer.RefreshConnection.
+func (s *Service) RefreshConnection(ctx context.Context, req *nexuspb.RefreshConnectionRequest) (*nexuspb.RefreshConnectionResponse, error) {
 	if req == nil || req.GetConnectionId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing connection_id")
 	}
@@ -99,7 +99,7 @@ func (s *Service) RefreshConnection(ctx context.Context, req *ohapb.RefreshConne
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "encode token failed: %v", err)
 	}
-	return &ohapb.RefreshConnectionResponse{Token: st}, nil
+	return &nexuspb.RefreshConnectionResponse{Token: st}, nil
 }
 
 type Server struct {
@@ -129,7 +129,7 @@ func NewServer(opts Options) (*Server, error) {
 	}
 	service := NewService(opts.Handler)
 	grpcSrv := grpc.NewServer()
-	ohapb.RegisterOHAServiceServer(grpcSrv, service)
+	nexuspb.RegisterNexusServiceServer(grpcSrv, service)
 	return &Server{
 		grpcAddress: opts.GRPCAddress,
 		httpAddress: opts.HTTPAddress,
@@ -154,7 +154,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	gwMux := runtime.NewServeMux()
 	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
-	if err := ohapb.RegisterOHAServiceHandlerFromEndpoint(ctx, gwMux, s.grpcAddress, dialOpts); err != nil {
+	if err := nexuspb.RegisterNexusServiceHandlerFromEndpoint(ctx, gwMux, s.grpcAddress, dialOpts); err != nil {
 		return fmt.Errorf("register gateway: %w", err)
 	}
 

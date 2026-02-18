@@ -1,13 +1,13 @@
 syntax = "proto3";
 
-package oha.v1;
+package nexus.v1;
 
-option go_package = "nexus-gateway/gen/go/api/proto/oha/v1;ohapb";
+option go_package = "nexus-gateway/gen/go/api/proto/nexus/v1;nexuspb";
 
 import "google/api/annotations.proto";
 import "google/protobuf/struct.proto";
 
-service OHAService {
+service NexusService {
   rpc RequestConnection(RequestConnectionRequest) returns (RequestConnectionResponse) {
     option (google.api.http) = {
       post: "/v1/request-connection"

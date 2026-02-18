@@ -21,13 +21,13 @@ help:
 	@echo "make test           # Run tests"
 
 build-grpc:
-	go build -ldflags "$(LDFLAGS)" -o bin/nexus-gateway-grpc ./cmd/oha-grpc
+	go build -ldflags "$(LDFLAGS)" -o bin/nexus-gateway-grpc ./cmd/nexus-grpc
 
 run-grpc: build-grpc
 	PORT_GRPC=$(PORT_GRPC) PORT_HTTP=$(PORT_HTTP) BROKER_BASE_URL=$(BROKER_BASE_URL) STATE_KEY=$(STATE_KEY) ./bin/nexus-gateway-grpc
 
 build-rest:
-	go build -ldflags "$(LDFLAGS)" -o bin/nexus-gateway-rest ./cmd/oha
+	go build -ldflags "$(LDFLAGS)" -o bin/nexus-gateway-rest ./cmd/nexus-rest
 
 run-rest: build-rest
 	BROKER_BASE_URL=$(BROKER_BASE_URL) STATE_KEY=$(STATE_KEY) ./bin/nexus-gateway-rest

@@ -36,7 +36,7 @@ go run ./cmd/nexus-broker
 cd nexus-gateway
 export BROKER_BASE_URL="http://localhost:8080"
 export STATE_KEY="$(openssl rand -base64 32)" # Use the same key as the Broker
-go run ./cmd/oha
+go run ./cmd/nexus-rest
 ```
 
 ## Production Deployment (Azure Container Apps)
