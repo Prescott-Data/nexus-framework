@@ -1,30 +1,26 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
-	grpcsrv "nexus-gateway/internal/grpc"
-	"nexus-gateway/internal/usecase"
+	"nexus-gateway/internal/server"
 )
 
 var Version = "dev"
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "-v" || os.Args[1] == "--version") {
-		log.Printf("Nexus Gateway (gRPC) version: %s", Version)
+		log.Printf("Nexus Gateway (REST) version: %s", Version)
 		os.Exit(0)
 	}
 
-	portHTTP := getEnv("PORT_HTTP", "8090")
-	portGRPC := getEnv("PORT_GRPC", "9090")
+	// Config
+	port := getEnv("PORT", "8090")
 	brokerBaseURL := getEnv("BROKER_BASE_URL", "http://localhost:8080")
 	stateKeyStr := getEnv("STATE_KEY", "")
 
@@ -40,6 +36,7 @@ func main() {
 		}
 		stateKey = key
 	} else {
+		// Dev fallback: generate a random key
 		log.Println("WARNING: Using generated state key. Set STATE_KEY to match broker in production.")
 		stateKey = make([]byte, 32)
 		if _, err := rand.Read(stateKey); err != nil {
@@ -47,41 +44,25 @@ func main() {
 		}
 	}
 
+	// HTTP client with sane timeouts and connection reuse
 	transport := &http.Transport{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 20,
 		IdleConnTimeout:     90 * time.Second,
 		DisableCompression:  false,
 	}
-	httpClient := &http.Client{Timeout: 30 * time.Second, Transport: transport}
-	handler := usecase.NewHandler(brokerBaseURL, stateKey, httpClient)
-
-	srv, err := grpcsrv.NewServer(grpcsrv.Options{
-		GRPCAddress: ":" + portGRPC,
-		HTTPAddress: ":" + portHTTP,
-		Handler:     handler,
-	})
-	if err != nil {
-		log.Fatal(err)
+	httpClient := &http.Client{
+		Transport: transport,
+		Timeout:   30 * time.Second,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	srv := server.New(port, brokerBaseURL, stateKey, httpClient)
 
-	log.Printf("Starting OHA gRPC on %s and HTTP gateway on %s, broker=%s", ":"+portGRPC, ":"+portHTTP, brokerBaseURL)
+	log.Printf("Starting Nexus on port %s, broker=%s", port, brokerBaseURL)
 	log.Printf("Version: %s", Version)
-	if err := srv.Start(ctx); err != nil {
+	if err := srv.Start(); err != nil {
 		log.Fatal(err)
 	}
-
-	// Graceful shutdown on SIGINT/SIGTERM
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
-	log.Println("Shutting down gRPC and HTTP gateway...")
-	shutdownCtx, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel2()
-	_ = srv.Shutdown(shutdownCtx)
 }
 
 func getEnv(key, fallback string) string {

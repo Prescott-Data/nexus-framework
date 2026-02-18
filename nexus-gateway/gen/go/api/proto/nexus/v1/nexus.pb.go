@@ -2,9 +2,9 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: api/proto/oha/v1/oha.proto
+// source: api/proto/nexus/v1/nexus.proto
 
-package ohapb
+package nexuspb
 
 import (
 	_ "google.golang.org/genproto/googleapis/api/annotations"
@@ -37,7 +37,7 @@ type RequestConnectionRequest struct {
 
 func (x *RequestConnectionRequest) Reset() {
 	*x = RequestConnectionRequest{}
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[0]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -49,7 +49,7 @@ func (x *RequestConnectionRequest) String() string {
 func (*RequestConnectionRequest) ProtoMessage() {}
 
 func (x *RequestConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[0]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62,7 +62,7 @@ func (x *RequestConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestConnectionRequest.ProtoReflect.Descriptor instead.
 func (*RequestConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_oha_v1_oha_proto_rawDescGZIP(), []int{0}
+	return file_api_proto_nexus_v1_nexus_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *RequestConnectionRequest) GetUserId() string {
@@ -120,7 +120,7 @@ type RequestConnectionResponse struct {
 
 func (x *RequestConnectionResponse) Reset() {
 	*x = RequestConnectionResponse{}
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[1]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -132,7 +132,7 @@ func (x *RequestConnectionResponse) String() string {
 func (*RequestConnectionResponse) ProtoMessage() {}
 
 func (x *RequestConnectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[1]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -145,7 +145,7 @@ func (x *RequestConnectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestConnectionResponse.ProtoReflect.Descriptor instead.
 func (*RequestConnectionResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_oha_v1_oha_proto_rawDescGZIP(), []int{1}
+	return file_api_proto_nexus_v1_nexus_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *RequestConnectionResponse) GetAuthUrl() string {
@@ -192,7 +192,7 @@ type CheckConnectionRequest struct {
 
 func (x *CheckConnectionRequest) Reset() {
 	*x = CheckConnectionRequest{}
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[2]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -204,7 +204,7 @@ func (x *CheckConnectionRequest) String() string {
 func (*CheckConnectionRequest) ProtoMessage() {}
 
 func (x *CheckConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[2]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -217,7 +217,7 @@ func (x *CheckConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckConnectionRequest.ProtoReflect.Descriptor instead.
 func (*CheckConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_oha_v1_oha_proto_rawDescGZIP(), []int{2}
+	return file_api_proto_nexus_v1_nexus_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CheckConnectionRequest) GetConnectionId() string {
@@ -236,7 +236,7 @@ type CheckConnectionResponse struct {
 
 func (x *CheckConnectionResponse) Reset() {
 	*x = CheckConnectionResponse{}
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[3]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -248,7 +248,7 @@ func (x *CheckConnectionResponse) String() string {
 func (*CheckConnectionResponse) ProtoMessage() {}
 
 func (x *CheckConnectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[3]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -261,7 +261,7 @@ func (x *CheckConnectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckConnectionResponse.ProtoReflect.Descriptor instead.
 func (*CheckConnectionResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_oha_v1_oha_proto_rawDescGZIP(), []int{3}
+	return file_api_proto_nexus_v1_nexus_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *CheckConnectionResponse) GetStatus() string {
@@ -280,7 +280,7 @@ type GetTokenRequest struct {
 
 func (x *GetTokenRequest) Reset() {
 	*x = GetTokenRequest{}
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[4]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -292,7 +292,7 @@ func (x *GetTokenRequest) String() string {
 func (*GetTokenRequest) ProtoMessage() {}
 
 func (x *GetTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[4]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -305,7 +305,7 @@ func (x *GetTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTokenRequest.ProtoReflect.Descriptor instead.
 func (*GetTokenRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_oha_v1_oha_proto_rawDescGZIP(), []int{4}
+	return file_api_proto_nexus_v1_nexus_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetTokenRequest) GetConnectionId() string {
@@ -324,7 +324,7 @@ type GetTokenResponse struct {
 
 func (x *GetTokenResponse) Reset() {
 	*x = GetTokenResponse{}
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[5]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -336,7 +336,7 @@ func (x *GetTokenResponse) String() string {
 func (*GetTokenResponse) ProtoMessage() {}
 
 func (x *GetTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[5]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -349,7 +349,7 @@ func (x *GetTokenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTokenResponse.ProtoReflect.Descriptor instead.
 func (*GetTokenResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_oha_v1_oha_proto_rawDescGZIP(), []int{5}
+	return file_api_proto_nexus_v1_nexus_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetTokenResponse) GetToken() *structpb.Struct {
@@ -368,7 +368,7 @@ type RefreshConnectionRequest struct {
 
 func (x *RefreshConnectionRequest) Reset() {
 	*x = RefreshConnectionRequest{}
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[6]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -380,7 +380,7 @@ func (x *RefreshConnectionRequest) String() string {
 func (*RefreshConnectionRequest) ProtoMessage() {}
 
 func (x *RefreshConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[6]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -393,7 +393,7 @@ func (x *RefreshConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshConnectionRequest.ProtoReflect.Descriptor instead.
 func (*RefreshConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_oha_v1_oha_proto_rawDescGZIP(), []int{6}
+	return file_api_proto_nexus_v1_nexus_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RefreshConnectionRequest) GetConnectionId() string {
@@ -412,7 +412,7 @@ type RefreshConnectionResponse struct {
 
 func (x *RefreshConnectionResponse) Reset() {
 	*x = RefreshConnectionResponse{}
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[7]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -424,7 +424,7 @@ func (x *RefreshConnectionResponse) String() string {
 func (*RefreshConnectionResponse) ProtoMessage() {}
 
 func (x *RefreshConnectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_oha_v1_oha_proto_msgTypes[7]
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -437,7 +437,7 @@ func (x *RefreshConnectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshConnectionResponse.ProtoReflect.Descriptor instead.
 func (*RefreshConnectionResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_oha_v1_oha_proto_rawDescGZIP(), []int{7}
+	return file_api_proto_nexus_v1_nexus_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RefreshConnectionResponse) GetToken() *structpb.Struct {
@@ -447,11 +447,11 @@ func (x *RefreshConnectionResponse) GetToken() *structpb.Struct {
 	return nil
 }
 
-var File_api_proto_oha_v1_oha_proto protoreflect.FileDescriptor
+var File_api_proto_nexus_v1_nexus_proto protoreflect.FileDescriptor
 
-const file_api_proto_oha_v1_oha_proto_rawDesc = "" +
+const file_api_proto_nexus_v1_nexus_proto_rawDesc = "" +
 	"\n" +
-	"\x1aapi/proto/oha/v1/oha.proto\x12\x06oha.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xc8\x01\n" +
+	"\x1eapi/proto/nexus/v1/nexus.proto\x12\bnexus.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xc8\x01\n" +
 	"\x18RequestConnectionRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1f\n" +
 	"\vprovider_id\x18\x02 \x01(\tR\n" +
@@ -479,51 +479,50 @@ const file_api_proto_oha_v1_oha_proto_rawDesc = "" +
 	"\x18RefreshConnectionRequest\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\"J\n" +
 	"\x19RefreshConnectionResponse\x12-\n" +
-	"\x05token\x18\x01 \x01(\v2\x17.google.protobuf.StructR\x05token2\xed\x03\n" +
-	"\n" +
-	"OHAService\x12{\n" +
-	"\x11RequestConnection\x12 .oha.v1.RequestConnectionRequest\x1a!.oha.v1.RequestConnectionResponse\"!\x82\xd3\xe4\x93\x02\x1b:\x01*\"\x16/v1/request-connection\x12\x80\x01\n" +
-	"\x0fCheckConnection\x12\x1e.oha.v1.CheckConnectionRequest\x1a\x1f.oha.v1.CheckConnectionResponse\",\x82\xd3\xe4\x93\x02&\x12$/v1/check-connection/{connection_id}\x12`\n" +
-	"\bGetToken\x12\x17.oha.v1.GetTokenRequest\x1a\x18.oha.v1.GetTokenResponse\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/v1/token/{connection_id}\x12}\n" +
-	"\x11RefreshConnection\x12 .oha.v1.RefreshConnectionRequest\x1a!.oha.v1.RefreshConnectionResponse\"#\x82\xd3\xe4\x93\x02\x1d\"\x1b/v1/refresh/{connection_id}B\x83\x01\n" +
-	"\n" +
-	"com.oha.v1B\bOhaProtoP\x01Z2nexus-gateway/gen/go/api/proto/oha/v1;ohapb\xa2\x02\x03OXX\xaa\x02\x06Oha.V1\xca\x02\x06Oha\\V1\xe2\x02\x12Oha\\V1\\GPBMetadata\xea\x02\aOha::V1b\x06proto3"
+	"\x05token\x18\x01 \x01(\v2\x17.google.protobuf.StructR\x05token2\x80\x04\n" +
+	"\fNexusService\x12\x7f\n" +
+	"\x11RequestConnection\x12\".nexus.v1.RequestConnectionRequest\x1a#.nexus.v1.RequestConnectionResponse\"!\x82\xd3\xe4\x93\x02\x1b:\x01*\"\x16/v1/request-connection\x12\x84\x01\n" +
+	"\x0fCheckConnection\x12 .nexus.v1.CheckConnectionRequest\x1a!.nexus.v1.CheckConnectionResponse\",\x82\xd3\xe4\x93\x02&\x12$/v1/check-connection/{connection_id}\x12d\n" +
+	"\bGetToken\x12\x19.nexus.v1.GetTokenRequest\x1a\x1a.nexus.v1.GetTokenResponse\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/v1/token/{connection_id}\x12\x81\x01\n" +
+	"\x11RefreshConnection\x12\".nexus.v1.RefreshConnectionRequest\x1a#.nexus.v1.RefreshConnectionResponse\"#\x82\xd3\xe4\x93\x02\x1d\"\x1b/v1/refresh/{connection_id}B\x8c\x01\n" +
+	"\fcom.nexus.v1B\n" +
+	"NexusProtoP\x01Z/nexus-gateway/gen/go/api/proto/nexus/v1;nexuspb\xa2\x02\x03NXX\xaa\x02\bNexus.V1\xca\x02\bNexus\\V1\xe2\x02\x14Nexus\\V1\\GPBMetadata\xea\x02\tNexus::V1b\x06proto3"
 
 var (
-	file_api_proto_oha_v1_oha_proto_rawDescOnce sync.Once
-	file_api_proto_oha_v1_oha_proto_rawDescData []byte
+	file_api_proto_nexus_v1_nexus_proto_rawDescOnce sync.Once
+	file_api_proto_nexus_v1_nexus_proto_rawDescData []byte
 )
 
-func file_api_proto_oha_v1_oha_proto_rawDescGZIP() []byte {
-	file_api_proto_oha_v1_oha_proto_rawDescOnce.Do(func() {
-		file_api_proto_oha_v1_oha_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_api_proto_oha_v1_oha_proto_rawDesc), len(file_api_proto_oha_v1_oha_proto_rawDesc)))
+func file_api_proto_nexus_v1_nexus_proto_rawDescGZIP() []byte {
+	file_api_proto_nexus_v1_nexus_proto_rawDescOnce.Do(func() {
+		file_api_proto_nexus_v1_nexus_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_api_proto_nexus_v1_nexus_proto_rawDesc), len(file_api_proto_nexus_v1_nexus_proto_rawDesc)))
 	})
-	return file_api_proto_oha_v1_oha_proto_rawDescData
+	return file_api_proto_nexus_v1_nexus_proto_rawDescData
 }
 
-var file_api_proto_oha_v1_oha_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
-var file_api_proto_oha_v1_oha_proto_goTypes = []any{
-	(*RequestConnectionRequest)(nil),  // 0: oha.v1.RequestConnectionRequest
-	(*RequestConnectionResponse)(nil), // 1: oha.v1.RequestConnectionResponse
-	(*CheckConnectionRequest)(nil),    // 2: oha.v1.CheckConnectionRequest
-	(*CheckConnectionResponse)(nil),   // 3: oha.v1.CheckConnectionResponse
-	(*GetTokenRequest)(nil),           // 4: oha.v1.GetTokenRequest
-	(*GetTokenResponse)(nil),          // 5: oha.v1.GetTokenResponse
-	(*RefreshConnectionRequest)(nil),  // 6: oha.v1.RefreshConnectionRequest
-	(*RefreshConnectionResponse)(nil), // 7: oha.v1.RefreshConnectionResponse
+var file_api_proto_nexus_v1_nexus_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_api_proto_nexus_v1_nexus_proto_goTypes = []any{
+	(*RequestConnectionRequest)(nil),  // 0: nexus.v1.RequestConnectionRequest
+	(*RequestConnectionResponse)(nil), // 1: nexus.v1.RequestConnectionResponse
+	(*CheckConnectionRequest)(nil),    // 2: nexus.v1.CheckConnectionRequest
+	(*CheckConnectionResponse)(nil),   // 3: nexus.v1.CheckConnectionResponse
+	(*GetTokenRequest)(nil),           // 4: nexus.v1.GetTokenRequest
+	(*GetTokenResponse)(nil),          // 5: nexus.v1.GetTokenResponse
+	(*RefreshConnectionRequest)(nil),  // 6: nexus.v1.RefreshConnectionRequest
+	(*RefreshConnectionResponse)(nil), // 7: nexus.v1.RefreshConnectionResponse
 	(*structpb.Struct)(nil),           // 8: google.protobuf.Struct
 }
-var file_api_proto_oha_v1_oha_proto_depIdxs = []int32{
-	8, // 0: oha.v1.GetTokenResponse.token:type_name -> google.protobuf.Struct
-	8, // 1: oha.v1.RefreshConnectionResponse.token:type_name -> google.protobuf.Struct
-	0, // 2: oha.v1.OHAService.RequestConnection:input_type -> oha.v1.RequestConnectionRequest
-	2, // 3: oha.v1.OHAService.CheckConnection:input_type -> oha.v1.CheckConnectionRequest
-	4, // 4: oha.v1.OHAService.GetToken:input_type -> oha.v1.GetTokenRequest
-	6, // 5: oha.v1.OHAService.RefreshConnection:input_type -> oha.v1.RefreshConnectionRequest
-	1, // 6: oha.v1.OHAService.RequestConnection:output_type -> oha.v1.RequestConnectionResponse
-	3, // 7: oha.v1.OHAService.CheckConnection:output_type -> oha.v1.CheckConnectionResponse
-	5, // 8: oha.v1.OHAService.GetToken:output_type -> oha.v1.GetTokenResponse
-	7, // 9: oha.v1.OHAService.RefreshConnection:output_type -> oha.v1.RefreshConnectionResponse
+var file_api_proto_nexus_v1_nexus_proto_depIdxs = []int32{
+	8, // 0: nexus.v1.GetTokenResponse.token:type_name -> google.protobuf.Struct
+	8, // 1: nexus.v1.RefreshConnectionResponse.token:type_name -> google.protobuf.Struct
+	0, // 2: nexus.v1.NexusService.RequestConnection:input_type -> nexus.v1.RequestConnectionRequest
+	2, // 3: nexus.v1.NexusService.CheckConnection:input_type -> nexus.v1.CheckConnectionRequest
+	4, // 4: nexus.v1.NexusService.GetToken:input_type -> nexus.v1.GetTokenRequest
+	6, // 5: nexus.v1.NexusService.RefreshConnection:input_type -> nexus.v1.RefreshConnectionRequest
+	1, // 6: nexus.v1.NexusService.RequestConnection:output_type -> nexus.v1.RequestConnectionResponse
+	3, // 7: nexus.v1.NexusService.CheckConnection:output_type -> nexus.v1.CheckConnectionResponse
+	5, // 8: nexus.v1.NexusService.GetToken:output_type -> nexus.v1.GetTokenResponse
+	7, // 9: nexus.v1.NexusService.RefreshConnection:output_type -> nexus.v1.RefreshConnectionResponse
 	6, // [6:10] is the sub-list for method output_type
 	2, // [2:6] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
@@ -531,26 +530,26 @@ var file_api_proto_oha_v1_oha_proto_depIdxs = []int32{
 	0, // [0:2] is the sub-list for field type_name
 }
 
-func init() { file_api_proto_oha_v1_oha_proto_init() }
-func file_api_proto_oha_v1_oha_proto_init() {
-	if File_api_proto_oha_v1_oha_proto != nil {
+func init() { file_api_proto_nexus_v1_nexus_proto_init() }
+func file_api_proto_nexus_v1_nexus_proto_init() {
+	if File_api_proto_nexus_v1_nexus_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_oha_v1_oha_proto_rawDesc), len(file_api_proto_oha_v1_oha_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_nexus_v1_nexus_proto_rawDesc), len(file_api_proto_nexus_v1_nexus_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_api_proto_oha_v1_oha_proto_goTypes,
-		DependencyIndexes: file_api_proto_oha_v1_oha_proto_depIdxs,
-		MessageInfos:      file_api_proto_oha_v1_oha_proto_msgTypes,
+		GoTypes:           file_api_proto_nexus_v1_nexus_proto_goTypes,
+		DependencyIndexes: file_api_proto_nexus_v1_nexus_proto_depIdxs,
+		MessageInfos:      file_api_proto_nexus_v1_nexus_proto_msgTypes,
 	}.Build()
-	File_api_proto_oha_v1_oha_proto = out.File
-	file_api_proto_oha_v1_oha_proto_goTypes = nil
-	file_api_proto_oha_v1_oha_proto_depIdxs = nil
+	File_api_proto_nexus_v1_nexus_proto = out.File
+	file_api_proto_nexus_v1_nexus_proto_goTypes = nil
+	file_api_proto_nexus_v1_nexus_proto_depIdxs = nil
 }

@@ -34,5 +34,5 @@ tmp/
 *.tmp
 
 # Binaries (if built in root)
-/oha
-/oha-grpc
+/nexus-gateway-rest
+/nexus-gateway-grpc

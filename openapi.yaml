@@ -99,6 +99,31 @@ paths:
           $ref: '#/components/responses/UpstreamError'
         '503':
           $ref: '#/components/responses/UpstreamError'
+  /v1/refresh/{connection_id}:
+    post:
+      summary: Force a token refresh for a connection
+      operationId: refreshConnection
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Refreshed token JSON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Connection not found
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/UpstreamError'
 components:
   schemas:
     ProviderMetadataResponse:
@@ -199,11 +224,4 @@ tags:
     description: Create and manage user connections
   - name: Tokens
     description: Retrieve tokens for active connections
-
-x-notes:
-  refresh:
-    planned_endpoint: /v1/refresh/{connection_id}
-    method: POST
-    status: planned
-    notes: A Gateway refresh proxy will be added; until then, refresh is on the Broker.
 
