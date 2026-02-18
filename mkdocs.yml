@@ -33,6 +33,7 @@ nav:
   - Core Concepts:
       - Architecture: architecture.md
       - The Nexus Protocol: NEXUS_PROTOCOL.md
+      - Technical Whitepaper: nexus-protocol-whitepaper.pdf
       - Security Model: reference/security-model.md
   - Getting Started:
       - Quick Start: index.md # Will link to the Quick Start section
