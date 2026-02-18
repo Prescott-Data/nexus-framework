@@ -1,0 +1,54 @@
+site_name: Nexus Framework
+site_url: https://nexus.developers.prescottdata/documentation
+site_description: Provider-agnostic identity and connection orchestration for autonomous agents.
+site_author: Prescott Data
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Core Concepts:
+      - Architecture: architecture.md
+      - The Nexus Protocol: NEXUS_PROTOCOL.md
+      - Security Model: reference/security-model.md
+  - Getting Started:
+      - Quick Start: index.md # Will link to the Quick Start section
+      - Deployment & Config: deployment.md
+  - Guides:
+      - Agent Integration: guides/integrating-agents.md
+      - Managing Providers: guides/managing-providers.md
+  - API Reference:
+      - API Overview: reference/api.md
+      - Technical Debt & Roadmap: reference/tech-debt.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - tables
