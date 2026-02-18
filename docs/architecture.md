@@ -1,67 +1,50 @@
 # Architecture Overview
 
+The Nexus Framework is split into a **Control Plane** (managing connections) and a **Data Plane** (using connections).
+
 ## System Components
 
-The Nexus Framework consists of three main components:
+### 1. Nexus Broker (The Authority)
+The Broker is the source of truth and the most sensitive component.
+- **Responsibilities:**
+    - Stores Provider profiles (OAuth configs, API Key schemas).
+    - Performs the OAuth 2.0 / OIDC handshake logic.
+    - Manages the **Encryption Vault**: Tokens are encrypted at rest using AES-GCM 256-bit with a Master `ENCRYPTION_KEY`.
+    - Runs the background **Refresh Loop**: Preemptively refreshes tokens before they expire.
+- **Technology Stack:** Go, PostgreSQL (Persistence), Redis (Caching/Discovery).
 
-- **nexus-broker (Backend)**: The core "brain" of the operation. It handles:
-    - Provider discovery and registry.
-    - Consent specification (PKCE + signed state).
-    - Callback handling and code exchange.
-    - Token encryption and storage (PostgreSQL).
-    - Token retrieval and refresh.
-- **nexus-gateway (Front Door)**: A stateless proxy that exposes a stable gRPC/HTTP API for agents. It:
-    - Initiates connections via the Broker.
-    - Allows clients to poll for connection status.
-    - Fetches tokens on demand (never storing them).
-    - Proxies token refresh requests to the Broker.
-- **bridge (Client Library)**: A universal connector for agents (Go) that manages persistent, observable connections (WebSocket/gRPC) and handles authentication strategies.
+### 2. Nexus Gateway (The Proxy)
+The Gateway is the public-facing entry point for Agents.
+- **Responsibilities:**
+    - Provides a unified REST and gRPC API.
+    - Proxies requests to the Broker using an internal `BROKER_API_KEY`.
+    - Decouples Agents from the internal Broker infrastructure.
+    - Handles CORS, request validation, and API versioning.
+- **Technology Stack:** Go, gRPC, gRPC-Gateway.
 
-## Auth Flow
+### 3. Nexus Bridge (The Library)
+A Go library that runs inside the Agent's process.
+- **Responsibilities:**
+    - Automatically retrieves the latest **Strategy** and **Credentials** from the Gateway.
+    - Injects authentication headers into outgoing HTTP and gRPC requests.
+    - Manages persistent WebSocket and gRPC connections.
+    - Implements retries and exponential backoff.
 
-1.  **Request Connection**: Agent (server) requests a connection from the Gateway. The Gateway calls the Broker to build a consent spec (PKCE + signed state) and returns an `authUrl` + `connection_id`.
-2.  **Consent**: The User completes consent at the provider (e.g., Google).
-3.  **Callback**: The Provider redirects to the Broker callback. The Broker validates state, exchanges the code for tokens, encrypts/stores them, marks the connection `active`, and redirects the user to the agent’s `return_url` with the `connection_id`.
-4.  **Usage**: The Agent fetches tokens on demand from the Gateway. When tokens expire, the Agent calls the Gateway's refresh endpoint, which proxies the request to the Broker.
+### 4. Nexus SDK (The Client)
+A thin, lightweight client used by the Agent to initiate handshakes (e.g., `RequestConnection`).
 
-## Key Endpoints
+## Data Flow: The Handshake
 
-### Gateway (HTTP)
-- `POST /v1/request-connection`: Initiate a flow.
-- `GET /v1/check-connection/{connection_id}`: Poll status.
-- `GET /v1/token/{connection_id}`: Fetch credentials.
-- `POST /v1/refresh/{connection_id}`: Refresh credentials (proxied).
-- `GET /metrics`: Prometheus metrics.
+1.  **Initiation:** Agent calls Gateway `POST /v1/request-connection`.
+2.  **Spec Generation:** Broker generates a unique `state` and a temporary `connection_id`.
+3.  **Redirection:** Agent redirects User to the `auth_url` returned by the Gateway.
+4.  **Consent:** User authorizes the connection on the Provider's site.
+5.  **Capture:** Broker receives the callback, exchanges the code for tokens, encrypts them, and stores them in PostgreSQL.
+6.  **Activation:** The connection status transitions to `ACTIVE`.
 
-### Broker (Internal HTTP)
-- `POST /auth/consent-spec`: Generate auth URL.
-- `GET /auth/callback`: Public provider redirect handler.
-- `GET /connections/{connection_id}/token`: Retrieve encrypted token.
-- `POST /connections/{connection_id}/refresh`: Force refresh.
-- `GET /metrics`: Prometheus metrics.
+## Data Flow: Usage (Signing)
 
-## Observability
-
-Both services expose Prometheus metrics at `/metrics`.
-
-**Broker Metrics:**
-- `oauth_consents_created_total`
-- `oauth_token_exchanges_total{status}`
-- `oauth_token_get_total{provider,has_id_token}`
-- `oidc_discovery_total`
-- `oidc_verifications_total`
-
-**Prometheus Config Example:**
-```yaml
-- job_name: 'nexus-broker'
-  scheme: https
-  metrics_path: /metrics
-  static_configs:
-    - targets: ['<broker-domain>']
-
-- job_name: 'nexus-gateway'
-  scheme: https
-  metrics_path: /metrics
-  static_configs:
-    - targets: ['<gateway-domain>']
-```
+1.  **Retrieval:** Bridge calls Gateway `GET /v1/token/{id}`.
+2.  **Decryption:** Broker retrieves tokens, decrypts them in RAM, and returns them to the Gateway.
+3.  **Delivery:** Gateway returns a **Strategy** (e.g., "Inject into 'Authorization' header") and the **Credentials**.
+4.  **Signing:** Bridge interprets the strategy and modifies the Agent's request headers before sending it to the Provider.

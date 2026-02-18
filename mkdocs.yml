@@ -37,6 +37,11 @@ nav:
   - Getting Started:
       - Quick Start: index.md # Will link to the Quick Start section
       - Deployment & Config: deployment.md
+  - Component Deep Dives:
+      - Nexus Broker: services/broker.md
+      - Nexus Gateway: services/gateway.md
+      - Nexus Bridge: services/bridge.md
+      - Nexus SDK: services/sdk.md
   - Guides:
       - Agent Integration: guides/integrating-agents.md
       - Managing Providers: guides/managing-providers.md
