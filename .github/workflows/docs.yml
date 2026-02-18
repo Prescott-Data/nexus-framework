@@ -17,7 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+        with:
+          fetch-depth: 0
+
       - name: Configure Python
         uses: actions/setup-python@v5
         with:
@@ -26,5 +28,11 @@ jobs:
       - name: Install dependencies
         run: pip install mkdocs-material
         
+      - name: Build Documentation
+        run: mkdocs build
+        
       - name: Build and Deploy
-        run: mkdocs gh-pages --force
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          mkdocs gh-pages --force
