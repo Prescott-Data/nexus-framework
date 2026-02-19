@@ -1,20 +1,23 @@
 site_name: Nexus Framework
-site_url: https://nexus.developers.prescottdata/documentation
 site_description: Provider-agnostic identity and connection orchestration for autonomous agents.
-site_author: Prescott Data
+site_url: https://prescott-data.github.io/nexus-framework/
+repo_url: https://github.com/Prescott-Data/nexus-framework
+repo_name: Prescott-Data/nexus-framework
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
 
 theme:
   name: material
   palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
+    - scheme: default
       primary: indigo
       accent: indigo
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
+    - scheme: slate
       primary: indigo
       accent: indigo
       toggle:
@@ -22,11 +25,33 @@ theme:
         name: Switch to light mode
   features:
     - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
+    - navigation.expand
     - navigation.top
-    - search.suggest
     - search.highlight
+    - search.share
     - content.code.copy
+    - content.code.annotate
+    - toc.integrate
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: ['.']   # repo root — allows --8<-- "README.md" in index.md
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
 
 nav:
   - Home: index.md
@@ -50,11 +75,8 @@ nav:
       - API Overview: reference/api.md
       - Technical Debt & Roadmap: reference/tech-debt.md
 
-markdown_extensions:
-  - admonition
-  - pymdownx.highlight:
-      anchor_linenums: true
-  - pymdownx.inlinehilite
-  - pymdownx.snippets
-  - pymdownx.superfences
-  - tables
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Prescott-Data/nexus-framework
+      name: Nexus Framework on GitHub
