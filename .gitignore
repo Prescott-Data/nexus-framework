@@ -44,3 +44,4 @@ nexus-broker/nexus-broker-bin
 nexus-gateway/provider_test_dashboard.html
 # providers_oauth2_audit.csv
 test_all_providers.sh
+nexus-broker/migrate
