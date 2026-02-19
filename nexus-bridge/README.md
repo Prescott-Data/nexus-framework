@@ -1,186 +1,172 @@
-# Bridge: The Universal Go Connector
+# Nexus Bridge
+
+The **Nexus Bridge** is the official Go client library for the [Nexus Framework](https://github.com/Prescott-Data/nexus-framework). It acts as a "smart connector" that lives inside your agent or service, abstracting away the complexity of secure, persistent communication.
 
 ## Overview
 
-The Bridge is a client-side Go library for creating and maintaining persistent, observable, and authenticated connections using **WebSocket** or **gRPC**.
+Connecting to third-party APIs typically involves boilerplate for authentication (OAuth2 refreshes, API keys), resilience (retries, backoff), and state management. The Bridge handles this automatically by treating **Authentication as Data**.
 
-It is designed to be embedded within an "agent" or service that needs a long-lived, resilient connection to an external system. By handling the complex logic of authentication, token refreshing, and reconnection with exponential backoff, the Bridge allows you to focus on your business logic.
+It queries the **Nexus Gateway** for a "Strategy" (e.g., "Inject Bearer Token", "Sign with AWS SigV4") and executes it, ensuring your agent always has valid credentials without hardcoding provider logic.
 
-## Key Features
+### Key Features
 
-- **Multi-Transport:** Out-of-the-box support for both **WebSocket** and **gRPC** persistent connections.
-- **Generic Authentication Engine:** No more hardcoded logic. The Bridge authenticates using a dynamic strategy ("oauth2", "basic_auth", "header", "query_param", "hmac_payload", "aws_sigv4") provided by your backend, making it a universal connector.
-- **Built-in Observability:** The `NewStandard` constructor automatically enables production-ready structured logging (JSON to stdout) and Prometheus metrics, ready for cloud-native collection.
-- **Persistent Connections:** Automatically reconnects with a configurable exponential backoff and jitter strategy if a connection drops.
-- **Proactive Credential Refresh:** Intelligently refreshes authentication credentials *before* they expire to ensure connections remain valid without interruption.
-- **Robust Error Handling:** Distinguishes between transient, recoverable errors (which trigger a retry) and permanent errors (which cause it to stop).
+- **Multi-Transport:** Native support for persistent **WebSocket** and **gRPC** connections.
+- **Universal Auth:** Dynamically handles OAuth 2.0, API Keys, Basic Auth, and AWS SigV4.
+- **Auto-Healing:** Implements exponential backoff and jitter for reconnection.
+- **Proactive Refresh:** Refreshes tokens *before* they expire to prevent connection drops.
+- **Observability:** Built-in structured logging (`slog`) and Prometheus metrics.
 
-## Standard Usage
+---
 
-For most applications, use the `NewStandard` constructor to get an observable, production-ready Bridge instance.
+## Installation
+
+```bash
+go get github.com/Prescott-Data/nexus-framework/nexus-bridge
+go get github.com/Prescott-Data/nexus-framework/nexus-sdk
+```
+
+---
+
+## Usage Guide
+
+### 1. Standard WebSocket Connection
+
+This is the most common pattern for real-time agents (e.g., trading bots, chat interfaces).
 
 ```go
 package main
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"net/http"
 	
-	"dromos.io/nexus-bridge"
-	"dromos.io/nexus-bridge/telemetry"
-	"bitbucket.org/dromos/nexus-framework/nexus-sdk" // The client for your auth backend
+	"github.com/Prescott-Data/nexus-framework/nexus-bridge"
+	"github.com/Prescott-Data/nexus-framework/nexus-bridge/telemetry"
+	"github.com/Prescott-Data/nexus-framework/nexus-sdk"
 )
 
-// 1. Define your WebSocket handler
-type myWsHandler struct{}
-func (h *myWsHandler) OnConnect(send func(message []byte) error) { fmt.Println("Connected!") }
-func (h *myWsHandler) OnMessage(message []byte)                   { fmt.Printf("Msg: %s\n", message) }
-func (h *myWsHandler) OnDisconnect(err error)                     { fmt.Printf("Disconnected: %v\n", err) }
+// Define a handler for your WebSocket events
+type myHandler struct{}
+
+func (h *myHandler) OnConnect(send func([]byte) error) {
+    log.Println("Connection established!")
+    // You can send an initialization message here
+    send([]byte(`{"type": "subscribe", "channel": "btc_usd"}`))
+}
+
+func (h *myHandler) OnMessage(msg []byte) {
+    log.Printf("Received: %s", msg)
+}
+
+func (h *myHandler) OnDisconnect(err error) {
+    log.Printf("Disconnected: %v", err)
+}
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+    ctx := context.Background()
 
-	// 2. Create a client for your auth backend
-	// This must implement the bridge.OAuthClient interface
-	authClient := oauthsdk.New("http://nexus-gateway.example.com")
+    // 1. Initialize the SDK Client (talks to Gateway)
+    authClient := oauthsdk.New("https://gateway.example.com")
 
-	// 3. Instantiate the Bridge with production-ready telemetry
-	// agentLabels are applied as const_labels to all Prometheus metrics
-	agentLabels := map[string]string{"agent_id": "my-stable-id"}
-	b := bridge.NewStandard(authClient, agentLabels)
+    // 2. Initialize the Bridge with default telemetry
+    // agentLabels are attached to all Prometheus metrics
+    b := bridge.NewStandard(authClient, map[string]string{"agent": "bot-01"})
 
-	// 4. Run the Bridge in a goroutine
-	go func() {
-		connectionID := "your-connection-id"
-		endpointURL := "wss://external.system.com/ws"
-		// The Bridge handles all auth and reconnect logic internally
-		err := b.MaintainWebSocket(ctx, connectionID, endpointURL, &myWsHandler{})
-		if err != nil {
-			fmt.Printf("Bridge exited with permanent error: %v\n", err)
-		}
-	}()
-	
-	// 5. Expose the Prometheus metrics endpoint
-	http.Handle("/metrics", telemetry.Handler())
-	fmt.Println("Serving metrics on :9090")
-	go http.ListenAndServe(":9090", nil)
+    // 3. Start the Connection Loop (Blocking)
+    // The Bridge will fetch credentials for 'conn-123' and maintain the link.
+    err := b.MaintainWebSocket(
+        ctx,
+        "conn-123",                 // Connection ID
+        "wss://api.exchange.com/ws", // Target URL
+        &myHandler{},
+    )
 
-	// ... your application logic ...
-	select {}
+    if err != nil {
+        log.Fatalf("Permanent error: %v", err)
+    }
 }
 ```
 
-## gRPC Usage
+### 2. Persistent gRPC Connection
 
-The Bridge can also manage a persistent gRPC connection, handling all authentication and reconnection logic for you.
+The Bridge acts as a `PerRPCCredentials` provider for gRPC, injecting the correct metadata into every call and managing the underlying connection lifecycle.
 
 ```go
-import (
-	"context"
-	"fmt"
-	
-	"dromos.io/nexus-bridge"
-	"bitbucket.org/dromos/nexus-framework/nexus-sdk"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/health/grpc_health_v1" // Example service
+// Your logic loop. The Bridge calls this function every time it establishes
+// a healthy, authenticated connection.
+runLogic := func(ctx context.Context, conn *grpc.ClientConn) error {
+    client := pb.NewMyServiceClient(conn)
+    
+    // Call the service as normal
+    resp, err := client.GetData(ctx, &pb.Request{})
+    if err != nil {
+        return err // Returning an error triggers a Bridge reconnect
+    }
+    return nil
+}
+
+// Start the manager
+b.MaintainGRPCConnection(
+    ctx,
+    "conn-456",
+    "api.service.com:443",
+    runLogic,
+    grpc.WithTransportCredentials(credentials.NewTLS(nil)), // Secure transport
 )
-
-func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	authClient := oauthsdk.New("http://nexus-gateway.example.com")
-	// agentLabels are applied as const_labels to all Prometheus metrics
-	agentLabels := map[string]string{"agent_id": "my-stable-id"}
-	b := bridge.NewStandard(authClient, agentLabels)
-
-	// This function contains your business logic. The Bridge will call it
-	// every time a fresh, authenticated connection is established.
-	runLogic := func(ctx context.Context, conn *grpc.ClientConn) error {
-		client := grpc_health_v1.NewHealthClient(conn)
-		
-		// Make your RPC calls
-		resp, err := client.Check(ctx, &grpc_health_v1.HealthCheckRequest{Service: "my-service"})
-		if err != nil {
-			// Returning an error will cause the Bridge to reconnect
-			return fmt.Errorf("health check failed: %w", err)
-		}
-		
-		fmt.Printf("Health status: %s\n", resp.Status)
-		
-		// Keep the connection alive for a while, or do streaming work
-		time.Sleep(30 * time.Second)
-		
-		// Returning nil will also trigger a clean reconnect after backoff
-		return nil
-	}
-	
-	go func() {
-		connectionID := "your-grpc-connection-id"
-		target := "my-grpc-service.example.com:443"
-
-		// Example with TLS
-		tlsCreds := credentials.NewTLS(&tls.Config{ /* ... */ })
-		
-		err := b.MaintainGRPCConnection(
-			ctx, 
-			connectionID, 
-			target, 
-			runLogic, 
-			grpc.WithTransportCredentials(tlsCreds),
-		)
-		if err != nil {
-			fmt.Printf("Bridge exited with permanent error: %v", err)
-		}
-	}()
-
-	select {}
-}
 ```
 
-## Advanced Configuration
+---
 
-If you need to provide your own logging or metrics implementation, use the `New` constructor with `With...` options.
+## Configuration Options
+
+The `bridge.New` constructor accepts functional options to tune behavior.
+
+| Option | Description | Default |
+| :--- | :--- | :--- |
+| `WithLogger(l Logger)` | Custom logger implementation. | `nopLogger` (Silent) |
+| `WithMetrics(m Metrics)` | Custom metrics collector. | `nopMetrics` (Silent) |
+| `WithRetryPolicy(p)` | Configures backoff/jitter. | 2s min, 30s max |
+| `WithRefreshBuffer(d)` | How early to refresh tokens. | `5m` |
+| `WithPingInterval(d)` | WebSocket Ping frequency. | `30s` |
+| `WithWriteTimeout(d)` | WebSocket Write deadline. | `10s` |
+
+**Example:**
 
 ```go
-	// Example using a custom logger and retry policy
-	b := bridge.New(
-		authClient,
-		bridge.WithLogger(myCustomLogger),
-		bridge.WithMetrics(myCustomMetrics),
-		bridge.WithRetryPolicy(bridge.RetryPolicy{
-			MinBackoff: 1 * time.Second,
-			MaxBackoff: 60 * time.Second,
-			Jitter:     500 * time.Millisecond,
-		}),
-	)
+b := bridge.New(
+    client,
+    bridge.WithRefreshBuffer(10 * time.Minute), // Aggressive refresh
+    bridge.WithRetryPolicy(bridge.RetryPolicy{
+        MinBackoff: 100 * time.Millisecond,     // Fast retry
+        MaxBackoff: 5 * time.Second,
+        Jitter:     100 * time.Millisecond,
+    }),
+)
 ```
 
-## Interfaces for Extension
+---
 
-You can integrate your own logging and metrics systems by implementing these interfaces.
+## Telemetry
 
-### Logger Interface
+The `NewStandard` constructor enables built-in telemetry compatible with cloud-native stacks.
+
+### Metrics (Prometheus)
+Expose the `/metrics` endpoint in your application to scrape these:
+
+- `nexus_bridge_connections_total`: Total successful connections.
+- `nexus_bridge_disconnects_total`: Total connection drops.
+- `nexus_bridge_token_refreshes_total`: Auth refreshes performed.
+- `nexus_bridge_connection_status`: 1 = Connected, 0 = Disconnected.
 
 ```go
-// Logger is an interface that allows for plugging in custom structured loggers.
-type Logger interface {
-	Info(msg string, keysAndValues ...interface{})
-	Error(err error, msg string, keysAndValues ...interface{})
-}
+http.Handle("/metrics", telemetry.Handler())
+go http.ListenAndServe(":9090", nil)
 ```
 
-### Metrics Interface
+### Logging (Slog)
+The default logger outputs JSON-formatted logs to `stdout`, suitable for ingestion by Datadog, Splunk, or CloudWatch.
 
-```go
-// Metrics is an interface that allows for plugging in custom metrics collectors.
-type Metrics interface {
-	IncConnections()
-	IncDisconnects()
-	IncTokenRefreshes()
-	SetConnectionStatus(status float64)
-}
+```json
+{"time":"...","level":"INFO","msg":"Reconnecting","connectionID":"...","after":"2s"}
 ```

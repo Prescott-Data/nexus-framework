@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"dromos.com/nexus-broker/internal/provider"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/provider"
 )
 
 // MockStore is a mock implementation of the provider.ProfileStorer interface.

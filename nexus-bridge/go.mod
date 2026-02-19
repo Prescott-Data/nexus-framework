@@ -1,4 +1,4 @@
-module dromos.io/nexus-bridge
+module github.com/Prescott-Data/nexus-framework/nexus-bridge
 
 go 1.25.3
 
@@ -25,7 +25,7 @@ require (
 )
 
 require (
-	bitbucket.org/dromos/nexus-framework/nexus-sdk v0.0.0-local
+	github.com/Prescott-Data/nexus-framework/nexus-sdk v0.0.0-local
 	github.com/aws/aws-sdk-go-v2 v1.41.0
 	github.com/aws/smithy-go v1.24.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -34,4 +34,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace bitbucket.org/dromos/nexus-framework/nexus-sdk => ../nexus-sdk
+replace github.com/Prescott-Data/nexus-framework/nexus-sdk => ../nexus-sdk

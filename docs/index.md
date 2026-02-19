@@ -29,7 +29,7 @@ docker-compose up -d --build
 - **[Provider Management Guide](guides/managing-providers.md)**: How to register and configure identity providers (OAuth2, API Keys).
 - **[API Reference](reference/api.md)**: Links to OpenAPI specifications.
 - **[Security Model](reference/security-model.md)**: Security guardrails and hardening.
-- **[Technical Debt & Roadmap](reference/tech-debt.md)**: Known issues and future plans.
+- **[Roadmap](ROADMAP.md)**: Known issues and future plans.
 
 ## Quick Links
 

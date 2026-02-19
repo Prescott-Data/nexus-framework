@@ -1,4 +1,4 @@
-module nexus-gateway
+module github.com/Prescott-Data/nexus-framework/nexus-gateway
 
 go 1.23.0
 

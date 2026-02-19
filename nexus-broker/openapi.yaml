@@ -285,6 +285,17 @@ paths:
                 type: object
                 properties:
                   id: { type: string }
+    delete:
+      summary: Delete provider by name
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Deleted successfully
 
   /auth/consent-spec:
     post:
@@ -313,6 +324,40 @@ paths:
         - in: query
           name: state
           schema: { type: string }
+      responses:
+        '302':
+          description: Redirects to the stored return_url with connection_id
+
+  /auth/capture-schema:
+    get:
+      summary: Get credential schema for non-OAuth providers (Public)
+      parameters:
+        - in: query
+          name: state
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider_name: { type: string }
+                  schema: { type: object }
+
+  /auth/capture-credential:
+    post:
+      summary: Submit credentials for non-OAuth providers (Public)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state, credentials]
+              properties:
+                state: { type: string }
+                credentials: { type: object }
       responses:
         '302':
           description: Redirects to the stored return_url with connection_id

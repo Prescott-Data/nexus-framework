@@ -1,13 +1,13 @@
 # Provider Registration and Management Guide
 
-This guide provides a comprehensive overview of how to register, manage, and test identity providers within the Nexus OAuth Broker.
+This guide provides a comprehensive overview of how to register, manage, and test identity providers within the **Nexus Broker**.
 
 ## Provider Types
 
 The broker supports two primary types of providers:
 
 1.  **OAuth 2.0 / OIDC Providers**: Standard identity providers like Google, Microsoft Entra ID, or Okta that use the OAuth 2.0 authorization code flow. These are typically configured using an OIDC discovery issuer URL.
-2.  **Non-OAuth (API Key) Providers**: Services that use static credentials, such as API keys, tokens, or username/password combinations. These are configured using a flexible JSON schema.
+2.  **Non-OAuth (Static) Providers**: Services that use static credentials, such as API keys, tokens, or username/password combinations. These are configured using a flexible JSON schema.
 
 ---
 
@@ -140,7 +140,7 @@ Non-OAuth providers are configured by defining a **JSON schema** that describes 
     *   `"basic_auth"`: Standard HTTP Basic Auth (username/password).
     *   `"aws_sigv4"`: AWS Signature Version 4.
     *   `"hmac_payload"`: HMAC signature of the request body.
-    *   `"api_key"`: (Legacy) Alias for `header` type.
+    *   `"api_key"`: Supported alias for `header` type.
 *   `params` (json, required): A JSON object containing configuration for both the frontend (schema) and the client (strategy).
     *   `credential_schema` (json, required): A valid JSON schema defining the fields to be collected from the user (e.g., "Enter your API Key").
     *   **Strategy Config**: Any other fields in `params` are treated as configuration for the chosen `auth_type` (e.g., `header_name`, `region`).

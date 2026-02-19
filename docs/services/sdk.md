@@ -1,6 +1,12 @@
 # Nexus SDK
 
-The **Nexus SDK** is the lightweight Go client used by your application's **Control Plane** logic to manage user connections.
+The **Nexus SDK** is the lightweight Go client used by your application's **Control Plane** logic to manage user connections. It wraps the Gateway API endpoints in idiomatic Go functions.
+
+## Installation
+
+```bash
+go get github.com/Prescott-Data/nexus-framework/nexus-sdk
+```
 
 ## Core Features
 
@@ -13,12 +19,14 @@ The **Nexus SDK** is the lightweight Go client used by your application's **Cont
 
 ### Initialize Client
 ```go
-client := nexus.New("https://nexus-gateway.example.com")
+import oauthsdk "github.com/Prescott-Data/nexus-framework/nexus-sdk"
+
+client := oauthsdk.New("https://nexus-gateway.example.com")
 ```
 
 ### Request a Connection
 ```go
-resp, err := client.RequestConnection(ctx, nexus.RequestConnectionInput{
+resp, err := client.RequestConnection(ctx, oauthsdk.RequestConnectionInput{
     UserID:       "user-1",
     ProviderName: "google",
     Scopes:       []string{"email", "profile"},

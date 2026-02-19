@@ -1,50 +1,129 @@
-# Architecture Overview
+# Nexus Framework Architecture
 
-The Nexus Framework is split into a **Control Plane** (managing connections) and a **Data Plane** (using connections).
+The Nexus Framework operates on a **split-plane architecture**. It decouples the management of identity (Control Plane) from the consumption of identity (Data Plane).
 
-## System Components
+This separation ensures that your AI agents—which may run untrusted code or operate in insecure environments—never hold the "keys to the kingdom" (Master Secrets).
 
-### 1. Nexus Broker (The Authority)
-The Broker is the source of truth and the most sensitive component.
+---
+
+## 1. System Topology
+
+```mermaid
+graph TD
+    subgraph "Untrusted Zone (Public Internet)"
+        Browser[User Browser]
+        Agent[AI Agent / Bridge]
+    end
+
+    subgraph "Trusted DMZ"
+        Gateway[Nexus Gateway]
+    end
+
+    subgraph "Private Zone (VPC)"
+        Broker[Nexus Broker]
+        DB[(PostgreSQL)]
+        Redis[(Redis)]
+    end
+
+    Browser -->|HTTPS| Gateway
+    Agent -->|gRPC/REST| Gateway
+    
+    Gateway -->|Private API| Broker
+    Broker -->|Persist| DB
+    Broker -->|Cache| Redis
+```
+
+### Zone Definitions
+
+1.  **Untrusted Zone:** Where your users and agents live. Traffic is potentially malicious.
+2.  **Trusted DMZ:** The entry point for all external traffic. Contains the **Gateway**, which performs authentication, throttling, and request validation.
+3.  **Private Zone:** The secure core. Contains the **Broker** and databases. No public ingress is allowed here (except for specific callback whitelists).
+
+---
+
+## 2. Component Deep Dive
+
+### A. Nexus Broker (The Vault)
+The Broker is the central authority and the only stateful service in the framework.
+
+- **Role:** System of Record for all connections and secrets.
 - **Responsibilities:**
-    - Stores Provider profiles (OAuth configs, API Key schemas).
-    - Performs the OAuth 2.0 / OIDC handshake logic.
-    - Manages the **Encryption Vault**: Tokens are encrypted at rest using AES-GCM 256-bit with a Master `ENCRYPTION_KEY`.
-    - Runs the background **Refresh Loop**: Preemptively refreshes tokens before they expire.
-- **Technology Stack:** Go, PostgreSQL (Persistence), Redis (Caching/Discovery).
+    - **Encryption:** Encrypts all Refresh Tokens and API Keys at rest using AES-256-GCM.
+    - **Key Management:** Holds the Master `ENCRYPTION_KEY`.
+    - **Orchestration:** Manages the complexity of OAuth 2.0 (PKCE, State signing) and OIDC Discovery.
+    - **Life Support:** Runs a background loop to refresh expiring tokens proactively.
+- **Security Context:** Critical. If the Broker is compromised, all connections are at risk. It must be isolated.
 
-### 2. Nexus Gateway (The Proxy)
-The Gateway is the public-facing entry point for Agents.
+### B. Nexus Gateway (The Proxy)
+The Gateway is a stateless "thick proxy" that abstracts the complexity of the Broker from the outside world.
+
+- **Role:** Public Interface (API).
 - **Responsibilities:**
-    - Provides a unified REST and gRPC API.
-    - Proxies requests to the Broker using an internal `BROKER_API_KEY`.
-    - Decouples Agents from the internal Broker infrastructure.
-    - Handles CORS, request validation, and API versioning.
-- **Technology Stack:** Go, gRPC, gRPC-Gateway.
+    - **Protocol Translation:** Translates external HTTP/REST requests into internal gRPC calls to the Broker.
+    - **Identity Masking:** Ensures agents refer to connections by opaque UUIDs (`connection_id`), masking internal database IDs.
+    - **Authentication:** Validates incoming requests before they reach the critical Broker infrastructure.
+- **Security Context:** High. It is the shield for the Broker.
 
-### 3. Nexus Bridge (The Library)
-A Go library that runs inside the Agent's process.
+### C. Nexus Bridge (The Connector)
+The Bridge is a Go library (SDK) that runs *inside* your agent's process.
+
+- **Role:** Smart Client.
 - **Responsibilities:**
-    - Automatically retrieves the latest **Strategy** and **Credentials** from the Gateway.
-    - Injects authentication headers into outgoing HTTP and gRPC requests.
-    - Manages persistent WebSocket and gRPC connections.
-    - Implements retries and exponential backoff.
+    - **Strategy Execution:** It downloads "Authentication Strategies" from the Gateway (e.g., "Put this token in header X") and executes them. It is "dumb" about the provider logic but "smart" about execution.
+    - **Resilience:** Implements exponential backoff, jitter, and automatic reconnection for WebSockets/gRPC.
+    - **Observability:** Emits structured logs and metrics about connection health.
+- **Security Context:** Low. It only holds short-lived "Usage Secrets" (Access Tokens). If an agent is hacked, the blast radius is minimal.
 
-### 4. Nexus SDK (The Client)
-A thin, lightweight client used by the Agent to initiate handshakes (e.g., `RequestConnection`).
+---
 
-## Data Flow: The Handshake
+## 3. Data Flows
 
-1.  **Initiation:** Agent calls Gateway `POST /v1/request-connection`.
-2.  **Spec Generation:** Broker generates a unique `state` and a temporary `connection_id`.
-3.  **Redirection:** Agent redirects User to the `auth_url` returned by the Gateway.
-4.  **Consent:** User authorizes the connection on the Provider's site.
-5.  **Capture:** Broker receives the callback, exchanges the code for tokens, encrypts them, and stores them in PostgreSQL.
-6.  **Activation:** The connection status transitions to `ACTIVE`.
+### Flow 1: Connection Creation (The Handshake)
 
-## Data Flow: Usage (Signing)
+This flow links a user's identity (e.g., Google Account) to a Nexus `connection_id`.
 
-1.  **Retrieval:** Bridge calls Gateway `GET /v1/token/{id}`.
-2.  **Decryption:** Broker retrieves tokens, decrypts them in RAM, and returns them to the Gateway.
-3.  **Delivery:** Gateway returns a **Strategy** (e.g., "Inject into 'Authorization' header") and the **Credentials**.
-4.  **Signing:** Bridge interprets the strategy and modifies the Agent's request headers before sending it to the Provider.
+1.  **Initiation:** The Agent calls `POST /v1/request-connection` on the Gateway.
+2.  **State Generation:** The Gateway asks the Broker to generate a secure authorization URL. The Broker signs a cryptographic `state` parameter using the `STATE_KEY`.
+3.  **Redirect:** The Agent redirects the User's browser to the returned `authUrl`.
+4.  **Consent:** The User logs in at the Provider (Google) and grants permission.
+5.  **Callback:** The Provider redirects the User back to the Broker's `/auth/callback` endpoint.
+6.  **Exchange & Encrypt:**
+    - The Broker verifies the `state` signature (preventing CSRF).
+    - It exchanges the Authorization Code for an Access Token and Refresh Token.
+    - It encrypts these tokens and stores them in PostgreSQL.
+7.  **Finalize:** The Broker redirects the User back to the Agent's application with `status=success`.
+
+### Flow 2: Usage (The Signing Loop)
+
+This flow occurs whenever an agent needs to call an external API.
+
+1.  **Request:** The Bridge (inside the Agent) calls `GET /v1/token/{connection_id}` on the Gateway.
+2.  **Proxy:** The Gateway validates the request and forwards it to the Broker using its internal `BROKER_API_KEY`.
+3.  **Decryption:**
+    - The Broker retrieves the encrypted record from the DB.
+    - It decrypts the Master Secret (Refresh Token).
+    - **Check:** If the Access Token is expired, the Broker performs a synchronous refresh with the Provider.
+4.  **Response:** The Broker returns *only* the short-lived Access Token (Usage Secret) and the Signing Strategy to the Gateway, which forwards it to the Bridge.
+5.  **Execution:** The Bridge modifies the Agent's outgoing HTTP request (injecting headers) and sends it to the Provider.
+
+---
+
+## 4. Data Model
+
+### Provider Profile (`provider_profiles`)
+Defines the "Shape" of an integration.
+- `name`: "google", "github"
+- `auth_type`: "oauth2", "api_key"
+- `scopes`: Default permissions to request.
+- `endpoints`: Auth URL, Token URL, API Base URL.
+
+### Connection (`connections`)
+Represents a link between a User and a Provider.
+- `id`: The public UUID handle.
+- `status`: `active`, `pending`, `failed`, `attention`.
+- `provider_id`: FK to the profile.
+
+### Token (`tokens`)
+Stores the actual secrets.
+- `encrypted_data`: AES-GCM encrypted blob containing Access Token, Refresh Token, and metadata.
+- `expires_at`: Timestamp for the Access Token (used for proactive refresh).

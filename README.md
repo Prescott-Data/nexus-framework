@@ -1,6 +1,9 @@
 # Nexus Framework
 
-The Nexus Framework is a provider-agnostic, secure integration layer for managing OAuth 2.0 and OIDC connections. It abstracts away the complexity of managing tokens, refreshes, and provider quirks, allowing your agents and services to focus on business logic.
+[![Go Reference](https://pkg.go.dev/badge/github.com/Prescott-Data/nexus-framework.svg)](https://pkg.go.dev/github.com/Prescott-Data/nexus-framework)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+The **Nexus Framework** is a provider-agnostic, secure integration layer for managing OAuth 2.0 and OIDC connections. It abstracts away the complexity of managing tokens, refreshes, and provider quirks, allowing your agents and services to focus on business logic.
 
 ## Quick Start
 
@@ -29,7 +32,7 @@ docker-compose up -d --build
 - **[Provider Management Guide](docs/guides/managing-providers.md)**: How to register and configure identity providers (OAuth2, API Keys).
 - **[API Reference](docs/reference/api.md)**: Links to OpenAPI specifications.
 - **[Security Model](docs/reference/security-model.md)**: Security guardrails and hardening.
-- **[Technical Debt & Roadmap](docs/reference/tech-debt.md)**: Known issues and future plans.
+- **[Roadmap](docs/ROADMAP.md)**: Known issues and future plans.
 
 ## Quick Links
 

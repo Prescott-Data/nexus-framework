@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"dromos.io/nexus-bridge/internal/auth"
+	"github.com/Prescott-Data/nexus-framework/nexus-bridge/internal/auth"
 	"github.com/gorilla/websocket"
 )
 

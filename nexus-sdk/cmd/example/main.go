@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	oauthsdk "bitbucket.org/dromos/nexus-framework/nexus-sdk"
+	oauthsdk "github.com/Prescott-Data/nexus-framework/nexus-sdk"
 )
 
 func main() {

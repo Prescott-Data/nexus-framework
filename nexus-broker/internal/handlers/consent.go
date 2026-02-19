@@ -14,9 +14,9 @@ import (
 	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"dromos.com/nexus-broker/internal/auth"
-	"dromos.com/nexus-broker/internal/discovery"
-	"dromos.com/nexus-broker/internal/server"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/auth"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/discovery"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/server"
 )
 
 // ConsentSpec represents the response for consent specification
