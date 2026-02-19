@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus Gateway API
-  version: 1.0.0
+  version: 0.1.0
   description: |
     Stable v1 contract for the Nexus Gateway. This spec freezes the agent-facing endpoints.
     Breaking changes require a new major version (e.g., /v2). Additive changes only in v1.

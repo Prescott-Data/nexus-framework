@@ -10,7 +10,7 @@ func TestNewMetrics_WithLabels(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	agentLabels := map[string]string{
 		"agent_id": "test-agent",
-		"version":  "1.0.0",
+		"version":  "0.1.0",
 	}
 
 	m := NewMetrics(registry, agentLabels)
@@ -42,8 +42,8 @@ func TestNewMetrics_WithLabels(t *testing.T) {
 				if labelMap["agent_id"] != "test-agent" {
 					t.Errorf("expected agent_id=test-agent, got %s", labelMap["agent_id"])
 				}
-				if labelMap["version"] != "1.0.0" {
-					t.Errorf("expected version=1.0.0, got %s", labelMap["version"])
+				if labelMap["version"] != "0.1.0" {
+					t.Errorf("expected version=0.1.0, got %s", labelMap["version"])
 				}
 
 				if m.GetCounter().GetValue() != 1 {
