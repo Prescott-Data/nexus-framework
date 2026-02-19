@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus Broker API
-  version: 1.0.0
+  version: 0.1.0
   description: |
     Internal API for the Nexus Broker service. 
     This service handles OAuth 2.0 and OIDC flows, encrypts tokens, and manages provider configurations.
