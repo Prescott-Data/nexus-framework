@@ -1,23 +1,42 @@
 # OS artifacts
 .DS_Store
 Thumbs.db
+*.local
 
 # Editor/IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*.sublime-project
+*.sublime-workspace
 
 # Go build outputs
 bin/
+dist/
+build/
 *.exe
 *.dll
 *.so
 *.dylib
+# Command-specific binaries
+nexus-broker/nexus-broker
+nexus-broker/migrate
+nexus-gateway/nexus-gateway
+nexus-gateway/nexus-gateway-rest
+nexus-gateway/nexus-gateway-grpc
+nexus-bridge/nexus-bridge
+oha
+oha-grpc
+server
+
+# Go Vendor
+vendor/
 
 # Coverage
 coverage.out
 *.coverprofile
+*.html
 
 # Logs
 *.log
@@ -28,20 +47,14 @@ server.log
 .env.*
 !.env.example
 
+# Docker
+.docker/
+docker-compose.override.yml
+
 # Temp
 tmp/
 *.tmp
 
-
-nexus-gateway/nexus-gateway-rest
-nexus-gateway/nexus-gateway-grpc
-nexus-gateway/bin/
-
-# WHITE_PAPER.md
-# WHITE_PAPER_OUTLINE.md
-
-nexus-broker/nexus-broker-bin
-nexus-gateway/provider_test_dashboard.html
-# providers_oauth2_audit.csv
-test_all_providers.sh
-nexus-broker/migrate
+# Documentation/Artifacts
+docs/site/
+node_modules/
