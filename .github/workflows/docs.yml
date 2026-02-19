@@ -1,4 +1,4 @@
-name: Publish Documentation
+name: Deploy Documentation
 
 on:
   push:
@@ -8,31 +8,48 @@ on:
       - 'docs/**'
       - 'mkdocs.yml'
       - '.github/workflows/docs.yml'
+  workflow_dispatch:   # allow manual trigger from GitHub UI
 
 permissions:
-  contents: write
+  contents: read
+  pages: write        # deploy to GitHub Pages
+  id-token: write     # OIDC token for Pages deployment
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Configure Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: 3.x
-          
-      - name: Install dependencies
-        run: pip install mkdocs-material
-        
-      - name: Build Documentation
-        run: mkdocs build
-        
-      - name: Build and Deploy
-        run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
-          mkdocs gh-pages --force
+          python-version: '3.11'
+
+      - name: Install MkDocs Material
+        # Pin to MkDocs 1.x + Material 9.x — MkDocs 2.0 is incompatible with material theme
+        run: pip install "mkdocs<2.0" "mkdocs-material<10"
+
+      - name: Build site
+        run: mkdocs build --clean
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
