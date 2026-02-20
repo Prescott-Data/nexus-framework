@@ -1,7 +1,7 @@
 # Nexus Framework
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/Prescott-Data/nexus-framework.svg)](https://pkg.go.dev/github.com/Prescott-Data/nexus-framework)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 The **Nexus Framework** is a provider-agnostic, secure integration layer for managing identity and API connections, including OAuth 2.0, OIDC, API Keys, Basic Auth, and custom static credentials (like AWS SigV4). It abstracts away the complexity of managing tokens, cryptographic signing, credential refreshes, and provider quirks, allowing your agents and services to focus on business logic while maintaining zero-trust security.
 
