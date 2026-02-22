@@ -1,6 +1,6 @@
 # Nexus Framework
 
-The Nexus Framework is a provider-agnostic, secure integration layer for managing OAuth 2.0 and OIDC connections. It abstracts away the complexity of managing tokens, refreshes, and provider quirks, allowing your agents and services to focus on business logic.
+The **Nexus Framework** is a provider-agnostic, secure integration layer for managing identity and API connections, including OAuth 2.0, OIDC, API Keys, Basic Auth, and custom static credentials (like AWS SigV4). It abstracts away the complexity of managing tokens, cryptographic signing, credential refreshes, and provider quirks, allowing your agents and services to focus on business logic while maintaining zero-trust security.
 
 ## Quick Start
 
