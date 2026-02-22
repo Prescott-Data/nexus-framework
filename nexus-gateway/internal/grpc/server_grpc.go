@@ -7,10 +7,12 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
-	nexuspb "nexus-gateway/gen/go/api/proto/nexus/v1"
-	"nexus-gateway/internal/usecase"
+	nexuspb "github.com/Prescott-Data/nexus-framework/nexus-gateway/gen/go/api/proto/nexus/v1"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/usecase"
 
 	"github.com/go-chi/cors"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -159,8 +161,16 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	// CORS Setup
+	allowedOrigins := []string{"https://*", "http://*"}
+	if allowed := os.Getenv("CORS_ALLOWED_ORIGINS"); allowed != "" {
+		allowedOrigins = strings.Split(allowed, ",")
+		for i := range allowedOrigins {
+			allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
+		}
+	}
+
 	corsMiddleware := cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"https://*", "http://*"},
+		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "Grpc-Metadata-X-Request-ID"},
 		ExposedHeaders:   []string{"Link", "Grpc-Metadata-X-Request-ID"},
