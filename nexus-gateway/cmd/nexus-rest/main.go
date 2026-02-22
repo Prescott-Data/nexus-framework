@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"nexus-gateway/internal/server"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/server"
 )
 
 var Version = "dev"
@@ -36,6 +36,9 @@ func main() {
 		}
 		stateKey = key
 	} else {
+		if os.Getenv("GO_ENV") == "production" {
+			log.Fatal("STATE_KEY is required in production environment")
+		}
 		// Dev fallback: generate a random key
 		log.Println("WARNING: Using generated state key. Set STATE_KEY to match broker in production.")
 		stateKey = make([]byte, 32)

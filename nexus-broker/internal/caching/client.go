@@ -8,7 +8,7 @@ import (
 	"net/http/httputil"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 )
 
 // cachingTransport is an http.RoundTripper that caches responses in Redis.

@@ -18,6 +18,7 @@ import (
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/auth"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/discovery"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/models"
 	oidcutil "github.com/Prescott-Data/nexus-framework/nexus-broker/internal/oidc"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/server"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/vault"
@@ -127,8 +128,8 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	err = h.db.QueryRow(`
 		SELECT id, code_verifier, return_url, provider_id, scopes
 		FROM connections
-		WHERE id = $1 AND status = 'pending' AND expires_at > NOW()`,
-		connectionID).Scan(&connection.ID, &connection.CodeVerifier, &connection.ReturnURL, &connection.ProviderID, pq.Array(&connection.Scopes))
+		WHERE id = $1 AND status = $2 AND expires_at > NOW()`,
+		connectionID, models.ConnectionStatusPending).Scan(&connection.ID, &connection.CodeVerifier, &connection.ReturnURL, &connection.ProviderID, pq.Array(&connection.Scopes))
 
 	if err != nil {
 		h.logAuditEvent(&connectionID, "connection_not_found", map[string]string{"error": err.Error()}, r)
@@ -186,7 +187,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	h.histogramExchangeDur.Observe(time.Since(start).Seconds())
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_exchange_failed", map[string]string{"error": err.Error()}, r)
-		h.updateConnectionStatus(connectionID, "failed")
+		h.updateConnectionStatus(connectionID, models.ConnectionStatusFailed)
 		h.metricExchangeError.Inc()
 		http.Error(w, "Token exchange failed", http.StatusInternalServerError)
 		return
@@ -198,10 +199,10 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// Verify OIDC id_token if present and openid scope requested
 	if raw, ok := tokens["id_token"].(string); ok && raw != "" {
-		if containsScope(connection.Scopes, "openid") {
+	if containsScope(connection.Scopes, models.ScopeOpenID) {
 			if _, err := oidcutil.VerifyIDToken(r.Context(), h.httpClient, raw, provider.ClientID, state); err != nil {
 				h.logAuditEvent(&connectionID, "id_token_verification_failed", map[string]string{"error": err.Error()}, r)
-				h.updateConnectionStatus(connectionID, "failed")
+				h.updateConnectionStatus(connectionID, models.ConnectionStatusFailed)
 				http.Error(w, "Invalid id_token", http.StatusUnauthorized)
 				return
 			}
@@ -217,7 +218,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update connection status
-	err = h.updateConnectionStatus(connectionID, "active")
+	err = h.updateConnectionStatus(connectionID, models.ConnectionStatusActive)
 	if err != nil {
 		h.logAuditEvent(&connectionID, "status_update_failed", map[string]string{"error": err.Error()}, r)
 	}
@@ -339,7 +340,7 @@ func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.updateConnectionStatus(connectionID, "active"); err != nil {
+	if err := h.updateConnectionStatus(connectionID, models.ConnectionStatusActive); err != nil {
 		http.Error(w, "Failed to update connection status", http.StatusInternalServerError)
 		return
 	}
@@ -395,14 +396,14 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if connection.Status != "active" {
+	if connection.Status != models.ConnectionStatusActive {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "connection not active", "status": connection.Status}, r)
-		
-		if connection.Status == "attention" {
+
+		if connection.Status == models.ConnectionStatusAttention {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(map[string]string{
-				"error": "attention_required", 
+				"error":  "attention_required",
 				"detail": "Connection requires attention. The user must re-authenticate.",
 			})
 			return
@@ -453,9 +454,9 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	// 1. Determine Strategy
 	var strategy map[string]interface{}
 
-	if connection.AuthType == "oauth2" || connection.AuthType == "" {
+	if connection.AuthType == models.AuthTypeOAuth2 || connection.AuthType == "" {
 		strategy = map[string]interface{}{
-			"type": "oauth2",
+			"type": models.AuthTypeOAuth2,
 		}
 		// For backward compatibility: flatten credentials into the root for OAuth2
 		for k, v := range credentials {
@@ -478,10 +479,10 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 			// Map high-level broker auth_types to default bridge strategies if possible
 			// This is a "best effort" mapping if the explicit config is missing
 			switch connection.AuthType {
-			case "api_key":
-				strategy = map[string]interface{}{"type": "header", "config": map[string]string{"header_name": "X-API-Key", "credential_field": "api_key"}}
-			case "basic_auth":
-				strategy = map[string]interface{}{"type": "basic_auth"}
+			case models.AuthTypeAPIKey:
+				strategy = map[string]interface{}{"type": models.AuthTypeHeader, "config": map[string]string{"header_name": "X-API-Key", "credential_field": "api_key"}}
+			case models.AuthTypeBasicAuth:
+				strategy = map[string]interface{}{"type": models.AuthTypeBasicAuth}
 			default:
 				strategy = map[string]interface{}{"type": connection.AuthType} // Hope for the best
 			}
@@ -630,11 +631,11 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 	// Check the auth type right away
 	switch conn.AuthType {
-	case "api_key", "basic_auth":
+	case models.AuthTypeAPIKey, models.AuthTypeBasicAuth:
 		// Static tokens cannot be refreshed.
 		http.Error(w, "This connection uses a static token and cannot be refreshed", http.StatusBadRequest)
 		return // Stop execution here
-	case "oauth2", "":
+	case models.AuthTypeOAuth2, "":
 		// This is an OAuth2 provider, continue with the *existing* refresh logic
 		var provider struct {
 			TokenURL     string `db:"token_url"`
@@ -675,8 +676,8 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 			// Check for unrecoverable errors (400-499 usually implies invalid_grant, revoked, or expired)
 			if statusCode >= 400 && statusCode < 500 {
 				h.logAuditEvent(&connectionID, "token_refresh_fatal", map[string]string{"error": err.Error(), "status_code": fmt.Sprintf("%d", statusCode)}, r)
-				h.updateConnectionStatus(connectionID, "attention")
-				
+				h.updateConnectionStatus(connectionID, models.ConnectionStatusAttention)
+
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusConflict) // 409 Conflict is a good signal for "state issue"
 				json.NewEncoder(w).Encode(map[string]string{

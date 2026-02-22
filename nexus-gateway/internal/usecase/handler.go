@@ -16,8 +16,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"nexus-gateway/internal/broker"
-	"nexus-gateway/internal/logging"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/broker"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/logging"
 )
 
 // Structured error codes for HTTP responses
@@ -167,24 +167,6 @@ func (h *Handler) RequestConnectionCore(ctx context.Context, in RequestConnectio
 			return RequestConnectionOutput{}, err
 		}
 		providerID = id
-	}
-
-	// Azure guidance log (non-mutating)
-	if strings.Contains(strings.ToLower(strings.TrimSpace(in.ProviderName)), "azure") || strings.Contains(strings.ToLower(in.ProviderID), "azure") {
-		baseOnly := true
-		for _, s := range in.Scopes {
-			ls := strings.ToLower(strings.TrimSpace(s))
-			if ls != "openid" && ls != "email" && ls != "profile" && ls != "offline_access" {
-				baseOnly = false
-				break
-			}
-		}
-		if baseOnly {
-			logging.Info(ctx, "azure_scopes.missing_resource_scope", map[string]any{
-				"hint":   "Add a resource scope like User.Read for Azure v2",
-				"scopes": in.Scopes,
-			})
-		}
 	}
 
 	// Call Broker using generated client

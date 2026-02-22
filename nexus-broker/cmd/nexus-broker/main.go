@@ -15,7 +15,7 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/provider"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/server"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 )
@@ -74,6 +74,9 @@ func main() {
 		}
 		stateKey = key
 	} else {
+		if os.Getenv("GO_ENV") == "production" {
+			log.Fatal("STATE_KEY is required in production environment")
+		}
 		// Generate a random key for development
 		log.Println("WARNING: Using generated state key. Set STATE_KEY environment variable for production.")
 		stateKey = make([]byte, 32)
