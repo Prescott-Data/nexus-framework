@@ -16,6 +16,7 @@ import (
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/auth"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/discovery"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/models"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/server"
 )
 
@@ -114,7 +115,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch provider.AuthType {
-	case "oauth2", "":
+	case models.AuthTypeOAuth2, "":
 		// Generate PKCE
 		codeVerifier, codeChallenge, err := auth.GeneratePKCE()
 		if err != nil {
@@ -154,7 +155,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		useAuthURL := provider.AuthURL
 		hasOpenID := false
 		for _, s := range request.Scopes {
-			if strings.EqualFold(s, "openid") {
+			if strings.EqualFold(s, models.ScopeOpenID) {
 				hasOpenID = true
 				break
 			}
@@ -182,7 +183,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
-	case "api_key", "basic_auth":
+	case models.AuthTypeAPIKey, models.AuthTypeBasicAuth:
 		// Create Connection
 		connectionID := uuid.New()
 		expiresAt := time.Now().Add(10 * time.Minute)
@@ -235,7 +236,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 	h.consentsMetric.Inc()
 	// increment when openid scope included
 	for _, s := range request.Scopes {
-		if strings.EqualFold(s, "openid") {
+		if strings.EqualFold(s, models.ScopeOpenID) {
 			h.consentsOpenID.Inc()
 			break
 		}
@@ -266,7 +267,7 @@ func (h *ConsentHandler) buildAuthURL(providerAuthURL, clientID, state, codeChal
 
 	// When OIDC is requested, include a nonce to bind the ID token
 	for _, s := range scopes {
-		if strings.EqualFold(s, "openid") {
+		if strings.EqualFold(s, models.ScopeOpenID) {
 			// Use the connection ID embedded in the signed state as nonce
 			// This will be verified against the id_token's nonce claim on callback
 			// State format is base64(data).base64(hmac), where data contains Nonce

@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	grpcsrv "nexus-gateway/internal/grpc"
-	"nexus-gateway/internal/usecase"
+	grpcsrv "github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/grpc"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/usecase"
 )
 
 var Version = "dev"
@@ -40,6 +40,9 @@ func main() {
 		}
 		stateKey = key
 	} else {
+		if os.Getenv("GO_ENV") == "production" {
+			log.Fatal("STATE_KEY is required in production environment")
+		}
 		log.Println("WARNING: Using generated state key. Set STATE_KEY to match broker in production.")
 		stateKey = make([]byte, 32)
 		if _, err := rand.Read(stateKey); err != nil {

@@ -11,7 +11,7 @@ These keys must be generated securely (e.g., `openssl rand -base64 32`) and inje
 
 | Variable | Service | Description |
 | :--- | :--- | :--- |
-| `STATE_KEY` | **Both** | 32-byte Base64 key. Used to sign/verify OIDC state. **Must be identical on both services.** |
+| `STATE_KEY` | **Both** | 32-byte Base64 key. Used to sign/verify OIDC state. **Must be identical on both services.** Failure to set this will prevent startup in production. |
 | `ENCRYPTION_KEY` | **Broker** | 32-byte Base64 key. Encrypts tokens at rest. **Loss = Data Loss.** |
 | `API_KEY` | **Broker** | High-entropy string. The "password" for the Gateway to talk to the Broker. |
 | `BROKER_API_KEY` | **Gateway** | Must match the `API_KEY` set on the Broker. |
@@ -33,6 +33,7 @@ These keys must be generated securely (e.g., `openssl rand -base64 32`) and inje
 | `PORT` | No | HTTP REST Port (default `8090`). |
 | `GRPC_PORT` | No | gRPC Port (default `9090`). |
 | `BROKER_BASE_URL` | **Yes** | Internal URL of the Broker (e.g., `http://nexus-broker:8080`). |
+| `CORS_ALLOWED_ORIGINS` | No | Comma-separated list of allowed origins (e.g., `https://app.example.com`). Default: `*`. |
 | `ALLOWED_CIDRS` | No | IP Allowlist for incoming agent traffic. |
 
 ---
@@ -71,6 +72,7 @@ services:
       - BROKER_BASE_URL=http://nexus-broker:8080
       - BROKER_API_KEY=${INTERNAL_API_KEY}
       - STATE_KEY=${STATE_KEY}
+      - CORS_ALLOWED_ORIGINS=https://app.example.com,https://api.example.com
     ports:
       - "8090:8090" # Public REST API
       - "9090:9090" # Public gRPC API

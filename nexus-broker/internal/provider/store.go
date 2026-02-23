@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
+
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/models"
 )
 
 // Store provides provider profile management
@@ -60,7 +62,7 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 
 	// Validate fields based on auth type
 	switch p.AuthType {
-	case "oauth2", "": // Default oauth2
+	case models.AuthTypeOAuth2, "": // Default oauth2
 		if p.ClientID == "" {
 			return nil, fmt.Errorf("client_id: missing required field")
 		}
@@ -89,7 +91,7 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 			}
 		}
 
-	case "api_key", "basic_auth", "header", "query_param", "hmac_payload", "aws_sigv4":
+	case models.AuthTypeAPIKey, models.AuthTypeBasicAuth, models.AuthTypeHeader, models.AuthTypeQueryParam, models.AuthTypeHMACPayload, models.AuthTypeAWSSigV4:
 		// Only name is required for static auth types
 
 	default:
@@ -394,7 +396,7 @@ func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
 		}
 
 		if authType == "" {
-			authType = "oauth2" // Default fallback
+			authType = models.AuthTypeOAuth2 // Default fallback
 		}
 
 		if _, ok := result[authType]; !ok {

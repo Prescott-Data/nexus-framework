@@ -24,6 +24,11 @@ docker-compose up -d --build
 - **Gateway**: http://localhost:8090
 - **Admin API Key**: Configured in `.env` (Default: `nexus-admin-key`)
 
+### Critical Configuration
+- **STATE_KEY**: A base64-encoded 32-byte key used to sign and verify state parameters. **Must be identical across Broker and Gateway services.**
+- **API_KEYS**: Comma-separated list of valid API keys for accessing protected Broker endpoints.
+- **CORS_ALLOWED_ORIGINS**: Comma-separated list of allowed origins for the Gateway (e.g., `https://app.example.com`).
+
 ## Documentation
 
 - **[Architecture](docs/architecture.md)**: System overview, components, and data flow.

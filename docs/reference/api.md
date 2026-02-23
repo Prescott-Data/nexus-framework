@@ -5,9 +5,9 @@ The Nexus Framework exposes two primary APIs: the public-facing **Gateway API** 
 ## 1. Gateway API (Public)
 The Gateway is the single entry point for agents and services to interact with the Nexus ecosystem. It provides a stable, versioned contract for requesting connections and retrieving credentials.
 
-- **Spec File:** [`openapi.yaml`](../../openapi.yaml)
+- **Spec File:** [`openapi.yaml`](https://raw.githubusercontent.com/Prescott-Data/nexus-framework/main/openapi.yaml)
 - **Base URL:** `https://gateway.example.com` (Production) / `http://localhost:8090` (Local)
-- **Client SDK:** [`nexus-sdk`](../../nexus-sdk/README.md) (Go)
+- **Client SDK:** [`nexus-sdk`](https://github.com/Prescott-Data/nexus-framework/tree/main/nexus-sdk) (Go)
 
 ### Key Endpoints
 
@@ -21,7 +21,7 @@ The Gateway is the single entry point for agents and services to interact with t
 ## 2. Broker API (Internal)
 The Broker is the internal engine that manages provider configurations, handles OAuth callbacks, and stores encrypted tokens. It should **not** be exposed to the public internet (except for the callback endpoints).
 
-- **Spec File:** [`nexus-broker/openapi.yaml`](../../nexus-broker/openapi.yaml)
+- **Spec File:** [`nexus-broker/openapi.yaml`](https://raw.githubusercontent.com/Prescott-Data/nexus-framework/main/nexus-broker/openapi.yaml)
 - **Base URL:** `http://localhost:8080` (Local)
 
 ### Provider Management
