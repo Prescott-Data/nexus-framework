@@ -77,3 +77,21 @@ The AllowedOrigins for CORS in `nexus-gateway` (both REST and gRPC) are currentl
 
 **Required Action:**
 Refactor the CORS configuration to read the allowed origins from an environment variable (e.g., `CORS_ALLOWED_ORIGINS`). This will allow strict enforcement of the frontend domain in production environments without code modification.
+
+## 7. Model Context Protocol (MCP) Adapter
+
+**Status:** Proposed
+**Goal:** Enable Nexus to act as an MCP server or seamlessly integrate with existing MCP adapters, providing AI agents standard, authenticated access to connected data sources.
+
+**Context:**
+The [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) is rapidly becoming the standard for connecting AI models to external tools and datasets. While MCP defines *how* an LLM communicates with a data source, it relies on the underlying system to handle complex authentication flows (like OAuth 2.0).
+
+**The Solution:**
+Develop a `nexus-mcp-adapter` that bridges the gap between MCP's context protocol and Nexus's identity management capabilities.
+1.  **Tool Exposure:** Automatically expose APIs connected via Nexus (e.g., Google Drive, GitHub) as standardized MCP Tools or Resources.
+2.  **Transparent Authentication:** When an LLM calls an MCP Tool, the adapter uses Nexus (via the Bridge or Sidecar) to securely sign the outbound request with the correct, fresh access token.
+3.  **Dynamic Provisioning:** Allow agents to discover available connections and request new OAuth flows dynamically through standard MCP messages.
+
+**Benefits:**
+- Instantly makes any API integrated with Nexus accessible to MCP-compatible LLMs (like Claude Desktop or custom agents).
+- Solves the hardest part of MCP integration: secure, multi-tenant authentication and token lifecycle management.
