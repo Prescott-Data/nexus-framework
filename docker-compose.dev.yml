@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  broker:
+    build:
+      context: ./nexus-broker
+      dockerfile: Dockerfile
+    image: nexus-broker:dev
+
+  gateway:
+    build:
+      context: ./nexus-gateway
+      dockerfile: Dockerfile
+    image: nexus-gateway:dev

@@ -40,9 +40,9 @@ cp .env.example .env
 
 ### 2. Start the Stack
 ```bash
-make up
-# Or using docker-compose directly:
-# docker-compose up -d --build
+docker-compose up -d
+# Or if you want to develop and build from source:
+# docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ```
 
 ### 3. Verify Access

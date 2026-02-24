@@ -2,10 +2,13 @@
 
 .PHONY: up down restart logs build test clean
 
-# Default: Start the entire stack in detached mode
+# Default: Start the entire stack in detached mode using pre-built images
 up:
-	docker-compose up -d --build
+	docker-compose up -d
 
+# Start the stack and build local images from source
+up-dev:
+	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 # Stop and remove containers
 down:
 	docker-compose down

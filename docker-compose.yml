@@ -33,9 +33,7 @@ services:
 
   # --- Applications ---
   broker:
-    build:
-      context: ./nexus-broker
-      dockerfile: Dockerfile
+    image: ghcr.io/prescott-data/nexus-broker:latest
     container_name: nexus-broker
     depends_on:
       postgres:
@@ -66,9 +64,7 @@ services:
       REQUIRE_ALLOWLIST: ${REQUIRE_ALLOWLIST}
 
   gateway:
-    build:
-      context: ./nexus-gateway
-      dockerfile: Dockerfile
+    image: ghcr.io/prescott-data/nexus-gateway:latest
     container_name: nexus-gateway
     depends_on:
       - broker

@@ -13,9 +13,6 @@
     <a href="https://github.com/Prescott-Data/nexus-framework/discussions">
       <img src="https://img.shields.io/badge/GitHub-Discussions-181717.svg?logo=github" alt="GitHub Discussions">
     </a>
-    <a href="#">
-      <img src="https://img.shields.io/badge/Discord-join%20chat-7289DA.svg?logo=discord" alt="Discord">
-    </a>
     <a href="https://zenodo.org/records/18315572">
       <img src="https://img.shields.io/badge/Paper-Zenodo-blue.svg" alt="Zenodo Paper">
     </a>
@@ -55,11 +52,11 @@ The fastest way to get your Nexus stack running is with Docker Compose. This spi
 # 1. Configure environment
 cp .env.example .env
 
-# 2. Start the stack
-make up
+# 2. Start the stack (pulls official pre-built images)
+docker-compose up -d
 
-# Or if you don't have make:
-docker-compose up -d --build
+# Or if you want to develop and build from source:
+# docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ```
 
 **Access Points:**
