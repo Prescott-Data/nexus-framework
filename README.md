@@ -63,12 +63,14 @@ docker-compose up -d --build
 ```
 
 **Access Points:**
+
 - **Broker**: `http://localhost:8080`
 - **Gateway**: `http://localhost:8090`
 - **Admin API Key**: Configured in `.env` (Default: `nexus-admin-key`)
 
 > [!NOTE]  
 > **Critical Configuration:**
+>
 > - **`STATE_KEY`**: A base64-encoded 32-byte key used to sign and verify state parameters. **Must be identical across Broker and Gateway services.**
 > - **`API_KEYS`**: Comma-separated list of valid API keys for accessing protected Broker endpoints.
 > - **`CORS_ALLOWED_ORIGINS`**: Comma-separated list of allowed origins for the Gateway (e.g., `https://app.example.com`).
@@ -100,6 +102,7 @@ Dive deeper into the Nexus Framework with our comprehensive guides:
 ### 🔗 Quick Links
 
 Explore the individual components of the Nexus ecosystem:
+
 - 🏢 **[Broker Service](nexus-broker/README.md)**: Backend service details.
 - 🌐 **[Gateway Service](nexus-gateway/README.md)**: Frontend API service details.
 - 🌉 **[Bridge Library](nexus-bridge/README.md)**: Go client library details.
@@ -119,5 +122,5 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) a
 
 ---
 <div align="center">
-  Maintained with ❤️ by the Nexus Team.
+  Maintained with ❤️ by the Prescott Data Team.
 </div>
