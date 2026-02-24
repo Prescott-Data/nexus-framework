@@ -91,7 +91,7 @@ Dive deeper into the Nexus Framework with our comprehensive guides:
 <details>
   <summary><b>Click to view our roadmap and upcoming features</b></summary>
   <br>
-  For detailed known issues and future plans, please refer to our full <b><a href="docs/ROADMAP.md">Roadmap</a></b>.
+  For detailed known issues and future plans, please refer to our full <b><a href="ROADMAP.md">Roadmap</a></b>.
   <ul>
     <li>Enhanced Provider Discovery mechanisms</li>
     <li>Expanded non-OAuth integration support</li>
