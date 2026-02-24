@@ -1,0 +1,83 @@
+name: Build and Publish Docker Images
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  # github.repository_owner will evaluate to "Prescott-Data" (or whoever runs the action), matching ghcr.io/prescott/... 
+  # Note: The username needs to be lowercased for Docker tags, so we'll hardcode or use lowercase logic if needed. 
+  # Using github.repository is usually safer (e.g., prescott-data/nexus-framework), but your docs say `ghcr.io/prescott/...`.
+  # Let's use the repository owner lowercase, but for exact match with docs:
+  IMAGE_NAME_BROKER: ${{ github.repository_owner }}/nexus-broker
+  IMAGE_NAME_GATEWAY: ${{ github.repository_owner }}/nexus-gateway
+
+jobs:
+  build-and-push-images:
+    runs-on: ubuntu-latest
+    
+    # Sets the permissions granted to the GITHUB_TOKEN for the actions in this job.
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- Nexus Broker ---
+      - name: Extract metadata (tags, labels) for Broker
+        id: meta-broker
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BROKER }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push Broker Docker image
+        id: push-broker
+        uses: docker/build-push-action@v5
+        with:
+          context: ./nexus-broker
+          push: true
+          tags: ${{ steps.meta-broker.outputs.tags }}
+          labels: ${{ steps.meta-broker.outputs.labels }}
+
+      # --- Nexus Gateway ---
+      - name: Extract metadata (tags, labels) for Gateway
+        id: meta-gateway
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_GATEWAY }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push Gateway Docker image
+        id: push-gateway
+        uses: docker/build-push-action@v5
+        with:
+          context: ./nexus-gateway
+          push: true
+          tags: ${{ steps.meta-gateway.outputs.tags }}
+          labels: ${{ steps.meta-gateway.outputs.labels }}
