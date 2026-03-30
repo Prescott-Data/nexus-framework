@@ -1,10 +1,12 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -739,6 +741,107 @@ func (h *Handler) DeleteProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// CaptureSchema proxies GET /v1/capture-schema?state=<token> to the broker's
+// /auth/capture-schema endpoint, returning the credential field schema for
+// api_key / basic_auth providers.
+func (h *Handler) CaptureSchema(w http.ResponseWriter, r *http.Request) {
+	target, err := url.Parse(h.brokerBaseURL)
+	if err != nil {
+		logging.Error(r.Context(), "capture_schema.parse_error", map[string]any{"error": err.Error()})
+		http.Error(w, "invalid broker url", http.StatusInternalServerError)
+		return
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.URL.Path = "/auth/capture-schema"
+		req.Host = target.Host
+	}
+
+	logging.Info(r.Context(), "capture_schema.start", map[string]any{"query": r.URL.RawQuery})
+	proxy.ServeHTTP(w, r)
+}
+
+// CaptureCredential proxies POST /v1/capture-credential to the broker's
+// /auth/capture-credential endpoint. The broker responds with a 302 redirect
+// to the return_url containing ?status=success&connection_id=<id>. This handler
+// intercepts that redirect and returns the connection_id as JSON so the client
+// never needs to talk to the broker directly.
+func (h *Handler) CaptureCredential(w http.ResponseWriter, r *http.Request) {
+	brokerURL := h.brokerBaseURL + "/auth/capture-credential"
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "read_error", "failed to read request body", nil)
+		return
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, brokerURL, bytes.NewReader(body))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "request_error", "failed to build broker request", nil)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if h.brokerAPIKey != "" {
+		req.Header.Set("X-API-Key", h.brokerAPIKey)
+	}
+
+	// Use a client that does NOT follow redirects so we can inspect the 302
+	noRedirectClient := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	logging.Info(r.Context(), "capture_credential.start", nil)
+
+	resp, err := noRedirectClient.Do(req)
+	if err != nil {
+		logging.Error(r.Context(), "capture_credential.broker_error", map[string]any{"error": err.Error()})
+		writeError(w, http.StatusBadGateway, "broker_unavailable", "broker request failed", nil)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusFound {
+		respBody, _ := io.ReadAll(resp.Body)
+		logging.Error(r.Context(), "capture_credential.unexpected_status", map[string]any{
+			"status": resp.StatusCode,
+			"body":   string(respBody),
+		})
+		writeError(w, http.StatusBadGateway, "broker_error", string(respBody), nil)
+		return
+	}
+
+	location := resp.Header.Get("Location")
+	if location == "" {
+		writeError(w, http.StatusBadGateway, "broker_error", "missing redirect location", nil)
+		return
+	}
+
+	parsed, err := url.Parse(location)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "broker_error", "invalid redirect location", nil)
+		return
+	}
+
+	connectionID := parsed.Query().Get("connection_id")
+	status := parsed.Query().Get("status")
+
+	logging.Info(r.Context(), "capture_credential.success", map[string]any{
+		"connection_id": connectionID,
+		"status":        status,
+	})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"connection_id": connectionID,
+		"status":        status,
+		"redirect_url":  location,
+	})
 }
 
 // ProxyCallback forwards the OAuth callback to the Broker
