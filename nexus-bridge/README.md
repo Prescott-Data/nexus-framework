@@ -27,9 +27,9 @@ import (
 	"fmt"
 	"net/http"
 	
-	"dromos.io/nexus-bridge"
-	"dromos.io/nexus-bridge/telemetry"
-	"bitbucket.org/dromos/nexus-framework/nexus-sdk" // The client for your auth backend
+	"github.com/Prescott-Data/nexus-framework/nexus-bridge"
+	"github.com/Prescott-Data/nexus-framework/nexus-bridge/telemetry"
+	"github.com/Prescott-Data/nexus-framework/nexus-sdk" // The client for your auth backend
 )
 
 // 1. Define your WebSocket handler
@@ -81,8 +81,8 @@ import (
 	"context"
 	"fmt"
 	
-	"dromos.io/nexus-bridge"
-	"bitbucket.org/dromos/nexus-framework/nexus-sdk"
+	"github.com/Prescott-Data/nexus-framework/nexus-bridge"
+	"github.com/Prescott-Data/nexus-framework/nexus-sdk"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health/grpc_health_v1" // Example service

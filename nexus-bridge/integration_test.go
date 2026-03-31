@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"bitbucket.org/dromos/nexus-framework/nexus-sdk"
-	"dromos.io/nexus-bridge"
-	"dromos.io/nexus-bridge/internal/auth"
+	"github.com/Prescott-Data/nexus-framework/nexus-sdk"
+	"github.com/Prescott-Data/nexus-framework/nexus-bridge"
+	"github.com/Prescott-Data/nexus-framework/nexus-bridge/internal/auth"
 	"github.com/gorilla/websocket"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

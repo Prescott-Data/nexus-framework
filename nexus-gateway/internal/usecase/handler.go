@@ -16,8 +16,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"nexus-gateway/internal/broker"
-	"nexus-gateway/internal/logging"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/broker"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/logging"
 )
 
 // Structured error codes for HTTP responses

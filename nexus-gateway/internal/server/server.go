@@ -11,7 +11,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"nexus-gateway/internal/usecase"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/usecase"
 )
 
 type Server struct {
