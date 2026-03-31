@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"log"
 	"net/url"
 	"os"
@@ -11,6 +9,7 @@ import (
 	"time"
 
 	"dromos.com/nexus-broker/internal/caching"
+	"dromos.com/nexus-broker/internal/config"
 	"dromos.com/nexus-broker/internal/handlers"
 	"dromos.com/nexus-broker/internal/provider"
 	"dromos.com/nexus-broker/internal/server"
@@ -45,42 +44,19 @@ func main() {
 		log.Fatal("BASE_URL environment variable is required")
 	}
 
-	// Setup encryption key (32 bytes for AES-256)
-	var encryptionKey []byte
-	if encryptionKeyStr != "" {
-		key, err := base64.StdEncoding.DecodeString(encryptionKeyStr)
-		if err != nil {
-			log.Fatal("Invalid ENCRYPTION_KEY format, must be base64 encoded")
-		}
-		if len(key) != 32 {
-			log.Fatal("ENCRYPTION_KEY must be 32 bytes (256 bits)")
-		}
-		encryptionKey = key
-	} else {
-		// Generate a random key for development
-		log.Println("WARNING: Using generated encryption key. Set ENCRYPTION_KEY environment variable for production.")
-		encryptionKey = make([]byte, 32)
-		if _, err := rand.Read(encryptionKey); err != nil {
-			log.Fatal("Failed to generate encryption key:", err)
-		}
+	// Validate required cryptographic keys — broker must not start without them.
+	// An ephemeral key would silently encrypt tokens that become unreadable on restart.
+	encryptionKey, err := config.ValidateKey("ENCRYPTION_KEY", encryptionKeyStr)
+	if err != nil {
+		log.Fatalf("Fatal configuration error: %v", err)
+	}
+	stateKey, err := config.ValidateKey("STATE_KEY", stateKeyStr)
+	if err != nil {
+		log.Fatalf("Fatal configuration error: %v", err)
 	}
 
-	// Setup state signing key
-	var stateKey []byte
-	if stateKeyStr != "" {
-		key, err := base64.StdEncoding.DecodeString(stateKeyStr)
-		if err != nil {
-			log.Fatal("Invalid STATE_KEY format, must be base64 encoded")
-		}
-		stateKey = key
-	} else {
-		// Generate a random key for development
-		log.Println("WARNING: Using generated state key. Set STATE_KEY environment variable for production.")
-		stateKey = make([]byte, 32)
-		if _, err := rand.Read(stateKey); err != nil {
-			log.Fatal("Failed to generate state key:", err)
-		}
-	}
+	log.Printf("ENCRYPTION_KEY fingerprint: %s", config.KeyFingerprint(encryptionKey))
+	log.Printf("STATE_KEY fingerprint: %s", config.KeyFingerprint(stateKey))
 
 	// Connect to database
 	db, err := sqlx.Connect("postgres", databaseURL)
