@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"encoding/base64"
 	"log"
 	"net/http"
@@ -28,20 +27,26 @@ func main() {
 		log.Fatal("BROKER_BASE_URL is required")
 	}
 
-	var stateKey []byte
-	if stateKeyStr != "" {
-		key, err := base64.StdEncoding.DecodeString(stateKeyStr)
-		if err != nil {
-			log.Fatal("Invalid STATE_KEY format, must be base64 encoded")
-		}
-		stateKey = key
-	} else {
-		// Dev fallback: generate a random key
-		log.Println("WARNING: Using generated state key. Set STATE_KEY to match broker in production.")
-		stateKey = make([]byte, 32)
-		if _, err := rand.Read(stateKey); err != nil {
-			log.Fatal("Failed to generate state key:", err)
-		}
+	if stateKeyStr == "" {
+		log.Fatal(
+			"STATE_KEY is not set. " +
+				"This key must match the Broker's STATE_KEY for HMAC state verification. " +
+				"Generate one with: openssl rand -base64 32",
+		)
+	}
+	stateKey, err := base64.StdEncoding.DecodeString(stateKeyStr)
+	if err != nil {
+		log.Fatal(
+			"STATE_KEY is not valid base64. " +
+				"Expected a base64-encoded 32-byte key. " +
+				"Generate one with: openssl rand -base64 32",
+		)
+	}
+	if len(stateKey) != 32 {
+		log.Fatalf(
+			"STATE_KEY decoded to %d bytes, expected exactly 32. "+
+				"Generate one with: openssl rand -base64 32", len(stateKey),
+		)
 	}
 
 	// HTTP client with sane timeouts and connection reuse
