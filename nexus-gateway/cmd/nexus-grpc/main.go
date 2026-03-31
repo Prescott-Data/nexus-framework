@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	grpcsrv "nexus-gateway/internal/grpc"
-	"nexus-gateway/internal/usecase"
+	grpcsrv "github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/grpc"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/usecase"
 )
 
 var Version = "dev"

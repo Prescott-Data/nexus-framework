@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package nexus.v1;
 
-option go_package = "nexus-gateway/gen/go/api/proto/nexus/v1;nexuspb";
+option go_package = "github.com/Prescott-Data/nexus-framework/nexus-gateway/gen/go/api/proto/nexus/v1;nexuspb";
 
 import "google/api/annotations.proto";
 import "google/protobuf/struct.proto";

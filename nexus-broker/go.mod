@@ -1,4 +1,4 @@
-module dromos.com/nexus-broker
+module github.com/Prescott-Data/nexus-framework/nexus-broker
 
 go 1.21
 

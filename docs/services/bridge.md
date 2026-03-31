@@ -30,7 +30,7 @@ The Bridge includes built-in support for:
 ## Usage Example (HTTP)
 
 ```go
-import "dromos.io/nexus-bridge/internal/auth"
+import "github.com/Prescott-Data/nexus-framework/nexus-bridge/internal/auth"
 
 // ... inside your agent ...
 token, _ := sdkClient.GetToken(ctx, connectionID)
