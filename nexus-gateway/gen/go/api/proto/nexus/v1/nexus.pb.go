@@ -484,9 +484,9 @@ const file_api_proto_nexus_v1_nexus_proto_rawDesc = "" +
 	"\x11RequestConnection\x12\".nexus.v1.RequestConnectionRequest\x1a#.nexus.v1.RequestConnectionResponse\"!\x82\xd3\xe4\x93\x02\x1b:\x01*\"\x16/v1/request-connection\x12\x84\x01\n" +
 	"\x0fCheckConnection\x12 .nexus.v1.CheckConnectionRequest\x1a!.nexus.v1.CheckConnectionResponse\",\x82\xd3\xe4\x93\x02&\x12$/v1/check-connection/{connection_id}\x12d\n" +
 	"\bGetToken\x12\x19.nexus.v1.GetTokenRequest\x1a\x1a.nexus.v1.GetTokenResponse\"!\x82\xd3\xe4\x93\x02\x1b\x12\x19/v1/token/{connection_id}\x12\x81\x01\n" +
-	"\x11RefreshConnection\x12\".nexus.v1.RefreshConnectionRequest\x1a#.nexus.v1.RefreshConnectionResponse\"#\x82\xd3\xe4\x93\x02\x1d\"\x1b/v1/refresh/{connection_id}B\x8c\x01\n" +
+	"\x11RefreshConnection\x12\".nexus.v1.RefreshConnectionRequest\x1a#.nexus.v1.RefreshConnectionResponse\"#\x82\xd3\xe4\x93\x02\x1d\"\x1b/v1/refresh/{connection_id}B\xb5\x01\n" +
 	"\fcom.nexus.v1B\n" +
-	"NexusProtoP\x01Z/nexus-gateway/gen/go/api/proto/nexus/v1;nexuspb\xa2\x02\x03NXX\xaa\x02\bNexus.V1\xca\x02\bNexus\\V1\xe2\x02\x14Nexus\\V1\\GPBMetadata\xea\x02\tNexus::V1b\x06proto3"
+	"NexusProtoP\x01ZXgithub.com/Prescott-Data/nexus-framework/nexus-gateway/gen/go/api/proto/nexus/v1;nexuspb\xa2\x02\x03NXX\xaa\x02\bNexus.V1\xca\x02\bNexus\\V1\xe2\x02\x14Nexus\\V1\\GPBMetadata\xea\x02\tNexus::V1b\x06proto3"
 
 var (
 	file_api_proto_nexus_v1_nexus_proto_rawDescOnce sync.Once

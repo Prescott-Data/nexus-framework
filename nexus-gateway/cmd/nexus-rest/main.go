@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"nexus-gateway/internal/server"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/server"
 )
 
 var Version = "dev"
