@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"dromos.io/nexus-bridge/internal/auth"
+	"github.com/Prescott-Data/nexus-framework/nexus-bridge/internal/auth"
 )
 
 // BridgeCredentials implements credentials.PerRPCCredentials to automatically

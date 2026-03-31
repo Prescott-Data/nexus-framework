@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"nexus-gateway/internal/broker"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/broker"
 )
 
 // generateState creates a valid signed state string for testing
