@@ -397,12 +397,12 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 
 	if connection.Status != "active" {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "connection not active", "status": connection.Status}, r)
-		
+
 		if connection.Status == "attention" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(map[string]string{
-				"error": "attention_required", 
+				"error":  "attention_required",
 				"detail": "Connection requires attention. The user must re-authenticate.",
 			})
 			return
@@ -418,7 +418,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt     *time.Time `db:"expires_at"`
 	}
 
-	err = h.db.QueryRow("SELECT encrypted_data, expires_at FROM tokens WHERE connection_id = $1 ORDER BY created_at DESC LIMIT 1", connectionID).Scan(&token.EncryptedData, &token.ExpiresAt)
+	err = h.db.QueryRow("SELECT encrypted_data, expires_at FROM tokens WHERE connection_id = $1", connectionID).Scan(&token.EncryptedData, &token.ExpiresAt)
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "token not found"}, r)
 		http.Error(w, "Token not found", http.StatusNotFound)
@@ -513,7 +513,7 @@ func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret
 	data.Set("code", code)
 	data.Set("code_verifier", codeVerifier)
 	data.Set("redirect_uri", redirectURI)
-	
+
 	// Determine auth method based on authHeader configuration
 	// Default to "client_secret_post" (sending in body) if not specified or explicitly set
 	useBasicAuth := false
@@ -649,7 +649,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		var tokenRow struct {
 			EncryptedData string `db:"encrypted_data"`
 		}
-		err = h.db.QueryRow("SELECT encrypted_data FROM tokens WHERE connection_id=$1 ORDER BY created_at DESC LIMIT 1", connectionID).Scan(&tokenRow.EncryptedData)
+		err = h.db.QueryRow("SELECT encrypted_data FROM tokens WHERE connection_id=$1", connectionID).Scan(&tokenRow.EncryptedData)
 		if err != nil {
 			http.Error(w, "Token not found", http.StatusNotFound)
 			return
@@ -676,7 +676,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 			if statusCode >= 400 && statusCode < 500 {
 				h.logAuditEvent(&connectionID, "token_refresh_fatal", map[string]string{"error": err.Error(), "status_code": fmt.Sprintf("%d", statusCode)}, r)
 				h.updateConnectionStatus(connectionID, "attention")
-				
+
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusConflict) // 409 Conflict is a good signal for "state issue"
 				json.NewEncoder(w).Encode(map[string]string{
@@ -685,7 +685,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 				})
 				return
 			}
-			
+
 			// For 5xx or network errors, we don't change state, just fail the request (Agent will retry)
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -703,7 +703,9 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// storeTokens encrypts and stores tokens in database
+// storeTokens encrypts and upserts a single token row per connection.
+// Uses INSERT ... ON CONFLICT to atomically replace any previous token,
+// preventing unbounded row accumulation (issue #25).
 func (h *CallbackHandler) storeTokens(connectionID uuid.UUID, tokens map[string]interface{}) error {
 	tokenJSON, err := json.Marshal(tokens)
 	if err != nil {
@@ -715,7 +717,6 @@ func (h *CallbackHandler) storeTokens(connectionID uuid.UUID, tokens map[string]
 		return err
 	}
 
-	// Parse expires_at if present
 	var expiresAt *time.Time
 	if expiresIn, ok := tokens["expires_in"].(float64); ok {
 		expiry := time.Now().Add(time.Duration(expiresIn) * time.Second)
@@ -724,7 +725,12 @@ func (h *CallbackHandler) storeTokens(connectionID uuid.UUID, tokens map[string]
 
 	_, err = h.db.Exec(`
 		INSERT INTO tokens (connection_id, encrypted_data, expires_at)
-		VALUES ($1, $2, $3)`,
+		VALUES ($1, $2, $3)
+		ON CONFLICT (connection_id)
+		DO UPDATE SET
+			encrypted_data = EXCLUDED.encrypted_data,
+			expires_at     = EXCLUDED.expires_at,
+			created_at     = NOW()`,
 		connectionID, encryptedData, expiresAt)
 
 	return err
