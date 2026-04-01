@@ -17,7 +17,7 @@ import (
 
 	"nexus.io/nexus-bridge"
 	"nexus.io/nexus-bridge/telemetry"
-	"bitbucket.org/nexus/nexus-framework/nexus-sdk"
+	"github.com/Prescott-Data/nexus-framework/nexus-sdk"
 )
 
 func main() {
@@ -111,7 +111,7 @@ The `nexus-sdk` is a thin client for the Gateway API.
 ```go
 import (
   "context"
-  oauthsdk "bitbucket.org/nexus/nexus-framework/nexus-sdk"
+  oauthsdk "github.com/Prescott-Data/nexus-framework/nexus-sdk"
 )
 
 client := oauthsdk.New("https://<gateway-base-url>")

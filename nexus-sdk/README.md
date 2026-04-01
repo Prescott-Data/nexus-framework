@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"log"
 
-	"bitbucket.org/dromos/nexus-framework/nexus-sdk"
+	"github.com/Prescott-Data/nexus-framework/nexus-sdk"
 )
 
 func main() {
@@ -82,5 +82,5 @@ newToken, err := client.RefreshConnection(ctx, connectionID)
 
 ## Install
 ```bash
-go get bitbucket.org/dromos/nexus-framework/nexus-sdk@v0.1.1
+go get github.com/Prescott-Data/nexus-framework/nexus-sdk@v0.1.1
 ```
