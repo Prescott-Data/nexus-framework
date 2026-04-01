@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"database/sql"
+	"fmt"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -97,8 +99,8 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		ID       uuid.UUID        `db:"id"`
 		Name     string           `db:"name"`
 		AuthType string           `db:"auth_type"`
-		AuthURL  string           `db:"auth_url"`
-		ClientID string           `db:"client_id"`
+		AuthURL  sql.NullString   `db:"auth_url"`
+		ClientID sql.NullString   `db:"client_id"`
 		Scopes   []string         `db:"scopes"`
 		Params   *json.RawMessage `db:"params"`
 	}
@@ -151,7 +153,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 
 		// Attempt OIDC discovery to use the provider's authorization_endpoint
 		// Only if 'openid' scope is requested to avoid overwriting standard OAuth2 endpoints (e.g. Slack)
-		useAuthURL := provider.AuthURL
+		useAuthURL := provider.AuthURL.String
 		hasOpenID := false
 		for _, s := range request.Scopes {
 			if strings.EqualFold(s, "openid") {
@@ -160,14 +162,14 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if hasOpenID {
-			if md, errD := discovery.Discover(r.Context(), h.httpClient, discovery.Hint{AuthURL: provider.AuthURL}); errD == nil && strings.TrimSpace(md.AuthorizationEndpoint) != "" {
+		if hasOpenID && useAuthURL != "" {
+			if md, errD := discovery.Discover(r.Context(), h.httpClient, discovery.Hint{AuthURL: useAuthURL}); errD == nil && strings.TrimSpace(md.AuthorizationEndpoint) != "" {
 				useAuthURL = md.AuthorizationEndpoint
 			}
 		}
 
 		// Build auth URL
-		authURL, err := h.buildAuthURL(useAuthURL, provider.ClientID, signedState, codeChallenge, request.Scopes, provider.Params)
+		authURL, err := h.buildAuthURL(useAuthURL, provider.ClientID.String, signedState, codeChallenge, request.Scopes, provider.Params)
 		if err != nil {
 			http.Error(w, "Failed to build auth URL", http.StatusInternalServerError)
 			return
@@ -248,6 +250,10 @@ func (h *ConsentHandler) buildAuthURL(providerAuthURL, clientID, state, codeChal
 	redirectPath := os.Getenv("REDIRECT_PATH")
 	if redirectPath == "" {
 		redirectPath = "/auth/callback"
+	}
+
+	if providerAuthURL == "" {
+		return "", fmt.Errorf("provider auth_url is required for OAuth2")
 	}
 
 	u, err := url.Parse(providerAuthURL)

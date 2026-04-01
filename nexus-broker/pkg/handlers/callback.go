@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -118,11 +119,11 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var connection struct {
-		ID           string   `db:"id"`
-		CodeVerifier string   `db:"code_verifier"`
-		ReturnURL    string   `db:"return_url"`
-		ProviderID   string   `db:"provider_id"`
-		Scopes       []string `db:"scopes"`
+		ID           string         `db:"id"`
+		CodeVerifier sql.NullString `db:"code_verifier"`
+		ReturnURL    string         `db:"return_url"`
+		ProviderID   string         `db:"provider_id"`
+		Scopes       []string       `db:"scopes"`
 	}
 
 	err = h.db.QueryRow(`
@@ -139,9 +140,9 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// Get provider details
 	var provider struct {
-		TokenURL     string           `db:"token_url"`
-		ClientID     string           `db:"client_id"`
-		ClientSecret string           `db:"client_secret"`
+		TokenURL     sql.NullString   `db:"token_url"`
+		ClientID     sql.NullString   `db:"client_id"`
+		ClientSecret sql.NullString   `db:"client_secret"`
 		Name         string           `db:"name"`
 		AuthHeader   string           `db:"auth_header"`
 		Params       *json.RawMessage `db:"params"`
@@ -179,11 +180,11 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// Exchange code for tokens
 	start := time.Now()
-	useTokenURL := provider.TokenURL
-	if md, errD := discovery.Discover(r.Context(), h.httpClient, discovery.Hint{AuthURL: provider.TokenURL}); errD == nil && strings.TrimSpace(md.TokenEndpoint) != "" {
+	useTokenURL := provider.TokenURL.String
+	if md, errD := discovery.Discover(r.Context(), h.httpClient, discovery.Hint{AuthURL: useTokenURL}); errD == nil && strings.TrimSpace(md.AuthorizationEndpoint) != "" {
 		useTokenURL = md.TokenEndpoint
 	}
-	tokens, err := h.exchangeCodeForTokens(useTokenURL, provider.ClientID, provider.ClientSecret, code, connection.CodeVerifier, redirectURI, connection.Scopes, provider.AuthHeader, skipScopeOnExchange)
+	tokens, err := h.exchangeCodeForTokens(useTokenURL, provider.ClientID.String, provider.ClientSecret.String, code, connection.CodeVerifier.String, redirectURI, connection.Scopes, provider.AuthHeader, skipScopeOnExchange)
 	h.histogramExchangeDur.Observe(time.Since(start).Seconds())
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_exchange_failed", map[string]string{"error": err.Error()}, r)
@@ -200,7 +201,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	// Verify OIDC id_token if present and openid scope requested
 	if raw, ok := tokens["id_token"].(string); ok && raw != "" {
 		if containsScope(connection.Scopes, "openid") {
-			if _, err := oidcutil.VerifyIDToken(r.Context(), h.httpClient, raw, provider.ClientID, state); err != nil {
+			if _, err := oidcutil.VerifyIDToken(r.Context(), h.httpClient, raw, provider.ClientID.String, state); err != nil {
 				h.logAuditEvent(&connectionID, "id_token_verification_failed", map[string]string{"error": err.Error()}, r)
 				h.updateConnectionStatus(connectionID, "failed")
 				http.Error(w, "Invalid id_token", http.StatusUnauthorized)
@@ -581,7 +582,9 @@ func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret
 	data := url.Values{}
 	data.Set("grant_type", "authorization_code")
 	data.Set("code", code)
-	data.Set("code_verifier", codeVerifier)
+	if codeVerifier != "" {
+		data.Set("code_verifier", codeVerifier)
+	}
 	data.Set("redirect_uri", redirectURI)
 
 	// Determine auth method based on authHeader configuration
@@ -591,8 +594,12 @@ func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret
 		useBasicAuth = true
 	} else {
 		// Default: Send credentials in body
-		data.Set("client_id", clientID)
-		data.Set("client_secret", clientSecret)
+		if clientID != "" {
+			data.Set("client_id", clientID)
+		}
+		if clientSecret != "" {
+			data.Set("client_secret", clientSecret)
+		}
 	}
 
 	// Some providers (e.g., Microsoft identity platform v2) require scope on token exchange.
@@ -707,9 +714,9 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	case "oauth2", "":
 		// This is an OAuth2 provider, continue with the *existing* refresh logic
 		var provider struct {
-			TokenURL     string `db:"token_url"`
-			ClientID     string `db:"client_id"`
-			ClientSecret string `db:"client_secret"`
+			TokenURL     sql.NullString `db:"token_url"`
+			ClientID     sql.NullString `db:"client_id"`
+			ClientSecret sql.NullString `db:"client_secret"`
 		}
 		err = h.db.QueryRow("SELECT token_url, client_id, client_secret FROM provider_profiles WHERE id=$1", conn.ProviderID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret)
 		if err != nil {
@@ -740,7 +747,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Refresh
-		newTokens, statusCode, err := h.refreshTokens(provider.TokenURL, provider.ClientID, provider.ClientSecret, refreshToken)
+		newTokens, statusCode, err := h.refreshTokens(provider.TokenURL.String, provider.ClientID.String, provider.ClientSecret.String, refreshToken)
 		if err != nil {
 			// Check for unrecoverable errors (400-499 usually implies invalid_grant, revoked, or expired)
 			if statusCode >= 400 && statusCode < 500 {

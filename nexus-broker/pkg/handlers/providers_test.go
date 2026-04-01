@@ -80,6 +80,10 @@ func (m *MockStore) GetMetadata() (map[string]map[string]interface{}, error) {
 	return args.Get(0).(map[string]map[string]interface{}), args.Error(1)
 }
 
+func ptr(s string) *string {
+	return &s
+}
+
 func TestRegisterProvider_Success(t *testing.T) {
 	// 1. Mocks the provider.Store.
 	mockStore := new(MockStore)
@@ -90,10 +94,10 @@ func TestRegisterProvider_Success(t *testing.T) {
 		ID:           uuid.New(),
 		Name:         "Test OAuth2 Provider",
 		AuthType:     "oauth2",
-		ClientID:     "test-client-id",
-		ClientSecret: "test-client-secret",
-		AuthURL:      "http://provider.com/auth",
-		TokenURL:     "http://provider.com/token",
+		ClientID:     ptr("test-client-id"),
+		ClientSecret: ptr("test-client-secret"),
+		AuthURL:      ptr("http://provider.com/auth"),
+		TokenURL:     ptr("http://provider.com/token"),
 		Scopes:       []string{"openid"},
 	}
 	mockStore.On("RegisterProfile", mock.AnythingOfType("string")).Return(expectedProfile, nil)

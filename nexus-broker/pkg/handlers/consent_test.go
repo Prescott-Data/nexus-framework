@@ -86,7 +86,7 @@ func TestGetSpec_StaticKey(t *testing.T) {
 
 
 rows := sqlmock.NewRows([]string{"id", "name", "auth_type", "auth_url", "client_id", "scopes", "params"}).
-		AddRow("b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1", "Test API", "api_key", "", "", "{}", []byte("{}"))
+		AddRow("b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1", "Test API", "api_key", nil, nil, "{}", []byte("{}"))
 mock.ExpectQuery("SELECT id, name, auth_type, auth_url, client_id, scopes, params FROM provider_profiles WHERE id = \\$1").
 		WithArgs("b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1").
 		WillReturnRows(rows)

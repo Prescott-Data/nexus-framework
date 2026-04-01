@@ -5,11 +5,16 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/DATA-DOG/go-sqlmock.v1"
 )
+
+func ptr(s string) *string {
+	return &s
+}
 
 func TestRegisterProfile_OAuth2(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -47,10 +52,10 @@ func TestRegisterProfile_OAuth2(t *testing.T) {
 	profile := Profile{
 		Name:            "test-oauth2-provider",
 		AuthType:        "oauth2",
-		ClientID:        "test-client-id",
-		ClientSecret:    "test-client-secret",
-		AuthURL:         "http://provider.com/auth",
-		TokenURL:        "http://provider.com/token",
+		ClientID:        ptr("test-client-id"),
+		ClientSecret:    ptr("test-client-secret"),
+		AuthURL:         ptr("http://provider.com/auth"),
+		TokenURL:        ptr("http://provider.com/token"),
 		EnableDiscovery: false,
 		Params: func() *json.RawMessage {
 			raw := json.RawMessage(`{"key":"value"}`)
@@ -86,10 +91,10 @@ func TestRegisterProfile_StaticKey(t *testing.T) {
 	mock.ExpectQuery(`INSERT INTO provider_profiles`).
 		WithArgs(
 			"test-api-key-provider", // name
-			"",                      // client_id
-			"",                      // client_secret
-			"",                      // auth_url
-			"",                      // token_url
+			nil,                     // client_id
+			nil,                     // client_secret
+			nil,                     // auth_url
+			nil,                     // token_url
 			nil,                     // issuer
 			false,                   // enable_discovery
 			pq.Array([]string{}),    // scopes (empty array, not nil)
@@ -158,10 +163,10 @@ func TestRegisterProfile_NameCapitalLetters(t *testing.T) {
 	profile := Profile{
 		Name:         "TestWithCapital",
 		AuthType:     "oauth2",
-		ClientID:     "123",
-		ClientSecret: "456",
-		AuthURL:      "https://auth.com",
-		TokenURL:     "https://token.com",
+		ClientID:     ptr("123"),
+		ClientSecret: ptr("456"),
+		AuthURL:      ptr("https://auth.com"),
+		TokenURL:     ptr("https://token.com"),
 	}
 	profileJSON, err := json.Marshal(profile)
 	assert.NoError(t, err)
@@ -169,4 +174,33 @@ func TestRegisterProfile_NameCapitalLetters(t *testing.T) {
 	_, err = store.RegisterProfile(string(profileJSON))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "name: invalid provider name")
+}
+
+func TestGetProfile_NullValues(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	store := NewStore(sqlxDB)
+
+	providerID := uuid.New()
+	rows := sqlmock.NewRows([]string{
+		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
+		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params",
+	}).AddRow(
+		providerID.String(), "null-provider", nil, nil, nil, nil, nil,
+		false, []byte("{}"), "api_key", "", "", "", nil,
+	)
+
+	mock.ExpectQuery(`SELECT .* FROM provider_profiles WHERE id = \$1`).
+		WithArgs(providerID).
+		WillReturnRows(rows)
+
+	profile, err := store.GetProfile(providerID)
+	assert.NoError(t, err)
+	assert.NotNil(t, profile)
+	if profile != nil {
+		assert.Equal(t, "null-provider", profile.Name)
+	}
 }

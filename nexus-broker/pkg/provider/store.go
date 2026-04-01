@@ -29,10 +29,10 @@ type Profile struct {
 	Name             string           `json:"name" db:"name"`
 	AuthType         string           `json:"auth_type,omitempty" db:"auth_type"`
 	AuthHeader       string           `json:"auth_header,omitempty" db:"auth_header"`
-	ClientID         string           `json:"client_id,omitempty" db:"client_id"`
-	ClientSecret     string           `json:"client_secret,omitempty" db:"client_secret"`
-	AuthURL          string           `json:"auth_url,omitempty" db:"auth_url"`
-	TokenURL         string           `json:"token_url,omitempty" db:"token_url"`
+	ClientID         *string          `json:"client_id,omitempty" db:"client_id"`
+	ClientSecret     *string          `json:"client_secret,omitempty" db:"client_secret"`
+	AuthURL          *string          `json:"auth_url,omitempty" db:"auth_url"`
+	TokenURL         *string          `json:"token_url,omitempty" db:"token_url"`
 	Issuer           *string          `json:"issuer,omitempty" db:"issuer"`
 	EnableDiscovery  bool             `json:"enable_discovery" db:"enable_discovery"`
 	Scopes           []string         `json:"scopes" db:"scopes"`
@@ -61,10 +61,10 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	// Validate fields based on auth type
 	switch p.AuthType {
 	case "oauth2", "": // Default oauth2
-		if p.ClientID == "" {
+		if p.ClientID == nil || *p.ClientID == "" {
 			return nil, fmt.Errorf("client_id: missing required field")
 		}
-		if p.ClientSecret == "" {
+		if p.ClientSecret == nil || *p.ClientSecret == "" {
 			return nil, fmt.Errorf("client_secret: missing required field")
 		}
 
@@ -77,14 +77,14 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		} else {
 			// When discovery is disabled, auth_url and token_url must be set
 			// But also check: if issuer is provided without URLs, they probably meant to enable discovery
-			if p.Issuer != nil && *p.Issuer != "" && p.AuthURL == "" && p.TokenURL == "" {
+			if p.Issuer != nil && *p.Issuer != "" && (p.AuthURL == nil || *p.AuthURL == "") && (p.TokenURL == nil || *p.TokenURL == "") {
 				return nil, fmt.Errorf("enable_discovery: must be set to true when using issuer without auth_url/token_url")
 			}
 
-			if p.AuthURL == "" {
+			if p.AuthURL == nil || *p.AuthURL == "" {
 				return nil, fmt.Errorf("auth_url: missing required field")
 			}
-			if p.TokenURL == "" {
+			if p.TokenURL == nil || *p.TokenURL == "" {
 				return nil, fmt.Errorf("token_url: missing required field")
 			}
 		}
