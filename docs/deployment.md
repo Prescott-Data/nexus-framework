@@ -3,14 +3,14 @@
 ## Configuration
 
 ### Shared
-- `STATE_KEY` (base64‑32B): HMAC signing for `state` and nonce binding. **Must match between Gateway and Broker.**
+- `STATE_KEY` **(REQUIRED**, base64‑32B): HMAC signing for `state` and nonce binding. **Must match between Gateway and Broker.** Services will refuse to start if this is missing or invalid. Generate with `openssl rand -base64 32`.
 
 ### Broker (nexus-broker)
-Required for production:
+Required — the broker will not start without these:
 - `DATABASE_URL` (PostgreSQL connection string).
 - `BASE_URL` (Public URL, e.g., `https://broker.example.com`).
+- `ENCRYPTION_KEY` **(REQUIRED**, base64‑32B): AES‑GCM key for token encryption. **Must be stable.** If this key is lost, all stored connections become permanently unrecoverable. Generate with `openssl rand -base64 32`.
 - `REDIRECT_PATH` (Default `/auth/callback`).
-- `ENCRYPTION_KEY` (base64‑32B): AES‑GCM key for token encryption. **Must be stable.**
 - `API_KEY`: Key required for internal API access.
 - `ALLOWED_CIDRS`: Comma-separated list of allowed IP ranges (e.g., `10.0.0.0/8`).
 - `ALLOWED_RETURN_DOMAINS`: Comma-separated list of allowed domains for return URLs.
@@ -18,24 +18,32 @@ Required for production:
 ### Gateway (nexus-gateway)
 - `PORT`: Service port.
 - `BROKER_BASE_URL`: URL of the Broker (internal if possible).
-- `STATE_KEY`: Same as Broker.
+- `STATE_KEY` **(REQUIRED)**: Same as Broker — must match exactly.
 - `BROKER_API_KEY`: Key to authenticate with the Broker.
 
 ## Local Development (Quickstart)
 
+### 0. Generate required keys
+```bash
+# Run once, paste outputs into your .env file
+openssl rand -base64 32   # → ENCRYPTION_KEY
+openssl rand -base64 32   # → STATE_KEY (must be the same in Broker and Gateway)
+```
+
 ### 1. Run the Broker
 ```bash
+cp .env.example .env
+# Edit .env — fill in ENCRYPTION_KEY and STATE_KEY from step 0
 cd nexus-broker
-# Create a .env file based on .env.example
-source .env 
+source .env
 go run ./cmd/nexus-broker
 ```
 
 ### 2. Run the Gateway
 ```bash
 cd nexus-gateway
+source ../.env   # reuse the same STATE_KEY
 export BROKER_BASE_URL="http://localhost:8080"
-export STATE_KEY="$(openssl rand -base64 32)" # Use the same key as the Broker
 go run ./cmd/nexus-rest
 ```
 
