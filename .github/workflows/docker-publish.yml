@@ -1,0 +1,60 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_BROKER: ${{ github.repository }}-broker
+  IMAGE_NAME_GATEWAY: ${{ github.repository }}-gateway
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Broker
+        id: meta-broker
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BROKER }}
+
+      - name: Extract metadata (tags, labels) for Gateway
+        id: meta-gateway
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_GATEWAY }}
+
+      - name: Build and push Broker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./nexus-broker
+          file: ./nexus-broker/Dockerfile
+          push: true
+          tags: ${{ steps.meta-broker.outputs.tags }}
+          labels: ${{ steps.meta-broker.outputs.labels }}
+
+      - name: Build and push Gateway image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./nexus-gateway
+          file: ./nexus-gateway/Dockerfile
+          push: true
+          tags: ${{ steps.meta-gateway.outputs.tags }}
+          labels: ${{ steps.meta-gateway.outputs.labels }}
