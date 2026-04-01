@@ -255,11 +255,31 @@ func (h *ConsentHandler) buildAuthURL(providerAuthURL, clientID, state, codeChal
 		return "", err
 	}
 
+	skipScopeOnAuth := false
+	if providerParams != nil {
+		var paramsMap map[string]interface{}
+		if err := json.Unmarshal(*providerParams, &paramsMap); err == nil {
+			if skip, ok := paramsMap["skip_scope_on_auth"].(bool); ok {
+				skipScopeOnAuth = skip
+			}
+		}
+	}
+
 	q := u.Query()
 	q.Set("client_id", clientID)
 	q.Set("redirect_uri", baseURL+redirectPath)
 	q.Set("response_type", "code")
-	q.Set("scope", strings.Join(scopes, " "))
+	
+	if !skipScopeOnAuth {
+		if len(scopes) > 0 {
+			q.Set("scope", strings.Join(scopes, " "))
+		} else {
+			// Backwards compatibility or provider defaults might expect an empty scope parameter, 
+			// but we only set it if not explicitly skipping.
+			q.Set("scope", "")
+		}
+	}
+	
 	q.Set("state", state)
 	q.Set("code_challenge", codeChallenge)
 	q.Set("code_challenge_method", "S256")
