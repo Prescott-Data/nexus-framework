@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/provider"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"

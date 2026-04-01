@@ -16,11 +16,11 @@ import (
 	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/auth"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/discovery"
-	oidcutil "github.com/Prescott-Data/nexus-framework/nexus-broker/internal/oidc"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/server"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/vault"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/discovery"
+	oidcutil "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/oidc"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/server"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
 )
 
 // CallbackHandler handles OAuth callback and token exchange
