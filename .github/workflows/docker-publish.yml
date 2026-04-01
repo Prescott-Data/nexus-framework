@@ -8,8 +8,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME_BROKER: ${{ github.repository }}-broker
-  IMAGE_NAME_GATEWAY: ${{ github.repository }}-gateway
+  IMAGE_NAME_BROKER: Prescott-Data/nexus-broker
+  IMAGE_NAME_GATEWAY: Prescott-Data/nexus-gateway
 
 jobs:
   build-and-push:
