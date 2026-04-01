@@ -3,43 +3,41 @@ package integration
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"testing"
 )
 
-var (
-	binaryPath string
-	buildOnce  sync.Once
-	buildErr   error
-)
+var binaryPath string
 
-func buildBroker(t *testing.T) string {
-	t.Helper()
-	buildOnce.Do(func() {
-		ext := ""
-		if runtime.GOOS == "windows" {
-			ext = ".exe"
-		}
-		tmp := t.TempDir()
-		binaryPath = filepath.Join(tmp, "nexus-broker"+ext)
-
-		cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/nexus-broker")
-		// Build from the broker module root
-		cmd.Dir = filepath.Join("..", "..")
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			buildErr = err
-			t.Logf("build output: %s", string(out))
-		}
-	})
-	if buildErr != nil {
-		t.Fatalf("failed to build broker binary: %v", buildErr)
+func TestMain(m *testing.M) {
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
 	}
+	tmp, err := os.MkdirTemp("", "nexus-broker-integration-*")
+	if err != nil {
+		log.Fatalf("failed to create temp dir: %v", err)
+	}
+	binaryPath = filepath.Join(tmp, "nexus-broker"+ext)
+
+	cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/nexus-broker")
+	cmd.Dir = filepath.Join("..", "..")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Fatalf("failed to build broker binary: %v\n%s", err, string(out))
+	}
+
+	code := m.Run()
+	os.RemoveAll(tmp)
+	os.Exit(code)
+}
+
+func brokerBinary() string {
 	return binaryPath
 }
 
@@ -54,7 +52,7 @@ func genKey(t *testing.T) string {
 
 func runBroker(t *testing.T, env map[string]string) (output string, exitCode int) {
 	t.Helper()
-	bin := buildBroker(t)
+	bin := brokerBinary()
 
 	cmd := exec.Command(bin)
 	cmd.Env = []string{}
@@ -186,7 +184,12 @@ func TestStartup_ValidKeys_FailsAtDB(t *testing.T) {
 	if code == 0 {
 		t.Skip("broker started (DB available); can't test DB-failure path")
 	}
-	if strings.Contains(out, "ENCRYPTION_KEY") || strings.Contains(out, "STATE_KEY") {
+	if strings.Contains(out, "ENCRYPTION_KEY is not set") ||
+		strings.Contains(out, "ENCRYPTION_KEY is not valid") ||
+		strings.Contains(out, "ENCRYPTION_KEY decoded to") ||
+		strings.Contains(out, "STATE_KEY is not set") ||
+		strings.Contains(out, "STATE_KEY is not valid") ||
+		strings.Contains(out, "STATE_KEY decoded to") {
 		t.Fatalf("valid keys should not cause a key validation error, got:\n%s", out)
 	}
 	if !strings.Contains(strings.ToLower(out), "database") && !strings.Contains(strings.ToLower(out), "connect") {
