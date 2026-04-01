@@ -127,6 +127,11 @@ func main() {
 	// Health check
 	router.Get("/health", server.HealthHandler)
 
+	// Start background orphan token cleanup (safety net for deleted connections)
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
+	defer cleanupCancel()
+	go handlers.StartOrphanTokenCleanup(cleanupCtx, db, 1*time.Hour)
+
 	log.Printf("Starting OAuth Broker server on port %s", port)
 	log.Printf("Version: %s", Version)
 	log.Printf("Base URL: %s", baseURL)
