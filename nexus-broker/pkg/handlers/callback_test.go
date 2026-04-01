@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"dromos.com/nexus-broker/internal/auth"
-	"dromos.com/nexus-broker/internal/vault"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"

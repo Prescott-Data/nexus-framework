@@ -11,7 +11,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"nexus-gateway/internal/usecase"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/usecase"
 )
 
 type Server struct {
@@ -68,6 +68,10 @@ func (s *Server) routes() {
 
 	// Callback Proxy
 	s.mux.Handle("/auth/callback", http.HandlerFunc(s.handler.ProxyCallback))
+
+	// API key / static credential capture (proxied from broker)
+	s.mux.Get("/v1/capture-schema", s.handler.CaptureSchema)
+	s.mux.Post("/v1/capture-credential", s.handler.CaptureCredential)
 }
 
 func (s *Server) Start() error {
