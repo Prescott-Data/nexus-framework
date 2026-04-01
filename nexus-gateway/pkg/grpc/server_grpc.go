@@ -10,7 +10,7 @@ import (
 	"time"
 
 	nexuspb "github.com/Prescott-Data/nexus-framework/nexus-gateway/gen/go/api/proto/nexus/v1"
-	"github.com/Prescott-Data/nexus-framework/nexus-gateway/internal/usecase"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/usecase"
 
 	"github.com/go-chi/cors"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
