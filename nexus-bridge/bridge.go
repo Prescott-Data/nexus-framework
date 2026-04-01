@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Prescott-Data/nexus-framework/nexus-bridge/internal/auth"
+	"github.com/Prescott-Data/nexus-framework/nexus-bridge/pkg/auth"
 	"github.com/Prescott-Data/nexus-framework/nexus-bridge/telemetry"
 	"github.com/gorilla/websocket"
 	"google.golang.org/grpc"
