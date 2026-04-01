@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -333,6 +334,25 @@ func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Validate credentials against the provider before storing
+	var authType, authHeader, apiBaseURL, userInfoEndpoint string
+	err = h.db.QueryRow(`
+		SELECT pp.auth_type, COALESCE(pp.auth_header, ''), COALESCE(pp.api_base_url, ''), COALESCE(pp.user_info_endpoint, '')
+		FROM connections c
+		JOIN provider_profiles pp ON pp.id = c.provider_id
+		WHERE c.id = $1`, connectionID).Scan(&authType, &authHeader, &apiBaseURL, &userInfoEndpoint)
+	if err != nil {
+		http.Error(w, "Failed to load provider config", http.StatusInternalServerError)
+		return
+	}
+
+	if userInfoEndpoint != "" && apiBaseURL != "" {
+		if err := validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint, reqBody.Credentials); err != nil {
+			http.Error(w, "Invalid credentials: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
 	err = h.storeTokens(connectionID, reqBody.Credentials)
 	if err != nil {
 		http.Error(w, "Failed to store credentials", http.StatusInternalServerError)
@@ -345,6 +365,56 @@ func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 	}
 
 	http.Redirect(w, r, returnURL+"?status=success&connection_id="+connectionID.String(), http.StatusFound)
+}
+
+// validateCredentials makes a test call to the provider's user_info_endpoint to verify the submitted credentials.
+func validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint string, credentials map[string]interface{}) error {
+	testURL := strings.TrimRight(apiBaseURL, "/") + "/" + strings.TrimLeft(userInfoEndpoint, "/")
+
+	req, err := http.NewRequest(http.MethodGet, testURL, nil)
+	if err != nil {
+		return fmt.Errorf("could not build validation request")
+	}
+
+	switch authType {
+	case "api_key":
+		apiKey, _ := credentials["api_key"].(string)
+		if apiKey == "" {
+			return fmt.Errorf("api_key credential is required")
+		}
+		headerName := authHeader
+		if headerName == "" {
+			headerName = "Authorization"
+		}
+		if strings.ToLower(headerName) == "authorization" {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		} else {
+			req.Header.Set(headerName, apiKey)
+		}
+
+	case "basic_auth":
+		username, _ := credentials["username"].(string)
+		password, _ := credentials["password"].(string)
+		encoded := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+		req.Header.Set("Authorization", "Basic "+encoded)
+
+	default:
+		// No validation possible for unknown auth types
+		return nil
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("could not reach provider to validate credentials")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("credentials rejected by provider")
+	}
+
+	return nil
 }
 
 // containsScope returns true if target (case-insensitive) is present in scopes

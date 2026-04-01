@@ -173,6 +173,12 @@ func TestSaveCredential_ValidState(t *testing.T) {
 		WithArgs(connectionID).
 		WillReturnRows(sqlmock.NewRows([]string{"return_url"}).AddRow("http://localhost:3000/callback"))
 
+	// Mock the provider config lookup for credential validation
+	mock.ExpectQuery("SELECT pp.auth_type").
+		WithArgs(connectionID).
+		WillReturnRows(sqlmock.NewRows([]string{"auth_type", "auth_header", "api_base_url", "user_info_endpoint"}).
+			AddRow("api_key", "", "", ""))
+
 	// 1. Mock the call to storeTokens (upsert)
 	mock.ExpectExec(
 		"INSERT INTO tokens",
