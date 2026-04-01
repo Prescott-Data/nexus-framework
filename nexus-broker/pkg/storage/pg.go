@@ -133,11 +133,16 @@ func (db *DB) UpdateConnectionStatus(id uuid.UUID, status string) error {
 	return err
 }
 
-// Token operations
+// Token operations — upsert to maintain one row per connection (issue #25).
 func (db *DB) CreateToken(t *Token) error {
 	query := `
 		INSERT INTO tokens (connection_id, encrypted_data, expires_at)
 		VALUES ($1, $2, $3)
+		ON CONFLICT (connection_id)
+		DO UPDATE SET
+			encrypted_data = EXCLUDED.encrypted_data,
+			expires_at     = EXCLUDED.expires_at,
+			created_at     = NOW()
 		RETURNING id, created_at`
 
 	return db.QueryRowx(query, t.ConnectionID, t.EncryptedData, t.ExpiresAt).Scan(&t.ID, &t.CreatedAt)

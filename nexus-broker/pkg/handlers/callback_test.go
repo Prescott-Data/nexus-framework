@@ -81,7 +81,7 @@ func TestRefresh_OAuth2Provider(t *testing.T) {
 	encryptedToken, err := vault.Encrypt([]byte("01234567890123456789012345678901"), tokenJSON)
 	assert.NoError(t, err)
 
-	mock.ExpectQuery("SELECT encrypted_data FROM tokens WHERE connection_id=\\$1 ORDER BY created_at DESC LIMIT 1").
+	mock.ExpectQuery("SELECT encrypted_data FROM tokens WHERE connection_id=\\$1").
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"encrypted_data"}).AddRow(encryptedToken))
 
@@ -173,9 +173,9 @@ func TestSaveCredential_ValidState(t *testing.T) {
 		WithArgs(connectionID).
 		WillReturnRows(sqlmock.NewRows([]string{"return_url"}).AddRow("http://localhost:3000/callback"))
 
-	// 1. Mock the call to storeTokens
+	// 1. Mock the call to storeTokens (upsert)
 	mock.ExpectExec(
-		"INSERT INTO tokens \\(connection_id, encrypted_data, expires_at\\) VALUES \\(\\$1, \\$2, \\$3\\)",
+		"INSERT INTO tokens",
 	).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
 
 	// 2. Mock the call to updateConnectionStatus
