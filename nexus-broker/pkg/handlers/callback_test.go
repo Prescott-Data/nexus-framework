@@ -26,7 +26,7 @@ func TestRefresh_StaticKeyProvider(t *testing.T) {
 	defer db.Close()
 
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
-	handler := NewCallbackHandler(sqlxDB, []byte("test-key"), []byte("test-key"), http.DefaultClient)
+	handler := NewCallbackHandler(sqlxDB, "http://localhost:8080", "/auth/callback", []byte("test-key"), []byte("test-key"), http.DefaultClient)
 
 	// Mock the initial query to find the connection
 
@@ -66,7 +66,7 @@ func TestRefresh_OAuth2Provider(t *testing.T) {
 	}))
 	defer mockProviderServer.Close()
 
-	handler := NewCallbackHandler(sqlxDB, []byte("01234567890123456789012345678901"), []byte("01234567890123456789012345678901"), mockProviderServer.Client())
+	handler := NewCallbackHandler(sqlxDB, "http://localhost:8080", "/auth/callback", []byte("01234567890123456789012345678901"), []byte("01234567890123456789012345678901"), mockProviderServer.Client())
 
 	// Mock the initial query to find the connection
 
@@ -117,7 +117,7 @@ func TestGetCaptureSchema(t *testing.T) {
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 	// Use a real key for signing/verifying state
 	stateKey := []byte("01234567890123456789012345678901")
-	handler := NewCallbackHandler(sqlxDB, nil, stateKey, http.DefaultClient)
+	handler := NewCallbackHandler(sqlxDB, "http://localhost:8080", "/auth/callback", nil, stateKey, http.DefaultClient)
 
 	providerID := uuid.New()
 	stateData := auth.StateData{
@@ -170,7 +170,7 @@ func TestSaveCredential_ValidState(t *testing.T) {
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 	stateKey := []byte("01234567890123456789012345678901")
 	encryptionKey := []byte("01234567890123456789012345678901")
-	handler := NewCallbackHandler(sqlxDB, encryptionKey, stateKey, http.DefaultClient)
+	handler := NewCallbackHandler(sqlxDB, "http://localhost:8080", "/auth/callback", encryptionKey, stateKey, http.DefaultClient)
 
 	connectionID := uuid.New()
 	stateData := auth.StateData{
@@ -224,7 +224,7 @@ func TestSaveCredential_ValidState(t *testing.T) {
 }
 
 func TestSaveCredential_InvalidState(t *testing.T) {
-	handler := NewCallbackHandler(nil, nil, []byte("test-key"), http.DefaultClient)
+	handler := NewCallbackHandler(nil, "http://localhost:8080", "/auth/callback", nil, []byte("test-key"), http.DefaultClient)
 
 	creds := map[string]interface{}{"api_key": "test-key"}
 	body := map[string]interface{}{
@@ -245,7 +245,7 @@ func TestSaveCredential_InvalidState(t *testing.T) {
 }
 
 func TestSaveCredential_InvalidJSON(t *testing.T) {
-	handler := NewCallbackHandler(nil, nil, nil, http.DefaultClient)
+	handler := NewCallbackHandler(nil, "http://localhost:8080", "/auth/callback", nil, nil, http.DefaultClient)
 
 	req, err := http.NewRequest("POST", "/auth/capture-credential", bytes.NewBuffer([]byte("not-json")))
 	assert.NoError(t, err)
