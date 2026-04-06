@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
@@ -37,6 +39,11 @@ func TestRefresh_StaticKeyProvider(t *testing.T) {
 
 	req, err := http.NewRequest("POST", "/connections/b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1/refresh", nil)
 	assert.NoError(t, err)
+
+	// Add Chi route context
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("connectionID", "b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	rr := httptest.NewRecorder()
 	handler.Refresh(rr, req)
@@ -90,6 +97,11 @@ func TestRefresh_OAuth2Provider(t *testing.T) {
 
 	req, err := http.NewRequest("POST", "/connections/b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1/refresh", nil)
 	assert.NoError(t, err)
+
+	// Add Chi route context
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("connectionID", "b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	rr := httptest.NewRecorder()
 	handler.Refresh(rr, req)

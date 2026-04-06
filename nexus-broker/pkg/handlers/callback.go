@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
@@ -301,7 +303,9 @@ func (h *CallbackHandler) GetCaptureSchema(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // SaveCredential handles the submission of the credential capture form.
@@ -348,7 +352,7 @@ func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 	}
 
 	if userInfoEndpoint != "" && apiBaseURL != "" {
-		if err := validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint, reqBody.Credentials); err != nil {
+		if err := h.validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint, reqBody.Credentials); err != nil {
 			http.Error(w, "Invalid credentials: "+err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -365,11 +369,16 @@ func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if !server.IsReturnURLAllowed(returnURL) {
+		http.Error(w, "return_url not allowed", http.StatusBadRequest)
+		return
+	}
+
 	http.Redirect(w, r, returnURL+"?status=success&connection_id="+connectionID.String(), http.StatusFound)
 }
 
 // validateCredentials makes a test call to the provider's user_info_endpoint to verify the submitted credentials.
-func validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint string, credentials map[string]interface{}) error {
+func (h *CallbackHandler) validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint string, credentials map[string]interface{}) error {
 	testURL := strings.TrimRight(apiBaseURL, "/") + "/" + strings.TrimLeft(userInfoEndpoint, "/")
 
 	req, err := http.NewRequest(http.MethodGet, testURL, nil)
@@ -404,8 +413,7 @@ func validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint stri
 		return nil
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("could not reach provider to validate credentials")
 	}
@@ -432,12 +440,7 @@ func containsScope(scopes []string, target string) bool {
 // GetToken handles GET /connections/{connection_id}/token
 func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	// Extract connection ID from URL path
-	pathParts := strings.Split(r.URL.Path, "/")
-	if len(pathParts) < 3 {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
-		return
-	}
-	connectionIDStr := pathParts[len(pathParts)-2] // /connections/{id}/token
+	connectionIDStr := chi.URLParam(r, "connectionID")
 
 	connectionID, err := uuid.Parse(connectionIDStr)
 	if err != nil {
@@ -472,10 +475,12 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		if connection.Status == "attention" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(map[string]string{
+			if err := json.NewEncoder(w).Encode(map[string]string{
 				"error":  "attention_required",
 				"detail": "Connection requires attention. The user must re-authenticate.",
-			})
+			}); err != nil {
+				log.Printf("encode response: %v", err)
+			}
 			return
 		}
 
@@ -574,7 +579,9 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 
 	// Return the response
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // exchangeCodeForTokens exchanges authorization code for access tokens
@@ -621,8 +628,7 @@ func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret
 		req.SetBasicAuth(clientID, clientSecret)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -656,8 +662,7 @@ func (h *CallbackHandler) refreshTokens(tokenURL, clientID, clientSecret, refres
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json") // Ensure JSON response
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -678,13 +683,8 @@ func (h *CallbackHandler) refreshTokens(tokenURL, clientID, clientSecret, refres
 // Refresh handles POST /connections/{connection_id}/refresh
 func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	// Extract connection ID
-	parts := strings.Split(r.URL.Path, "/")
-	if len(parts) < 3 {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
-		return
-	}
-	idStr := parts[len(parts)-2]
-	connectionID, err := uuid.Parse(idStr)
+	connectionIDStr := chi.URLParam(r, "connectionID")
+	connectionID, err := uuid.Parse(connectionIDStr)
 	if err != nil {
 		http.Error(w, "Invalid connection ID", http.StatusBadRequest)
 		return
@@ -756,10 +756,12 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusConflict) // 409 Conflict is a good signal for "state issue"
-				json.NewEncoder(w).Encode(map[string]string{
+				if err := json.NewEncoder(w).Encode(map[string]string{
 					"error":  "attention_required",
 					"detail": "The connection credentials are invalid or expired and cannot be refreshed. User re-consent is required.",
-				})
+				}); err != nil {
+					log.Printf("encode response: %v", err)
+				}
 				return
 			}
 
@@ -773,7 +775,9 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(newTokens)
+		if err := json.NewEncoder(w).Encode(newTokens); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 	default:
 		http.Error(w, "Unsupported provider auth_type", http.StatusInternalServerError)
 		return

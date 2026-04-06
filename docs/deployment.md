@@ -21,6 +21,20 @@ Required — the broker will not start without these:
 - `STATE_KEY` **(REQUIRED)**: Same as Broker — must match exactly.
 - `BROKER_API_KEY`: Key to authenticate with the Broker.
 
+## Shared Secrets Management
+
+The Nexus Framework relies on two primary symmetric keys. Proper management of these keys is critical for security and availability.
+
+### 1. `ENCRYPTION_KEY` (AES-256-GCM)
+Used to encrypt decrypted OAuth tokens before they are stored in the database.
+- **Risk**: If this key is changed or lost, all existing connections in the database will become unreadable. You will be forced to rotate the key and ask all users to re-authenticate.
+- **Guidance**: Store this in a secure vault (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault). It should be stable across deployments.
+
+### 2. `STATE_KEY` (HMAC-SHA256)
+Used to sign the `state` parameter during the initial redirect and verify it on callback.
+- **Risk**: If the Broker and Gateway have different keys, all OAuth callbacks will fail with "Invalid state" errors.
+- **Guidance**: Both the Broker and Gateway instances must receive the exact same value. In orchestrated environments (Kubernetes, Docker Swarm), use a shared Secret object.
+
 ## Local Development (Quickstart)
 
 ### 0. Generate required keys
