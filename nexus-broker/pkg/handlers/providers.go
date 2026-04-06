@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/httputil"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 
 	"github.com/go-chi/chi/v5"
@@ -35,8 +36,7 @@ func (h *ProvidersHandler) Get(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Provider not found", http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(profile)
+	httputil.WriteJSON(w, http.StatusOK, profile)
 }
 
 // Update handles PUT /providers/{id} to update a provider profile
@@ -106,16 +106,13 @@ func (h *ProvidersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // Register handles POST /providers for registering a new provider profile
 func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	var request struct {
 		Profile json.RawMessage `json:"profile"`
 	}
 
 	// Decode request
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error":   "invalid_json",
 			"message": "Invalid JSON payload",
 		})
@@ -123,8 +120,7 @@ func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if request.Profile == nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error":   "missing_profile",
 			"message": "Missing 'profile' key in JSON",
 		})
@@ -147,16 +143,14 @@ func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
 			errorKey = "missing_" + strings.TrimSpace(field)
 		}
 
-		json.NewEncoder(w).Encode(map[string]string{
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error":   errorKey,
 			"message": err.Error(),
 		})
 		return
 	}
 
-	// Success response
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	httputil.WriteJSON(w, http.StatusCreated, map[string]interface{}{
 		"id":      profile.ID,
 		"message": "Provider profile created successfully",
 	})
@@ -169,8 +163,7 @@ func (h *ProvidersHandler) List(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to list providers", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(rows)
+	httputil.WriteJSON(w, http.StatusOK, rows)
 }
 
 // GetByName handles GET /providers/by-name/{name}
@@ -190,8 +183,7 @@ func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"id": profile.ID.String()})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"id": profile.ID.String()})
 }
 
 // DeleteByName handles DELETE /providers/by-name/{name} to delete ALL providers with that name
@@ -224,6 +216,5 @@ func (h *ProvidersHandler) Metadata(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to retrieve metadata", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metadata)
+	httputil.WriteJSON(w, http.StatusOK, metadata)
 }
