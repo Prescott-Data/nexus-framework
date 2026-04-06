@@ -2,6 +2,17 @@
 
 The Nexus Framework is a provider-agnostic, secure integration layer for managing OAuth 2.0 and OIDC connections. It abstracts away the complexity of managing tokens, refreshes, and provider quirks, allowing your agents and services to focus on business logic.
 
+## ⚠️ Critical Configuration
+
+The Nexus Framework requires two primary shared secrets to operate securely:
+
+1.  **`ENCRYPTION_KEY`**: A 32-byte key used by the Broker to encrypt tokens at rest.
+2.  **`STATE_KEY`**: A 32-byte key shared between the Broker and Gateway to sign and verify the OAuth `state` parameter.
+
+**Both services will refuse to start if these variables are missing or invalid.** In distributed deployments, the `STATE_KEY` **must** be identical across all Broker and Gateway instances, or OAuth callbacks will fail with "Invalid state" errors.
+
+Generate a secure key with: `openssl rand -base64 32`
+
 ## Quick Start
 
 The fastest way to get started is with Docker Compose. This will spin up the Broker, Gateway, Postgres, and Redis.

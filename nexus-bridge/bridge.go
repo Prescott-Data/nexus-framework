@@ -37,6 +37,7 @@ type Bridge struct {
 	messageSizeLimit int64
 	writeTimeout     time.Duration
 	pingInterval     time.Duration
+	randSource       *rand.Rand
 }
 
 // New creates a new Bridge with optional configurations.
@@ -56,6 +57,7 @@ func New(oauthClient OAuthClient, opts ...Option) *Bridge {
 		messageSizeLimit: 65536, // 64KB
 		writeTimeout:     10 * time.Second,
 		pingInterval:     30 * time.Second,
+		randSource:       rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
 	// Apply all the functional options provided by the user
@@ -83,7 +85,9 @@ func NewStandard(oauthClient OAuthClient, agentLabels map[string]string, opts ..
 // MaintainWebSocket is the main entry point. It runs a loop that attempts
 // to establish and manage a connection, with a backoff policy for retries.
 func (b *Bridge) MaintainWebSocket(ctx context.Context, connectionID string, endpointURL string, handler Handler) error {
+	attempt := 0
 	for {
+		start := time.Now()
 		err := b.manageConnection(ctx, connectionID, endpointURL, handler)
 		if err != nil {
 			var permanentErr *PermanentError
@@ -95,6 +99,11 @@ func (b *Bridge) MaintainWebSocket(ctx context.Context, connectionID string, end
 			b.logger.Error(err, "Connection manager exited with recoverable error", "connectionID", connectionID)
 		}
 
+		// Reset attempt counter if the connection was stable for a while (e.g., 1 minute)
+		if time.Since(start) > 1*time.Minute {
+			attempt = 0
+		}
+
 		select {
 		case <-ctx.Done():
 			b.logger.Info("Context cancelled; shutting down bridge", "connectionID", connectionID)
@@ -102,8 +111,9 @@ func (b *Bridge) MaintainWebSocket(ctx context.Context, connectionID string, end
 			return ctx.Err()
 		default:
 			// Connection dropped for a recoverable reason, wait and retry.
-			backoff := b.calculateBackoff()
-			b.logger.Info("Reconnecting", "connectionID", connectionID, "after", backoff)
+			backoff := b.calculateBackoff(attempt)
+			attempt++
+			b.logger.Info("Reconnecting", "connectionID", connectionID, "after", backoff, "attempt", attempt)
 			time.Sleep(backoff)
 		}
 	}
@@ -119,33 +129,21 @@ func (b *Bridge) MaintainGRPCConnection(
 	run func(ctx context.Context, conn *grpc.ClientConn) error,
 	opts ...grpc.DialOption,
 ) error {
+	attempt := 0
 	for {
+		start := time.Now()
 		// 1. Prepare Credentials
 		// We use our custom PerRPCCredentials implementation
 		creds := NewBridgeCredentials(b.oauthClient, connectionID, b.refreshBuffer, b.logger)
 
 		// 2. Dial Options
-		// Default to TransportCredentials (TLS) usually, but allow insecure via opts if needed.
-		// However, PerRPCCredentials usually requires TLS.
-		// For simplicity/testing, we default to insecure if no transport creds provided,
-		// BUT BridgeCredentials.RequireTransportSecurity returns true, so gRPC will fail if insecure.
-		// We append our creds to the user provided options.
 		dialOpts := append(opts, grpc.WithPerRPCCredentials(creds))
-
-		// If user didn't provide transport credentials, we might need to add insecure for testing
-		// OR we assume user provides WithTransportCredentials.
-		// Let's assume user provides transport security options in 'opts'.
-		// But for a robust default, we check? No, we can't easily inspect DialOptions.
-		// We rely on the user to provide transport security (e.g. credentials.NewTLS) in 'opts'
-		// if they are connecting to a secure endpoint.
 
 		// 3. Dial
 		b.logger.Info("Dialing gRPC target", "target", target)
-		// Note: grpc.NewClient is the modern API, but Dial is still common. Using NewClient.
 		conn, err := grpc.NewClient(target, dialOpts...)
 		if err != nil {
 			b.logger.Error(err, "Failed to dial gRPC target", "target", target)
-			// Dial errors are usually retryable (e.g. DNS)
 			goto Retry
 		}
 
@@ -180,13 +178,19 @@ func (b *Bridge) MaintainGRPCConnection(
 			b.logger.Info("gRPC run loop exited cleanly", "connectionID", connectionID)
 		}
 
+		// Reset attempt counter if the connection was stable for a while
+		if time.Since(start) > 1*time.Minute {
+			attempt = 0
+		}
+
 	Retry:
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			backoff := b.calculateBackoff()
-			b.logger.Info("Reconnecting gRPC", "after", backoff)
+			backoff := b.calculateBackoff(attempt)
+			attempt++
+			b.logger.Info("Reconnecting gRPC", "after", backoff, "attempt", attempt)
 			time.Sleep(backoff)
 		}
 	}
@@ -378,10 +382,18 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 }
 
 // NEW: Helper function for calculating backoff with jitter.
-func (b *Bridge) calculateBackoff() time.Duration {
-	backoff := b.retryPolicy.MinBackoff + time.Duration(rand.Int63n(int64(b.retryPolicy.Jitter)))
-	if backoff > b.retryPolicy.MaxBackoff {
-		return b.retryPolicy.MaxBackoff
+func (b *Bridge) calculateBackoff(attempt int) time.Duration {
+	if attempt < 0 {
+		attempt = 0
 	}
-	return backoff
+	if attempt > 10 {
+		attempt = 10
+	}
+	factor := 1 << uint(attempt)
+	base := float64(b.retryPolicy.MinBackoff) * float64(factor)
+	if base > float64(b.retryPolicy.MaxBackoff) {
+		base = float64(b.retryPolicy.MaxBackoff)
+	}
+	jitter := 0.2 + b.randSource.Float64()*0.6 // 0.2..0.8
+	return time.Duration(base * jitter)
 }

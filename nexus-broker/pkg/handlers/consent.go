@@ -183,7 +183,9 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 	case "api_key", "basic_auth":
 		// Create Connection
 		connectionID := uuid.New()
@@ -211,7 +213,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Build Internal URL to the schema endpoint
-		brokerBaseURL := strings.TrimSuffix(h.baseURL, "")
+		brokerBaseURL := strings.TrimSuffix(h.baseURL, "/")
 		capturePath := "/auth/capture-schema"
 
 		u, _ := url.Parse(brokerBaseURL + capturePath)
@@ -227,7 +229,9 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 	default:
 		http.Error(w, "Unsupported provider auth_type", http.StatusBadRequest)
 		return

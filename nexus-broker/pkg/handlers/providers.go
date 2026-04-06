@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -36,7 +37,9 @@ func (h *ProvidersHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(profile)
+	if err := json.NewEncoder(w).Encode(profile); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // Update handles PUT /providers/{id} to update a provider profile
@@ -115,19 +118,23 @@ func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// Decode request
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		if err := json.NewEncoder(w).Encode(map[string]string{
 			"error":   "invalid_json",
 			"message": "Invalid JSON payload",
-		})
+		}); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 		return
 	}
 
 	if request.Profile == nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		if err := json.NewEncoder(w).Encode(map[string]string{
 			"error":   "missing_profile",
 			"message": "Missing 'profile' key in JSON",
-		})
+		}); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 		return
 	}
 
@@ -147,19 +154,23 @@ func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
 			errorKey = "missing_" + strings.TrimSpace(field)
 		}
 
-		json.NewEncoder(w).Encode(map[string]string{
+		if err := json.NewEncoder(w).Encode(map[string]string{
 			"error":   errorKey,
 			"message": err.Error(),
-		})
+		}); err != nil {
+			log.Printf("encode response: %v", err)
+		}
 		return
 	}
 
 	// Success response
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"id":      profile.ID,
 		"message": "Provider profile created successfully",
-	})
+	}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // List handles GET /providers to list provider ids and names
@@ -170,7 +181,9 @@ func (h *ProvidersHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(rows)
+	if err := json.NewEncoder(w).Encode(rows); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // GetByName handles GET /providers/by-name/{name}
@@ -191,7 +204,9 @@ func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"id": profile.ID.String()})
+	if err := json.NewEncoder(w).Encode(map[string]string{"id": profile.ID.String()}); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 // DeleteByName handles DELETE /providers/by-name/{name} to delete ALL providers with that name
@@ -225,5 +240,7 @@ func (h *ProvidersHandler) Metadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metadata)
+	if err := json.NewEncoder(w).Encode(metadata); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }

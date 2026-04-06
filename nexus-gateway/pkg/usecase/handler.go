@@ -41,7 +41,10 @@ func (e *BrokerStatusError) Error() string { return fmt.Sprintf("broker status %
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		// Log the error using standard log since we don't have request context here
+		fmt.Fprintf(os.Stderr, "failed to encode json response: %v\n", err)
+	}
 }
 
 // writeError writes a structured error body
@@ -269,10 +272,26 @@ func (h *Handler) resolveProviderID(ctx context.Context, providerName string) (s
 		return "", fmt.Errorf("empty provider_name")
 	}
 
+	// Check cache first
+	h.cacheMu.RLock()
+	entry, ok := h.providerCache[name]
+	h.cacheMu.RUnlock()
+	if ok && time.Now().Before(entry.expiresAt) {
+		return entry.providerID, nil
+	}
+
 	// Try canonical by-name endpoint
 	resp, err := h.brokerClient.GetProvidersByNameNameWithResponse(ctx, name)
 	if err == nil && resp.StatusCode() == http.StatusOK && resp.JSON200 != nil && resp.JSON200.Id != nil {
-		return *resp.JSON200.Id, nil
+		id := *resp.JSON200.Id
+		// Populate cache
+		h.cacheMu.Lock()
+		h.providerCache[name] = providerCacheEntry{
+			providerID: id,
+			expiresAt:  time.Now().Add(5 * time.Minute),
+		}
+		h.cacheMu.Unlock()
+		return id, nil
 	}
 
 	// Fallback: list and filter
@@ -306,6 +325,15 @@ func (h *Handler) resolveProviderID(ctx context.Context, providerName string) (s
 	if matches > 1 {
 		return "", fmt.Errorf("%w: %s", ErrProviderAmbiguous, name)
 	}
+
+	// Populate cache with matched ID
+	h.cacheMu.Lock()
+	h.providerCache[name] = providerCacheEntry{
+		providerID: matchedID,
+		expiresAt:  time.Now().Add(5 * time.Minute),
+	}
+	h.cacheMu.Unlock()
+
 	return matchedID, nil
 }
 
@@ -385,7 +413,7 @@ func (h *Handler) RequestConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CheckConnection(w http.ResponseWriter, r *http.Request) {
-	connectionID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/v1/check-connection/"))
+	connectionID := chi.URLParam(r, "connectionID")
 	if connectionID == "" {
 		http.Error(w, "missing connection id", http.StatusBadRequest)
 		return
@@ -400,11 +428,13 @@ func (h *Handler) CheckConnection(w http.ResponseWriter, r *http.Request) {
 	logging.Info(r.Context(), "check_connection.result", map[string]any{"connection_id": connectionID, "status": status})
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": status})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": status}); err != nil {
+		logging.Error(r.Context(), "check_connection.encode_error", map[string]any{"error": err.Error()})
+	}
 }
 
 func (h *Handler) GetToken(w http.ResponseWriter, r *http.Request) {
-	connectionID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/v1/token/"))
+	connectionID := chi.URLParam(r, "connectionID")
 	if connectionID == "" {
 		writeError(w, http.StatusBadRequest, "missing_fields", "missing connection id", nil)
 		return
@@ -484,11 +514,12 @@ func (h *Handler) RefreshConnectionCore(ctx context.Context, connectionID string
 }
 
 func (h *Handler) RefreshConnection(w http.ResponseWriter, r *http.Request) {
-	connectionID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/v1/refresh/"))
+	connectionID := chi.URLParam(r, "connectionID")
 	if connectionID == "" {
 		writeError(w, http.StatusBadRequest, "missing_fields", "missing connection id", nil)
 		return
 	}
+
 
 	logging.Info(r.Context(), "refresh_connection.start", map[string]any{"connection_id": connectionID})
 
