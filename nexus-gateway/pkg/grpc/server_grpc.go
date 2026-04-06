@@ -31,6 +31,21 @@ func NewService(handler *usecase.Handler) *Service {
 	return &Service{usecaseHandler: handler}
 }
 
+func mapUsecaseError(err error, msg string) error {
+	switch {
+	case errors.Is(err, usecase.ErrProviderNotFound):
+		return status.Errorf(codes.NotFound, "%s: %v", msg, err)
+	case errors.Is(err, usecase.ErrInvalidState):
+		return status.Errorf(codes.InvalidArgument, "%s: %v", msg, err)
+	case errors.Is(err, usecase.ErrProviderAmbiguous):
+		return status.Errorf(codes.FailedPrecondition, "%s: %v", msg, err)
+	case errors.Is(err, usecase.ErrBrokerUnavailable):
+		return status.Errorf(codes.Unavailable, "%s: %v", msg, err)
+	default:
+		return status.Errorf(codes.Internal, "%s: %v", msg, err)
+	}
+}
+
 // RequestConnection implements NexusServiceServer.RequestConnection.
 func (s *Service) RequestConnection(ctx context.Context, req *nexuspb.RequestConnectionRequest) (*nexuspb.RequestConnectionResponse, error) {
 	if req == nil {
@@ -45,7 +60,7 @@ func (s *Service) RequestConnection(ctx context.Context, req *nexuspb.RequestCon
 		Action:       req.GetAction(),
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "request connection failed: %v", err)
+		return nil, mapUsecaseError(err, "request connection failed")
 	}
 	return &nexuspb.RequestConnectionResponse{
 		AuthUrl:      out.AuthURL,
@@ -64,7 +79,7 @@ func (s *Service) CheckConnection(ctx context.Context, req *nexuspb.CheckConnect
 	}
 	statusStr, err := s.usecaseHandler.CheckConnectionCore(ctx, req.GetConnectionId())
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "check connection failed: %v", err)
+		return nil, mapUsecaseError(err, "check connection failed")
 	}
 	return &nexuspb.CheckConnectionResponse{Status: statusStr}, nil
 }
@@ -77,7 +92,7 @@ func (s *Service) GetToken(ctx context.Context, req *nexuspb.GetTokenRequest) (*
 	data, code, err := s.usecaseHandler.GetTokenCore(ctx, req.GetConnectionId())
 	if err != nil {
 		_ = code // keep the HTTP status for potential mapping if needed later
-		return nil, status.Errorf(codes.Internal, "get token failed: %v", err)
+		return nil, mapUsecaseError(err, "get token failed")
 	}
 	st, err := structpb.NewStruct(data)
 	if err != nil {
@@ -94,7 +109,7 @@ func (s *Service) RefreshConnection(ctx context.Context, req *nexuspb.RefreshCon
 	data, code, err := s.usecaseHandler.RefreshConnectionCore(ctx, req.GetConnectionId())
 	if err != nil {
 		_ = code // unused
-		return nil, status.Errorf(codes.Internal, "refresh connection failed: %v", err)
+		return nil, mapUsecaseError(err, "refresh connection failed")
 	}
 	st, err := structpb.NewStruct(data)
 	if err != nil {

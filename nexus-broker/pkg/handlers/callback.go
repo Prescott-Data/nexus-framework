@@ -30,6 +30,8 @@ import (
 // CallbackHandler handles OAuth callback and token exchange
 type CallbackHandler struct {
 	db                    *sqlx.DB
+	baseURL               string
+	redirectPath          string
 	encryptionKey         []byte
 	stateKey              []byte
 	httpClient            *http.Client
@@ -41,7 +43,7 @@ type CallbackHandler struct {
 }
 
 // NewCallbackHandler creates a new callback handler
-func NewCallbackHandler(db *sqlx.DB, encryptionKey, stateKey []byte, httpClient *http.Client) *CallbackHandler {
+func NewCallbackHandler(db *sqlx.DB, baseURL, redirectPath string, encryptionKey, stateKey []byte, httpClient *http.Client) *CallbackHandler {
 	success := prometheus.NewCounter(prometheus.CounterOpts{
 		Name:        "oauth_token_exchanges_total",
 		Help:        "Total OAuth token exchanges",
@@ -77,6 +79,8 @@ func NewCallbackHandler(db *sqlx.DB, encryptionKey, stateKey []byte, httpClient 
 
 	return &CallbackHandler{
 		db:                    db,
+		baseURL:               baseURL,
+		redirectPath:          redirectPath,
 		encryptionKey:         encryptionKey,
 		stateKey:              stateKey,
 		httpClient:            httpClient,
