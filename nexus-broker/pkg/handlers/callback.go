@@ -20,6 +20,7 @@ import (
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/discovery"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/httputil"
 	oidcutil "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/oidc"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/server"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
@@ -300,8 +301,7 @@ func (h *CallbackHandler) GetCaptureSchema(w http.ResponseWriter, r *http.Reques
 		Schema:       schema,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	httputil.WriteJSON(w, http.StatusOK, response)
 }
 
 // SaveCredential handles the submission of the credential capture form.
@@ -470,9 +470,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "connection not active", "status": connection.Status}, r)
 
 		if connection.Status == "attention" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(map[string]string{
+			httputil.WriteJSON(w, http.StatusConflict, map[string]string{
 				"error":  "attention_required",
 				"detail": "Connection requires attention. The user must re-authenticate.",
 			})
@@ -572,9 +570,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	}
 	h.metricTokenGet.WithLabelValues(connection.ProviderID, hasID).Inc()
 
-	// Return the response
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	httputil.WriteJSON(w, http.StatusOK, response)
 }
 
 // exchangeCodeForTokens exchanges authorization code for access tokens
@@ -754,9 +750,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 				h.logAuditEvent(&connectionID, "token_refresh_fatal", map[string]string{"error": err.Error(), "status_code": fmt.Sprintf("%d", statusCode)}, r)
 				h.updateConnectionStatus(connectionID, "attention")
 
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusConflict) // 409 Conflict is a good signal for "state issue"
-				json.NewEncoder(w).Encode(map[string]string{
+				httputil.WriteJSON(w, http.StatusConflict, map[string]string{
 					"error":  "attention_required",
 					"detail": "The connection credentials are invalid or expired and cannot be refreshed. User re-consent is required.",
 				})
@@ -772,8 +766,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Store refreshed token failed", http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(newTokens)
+		httputil.WriteJSON(w, http.StatusOK, newTokens)
 	default:
 		http.Error(w, "Unsupported provider auth_type", http.StatusInternalServerError)
 		return

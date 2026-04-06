@@ -37,11 +37,19 @@ type BrokerStatusError struct{ Status int }
 
 func (e *BrokerStatusError) Error() string { return fmt.Sprintf("broker status %d", e.Status) }
 
-// writeJSON encodes v as JSON with status
+// writeJSON marshals v to JSON and writes it to w with the given status code.
+// Marshalling happens before any bytes are written to w, so a 500 can still be
+// sent if encoding fails.
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		logging.Error(context.Background(), "writeJSON.marshal_failed", map[string]any{"error": err.Error()})
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(data)
 }
 
 // writeError writes a structured error body
@@ -399,8 +407,7 @@ func (h *Handler) CheckConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	logging.Info(r.Context(), "check_connection.result", map[string]any{"connection_id": connectionID, "status": status})
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": status})
+	writeJSON(w, http.StatusOK, map[string]string{"status": status})
 }
 
 func (h *Handler) GetToken(w http.ResponseWriter, r *http.Request) {
