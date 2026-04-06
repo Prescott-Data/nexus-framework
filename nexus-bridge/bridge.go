@@ -109,9 +109,15 @@ func (b *Bridge) MaintainWebSocket(ctx context.Context, connectionID string, end
 	}
 }
 
-// MaintainGRPCConnection manages a persistent gRPC connection.
-// It handles authentication, dialing, and reconnection.
-// The 'run' function is called with the established ClientConn.
+// MaintainGRPCConnection manages a persistent gRPC connection with exponential
+// backoff and context-aware retry. The run callback receives each established
+// connection; its return value determines whether to retry, stop, or exit cleanly.
+//
+// Terminal conditions (no retry):
+//   - run returns nil (clean exit)
+//   - run returns ErrInteractionRequired (user must re-authenticate)
+//   - run returns a *PermanentError
+//   - context is cancelled
 func (b *Bridge) MaintainGRPCConnection(
 	ctx context.Context,
 	connectionID string,
@@ -119,76 +125,66 @@ func (b *Bridge) MaintainGRPCConnection(
 	run func(ctx context.Context, conn *grpc.ClientConn) error,
 	opts ...grpc.DialOption,
 ) error {
-	for {
-		// 1. Prepare Credentials
-		// We use our custom PerRPCCredentials implementation
-		creds := NewBridgeCredentials(b.oauthClient, connectionID, b.refreshBuffer, b.logger)
+	backoff := b.retryPolicy.MinBackoff
+	attempt := 0
 
-		// 2. Dial Options
-		// Default to TransportCredentials (TLS) usually, but allow insecure via opts if needed.
-		// However, PerRPCCredentials usually requires TLS.
-		// For simplicity/testing, we default to insecure if no transport creds provided,
-		// BUT BridgeCredentials.RequireTransportSecurity returns true, so gRPC will fail if insecure.
-		// We append our creds to the user provided options.
+	for {
+		if attempt > 0 {
+			wait := b.applyJitter(backoff)
+			b.logger.Info("Reconnecting gRPC", "target", target, "attempt", attempt, "after", wait)
+			select {
+			case <-ctx.Done():
+				b.logger.Info("Context cancelled during backoff; stopping gRPC bridge", "connectionID", connectionID)
+				return ctx.Err()
+			case <-time.After(wait):
+			}
+		}
+		attempt++
+
+		creds := NewBridgeCredentials(b.oauthClient, connectionID, b.refreshBuffer, b.logger)
 		dialOpts := append(opts, grpc.WithPerRPCCredentials(creds))
 
-		// If user didn't provide transport credentials, we might need to add insecure for testing
-		// OR we assume user provides WithTransportCredentials.
-		// Let's assume user provides transport security options in 'opts'.
-		// But for a robust default, we check? No, we can't easily inspect DialOptions.
-		// We rely on the user to provide transport security (e.g. credentials.NewTLS) in 'opts'
-		// if they are connecting to a secure endpoint.
-
-		// 3. Dial
-		b.logger.Info("Dialing gRPC target", "target", target)
-		// Note: grpc.NewClient is the modern API, but Dial is still common. Using NewClient.
+		b.logger.Info("Dialing gRPC target", "target", target, "attempt", attempt)
 		conn, err := grpc.NewClient(target, dialOpts...)
 		if err != nil {
-			b.logger.Error(err, "Failed to dial gRPC target", "target", target)
-			// Dial errors are usually retryable (e.g. DNS)
-			goto Retry
+			b.logger.Error(err, "Failed to dial gRPC target", "target", target, "attempt", attempt)
+			backoff = b.growBackoff(backoff)
+			continue
 		}
 
 		b.metrics.IncConnections()
 		b.metrics.SetConnectionStatus(1)
 		b.logger.Info("gRPC connection established", "target", target)
 
-		// 4. Run User Logic
 		err = run(ctx, conn)
-		
-		// Cleanup
+
 		conn.Close()
 		b.metrics.SetConnectionStatus(0)
 		b.metrics.IncDisconnects()
 
-		// 5. Handle Error
-		if err != nil {
-			// Check if permanent
-			var permanentErr *PermanentError
-			if errors.As(err, &permanentErr) {
-				b.logger.Error(err, "Permanent error in gRPC run loop; stopping", "connectionID", connectionID)
-				return err
-			}
-			// Check if Context Done
-			if errors.Is(err, ctx.Err()) {
-				b.logger.Info("Context cancelled; shutting down gRPC bridge")
-				return err
-			}
-			
-			b.logger.Error(err, "gRPC run loop exited with error", "connectionID", connectionID)
-		} else {
+		if err == nil {
 			b.logger.Info("gRPC run loop exited cleanly", "connectionID", connectionID)
+			return nil
 		}
 
-	Retry:
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			backoff := b.calculateBackoff()
-			b.logger.Info("Reconnecting gRPC", "after", backoff)
-			time.Sleep(backoff)
+		if errors.Is(err, ErrInteractionRequired) {
+			b.logger.Error(err, "Interaction required; stopping gRPC retry", "connectionID", connectionID)
+			return err
 		}
+
+		var permanentErr *PermanentError
+		if errors.As(err, &permanentErr) {
+			b.logger.Error(err, "Permanent error in gRPC run loop; stopping", "connectionID", connectionID)
+			return err
+		}
+
+		if ctx.Err() != nil {
+			b.logger.Info("Context cancelled; shutting down gRPC bridge", "connectionID", connectionID)
+			return ctx.Err()
+		}
+
+		b.logger.Error(err, "gRPC run loop exited with error; will retry", "connectionID", connectionID, "attempt", attempt)
+		backoff = b.growBackoff(backoff)
 	}
 }
 
@@ -377,7 +373,25 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 	}
 }
 
-// NEW: Helper function for calculating backoff with jitter.
+// growBackoff doubles the current backoff, capping at MaxBackoff.
+func (b *Bridge) growBackoff(current time.Duration) time.Duration {
+	next := current * 2
+	if next > b.retryPolicy.MaxBackoff || next <= 0 {
+		return b.retryPolicy.MaxBackoff
+	}
+	return next
+}
+
+// applyJitter adds random jitter to a duration to prevent thundering herd
+// when multiple agents reconnect simultaneously after a gateway restart.
+func (b *Bridge) applyJitter(d time.Duration) time.Duration {
+	if b.retryPolicy.Jitter <= 0 {
+		return d
+	}
+	return d + time.Duration(rand.Int63n(int64(b.retryPolicy.Jitter)))
+}
+
+// calculateBackoff returns a flat backoff with jitter (used by MaintainWebSocket).
 func (b *Bridge) calculateBackoff() time.Duration {
 	backoff := b.retryPolicy.MinBackoff + time.Duration(rand.Int63n(int64(b.retryPolicy.Jitter)))
 	if backoff > b.retryPolicy.MaxBackoff {
