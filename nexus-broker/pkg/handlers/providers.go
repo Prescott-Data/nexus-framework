@@ -3,10 +3,10 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/httputil"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 
 	"github.com/go-chi/chi/v5"
@@ -36,10 +36,7 @@ func (h *ProvidersHandler) Get(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Provider not found", http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(profile); err != nil {
-		log.Printf("encode response: %v", err)
-	}
+	httputil.WriteJSON(w, http.StatusOK, profile)
 }
 
 // Update handles PUT /providers/{id} to update a provider profile
@@ -109,32 +106,24 @@ func (h *ProvidersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // Register handles POST /providers for registering a new provider profile
 func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	var request struct {
 		Profile json.RawMessage `json:"profile"`
 	}
 
 	// Decode request
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error":   "invalid_json",
 			"message": "Invalid JSON payload",
-		}); err != nil {
-			log.Printf("encode response: %v", err)
-		}
+		})
 		return
 	}
 
 	if request.Profile == nil {
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error":   "missing_profile",
 			"message": "Missing 'profile' key in JSON",
-		}); err != nil {
-			log.Printf("encode response: %v", err)
-		}
+		})
 		return
 	}
 
@@ -154,23 +143,17 @@ func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
 			errorKey = "missing_" + strings.TrimSpace(field)
 		}
 
-		if err := json.NewEncoder(w).Encode(map[string]string{
+		httputil.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error":   errorKey,
 			"message": err.Error(),
-		}); err != nil {
-			log.Printf("encode response: %v", err)
-		}
+		})
 		return
 	}
 
-	// Success response
-	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+	httputil.WriteJSON(w, http.StatusCreated, map[string]interface{}{
 		"id":      profile.ID,
 		"message": "Provider profile created successfully",
-	}); err != nil {
-		log.Printf("encode response: %v", err)
-	}
+	})
 }
 
 // List handles GET /providers to list provider ids and names
@@ -180,10 +163,7 @@ func (h *ProvidersHandler) List(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to list providers", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(rows); err != nil {
-		log.Printf("encode response: %v", err)
-	}
+	httputil.WriteJSON(w, http.StatusOK, rows)
 }
 
 // GetByName handles GET /providers/by-name/{name}
@@ -203,10 +183,7 @@ func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]string{"id": profile.ID.String()}); err != nil {
-		log.Printf("encode response: %v", err)
-	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"id": profile.ID.String()})
 }
 
 // DeleteByName handles DELETE /providers/by-name/{name} to delete ALL providers with that name
@@ -239,8 +216,5 @@ func (h *ProvidersHandler) Metadata(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to retrieve metadata", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(metadata); err != nil {
-		log.Printf("encode response: %v", err)
-	}
+	httputil.WriteJSON(w, http.StatusOK, metadata)
 }
