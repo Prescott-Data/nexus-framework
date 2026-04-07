@@ -2,8 +2,8 @@ package handlers
 
 import (
 	"database/sql"
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -18,6 +18,7 @@ import (
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/discovery"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/httputil"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/server"
 )
 
@@ -182,10 +183,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 			ProviderID: request.ProviderID,
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			log.Printf("encode response: %v", err)
-		}
+		httputil.WriteJSON(w, http.StatusOK, response)
 	case "api_key", "basic_auth":
 		// Create Connection
 		connectionID := uuid.New()
@@ -213,7 +211,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Build Internal URL to the schema endpoint
-		brokerBaseURL := strings.TrimSuffix(h.baseURL, "/")
+		brokerBaseURL := strings.TrimSuffix(h.baseURL, "")
 		capturePath := "/auth/capture-schema"
 
 		u, _ := url.Parse(brokerBaseURL + capturePath)
@@ -228,10 +226,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 			ProviderID: request.ProviderID,
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			log.Printf("encode response: %v", err)
-		}
+		httputil.WriteJSON(w, http.StatusOK, response)
 	default:
 		http.Error(w, "Unsupported provider auth_type", http.StatusBadRequest)
 		return
@@ -279,17 +274,17 @@ func (h *ConsentHandler) buildAuthURL(providerAuthURL, clientID, state, codeChal
 	q.Set("client_id", clientID)
 	q.Set("redirect_uri", baseURL+redirectPath)
 	q.Set("response_type", "code")
-	
+
 	if !skipScopeOnAuth {
 		if len(scopes) > 0 {
 			q.Set("scope", strings.Join(scopes, " "))
 		} else {
-			// Backwards compatibility or provider defaults might expect an empty scope parameter, 
+			// Backwards compatibility or provider defaults might expect an empty scope parameter,
 			// but we only set it if not explicitly skipping.
 			q.Set("scope", "")
 		}
 	}
-	
+
 	q.Set("state", state)
 	q.Set("code_challenge", codeChallenge)
 	q.Set("code_challenge_method", "S256")
