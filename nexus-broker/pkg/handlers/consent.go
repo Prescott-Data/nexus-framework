@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -32,7 +33,6 @@ type ConsentSpec struct {
 type ConsentHandler struct {
 	db             *sqlx.DB
 	baseURL        string
-	redirectPath   string
 	stateKey       []byte
 	httpClient     *http.Client
 	consentsMetric prometheus.Counter
@@ -40,7 +40,7 @@ type ConsentHandler struct {
 }
 
 // NewConsentHandler creates a new consent handler
-func NewConsentHandler(db *sqlx.DB, baseURL, redirectPath string, stateKey []byte, httpClient *http.Client) *ConsentHandler {
+func NewConsentHandler(db *sqlx.DB, baseURL string, stateKey []byte, httpClient *http.Client) *ConsentHandler {
 	metric := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "oauth_consents_created_total",
 		Help: "Total OAuth consents created",
@@ -62,7 +62,6 @@ func NewConsentHandler(db *sqlx.DB, baseURL, redirectPath string, stateKey []byt
 	return &ConsentHandler{
 		db:             db,
 		baseURL:        baseURL,
-		redirectPath:   redirectPath,
 		stateKey:       stateKey,
 		httpClient:     httpClient,
 		consentsMetric: metric,
@@ -252,7 +251,10 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 // buildAuthURL constructs the OAuth authorization URL
 func (h *ConsentHandler) buildAuthURL(providerAuthURL, clientID, state, codeChallenge string, scopes []string, providerParams *json.RawMessage) (string, error) {
 	baseURL := strings.TrimSuffix(h.baseURL, "/")
-	redirectPath := h.redirectPath
+	redirectPath := os.Getenv("REDIRECT_PATH")
+	if redirectPath == "" {
+		redirectPath = "/auth/callback"
+	}
 
 	if providerAuthURL == "" {
 		return "", fmt.Errorf("provider auth_url is required for OAuth2")

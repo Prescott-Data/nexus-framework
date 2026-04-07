@@ -131,23 +131,6 @@ func (b *Bridge) MaintainGRPCConnection(
 ) error {
 	attempt := 0
 	for {
-		if attempt > 0 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-				backoff := b.calculateBackoff(attempt - 1)
-				b.logger.Info("Reconnecting gRPC", "after", backoff, "attempt", attempt)
-				time.Sleep(backoff)
-			}
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
 		start := time.Now()
 		// 1. Prepare Credentials
 		// We use our custom PerRPCCredentials implementation
@@ -161,8 +144,7 @@ func (b *Bridge) MaintainGRPCConnection(
 		conn, err := grpc.NewClient(target, dialOpts...)
 		if err != nil {
 			b.logger.Error(err, "Failed to dial gRPC target", "target", target)
-			attempt++
-			continue
+			goto Retry
 		}
 
 		b.metrics.IncConnections()
@@ -201,7 +183,16 @@ func (b *Bridge) MaintainGRPCConnection(
 			attempt = 0
 		}
 
-		attempt++
+	Retry:
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			backoff := b.calculateBackoff(attempt)
+			attempt++
+			b.logger.Info("Reconnecting gRPC", "after", backoff, "attempt", attempt)
+			time.Sleep(backoff)
+		}
 	}
 }
 
