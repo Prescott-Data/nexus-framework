@@ -149,18 +149,7 @@ func (c *Client) GetToken(ctx context.Context, connectionID string) (*TokenRespo
     defer resp.Body.Close()
     var raw map[string]any
     if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil { return nil, err }
-    tr := &TokenResponse{Raw: raw}
-    if v, ok := raw["access_token"].(string); ok { tr.AccessToken = v }
-    if v, ok := raw["token_type"].(string); ok { tr.TokenType = &v }
-    if v, ok := raw["expires_in"].(float64); ok { vv := int64(v); tr.ExpiresIn = &vv }
-    if v, ok := raw["expires_at"]; ok { tr.ExpiresAt = v }
-    if v, ok := raw["scope"].(string); ok { tr.Scope = &v }
-    if v, ok := raw["id_token"].(string); ok { tr.IDToken = &v }
-    if v, ok := raw["refresh_token"].(string); ok { tr.RefreshToken = &v }
-    if v, ok := raw["provider"].(string); ok { tr.Provider = &v }
-    if v, ok := raw["strategy"].(map[string]interface{}); ok { tr.Strategy = v }
-    if v, ok := raw["credentials"].(map[string]interface{}); ok { tr.Credentials = v }
-    return tr, nil
+    return parseTokenResponse(raw), nil
 }
 
 // RefreshConnection calls the Gateway to force a token refresh.
@@ -171,6 +160,10 @@ func (c *Client) RefreshConnection(ctx context.Context, connectionID string) (*T
     defer resp.Body.Close()
     var raw map[string]any
     if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil { return nil, err }
+    return parseTokenResponse(raw), nil
+}
+
+func parseTokenResponse(raw map[string]any) *TokenResponse {
     tr := &TokenResponse{Raw: raw}
     if v, ok := raw["access_token"].(string); ok { tr.AccessToken = v }
     if v, ok := raw["token_type"].(string); ok { tr.TokenType = &v }
@@ -182,7 +175,7 @@ func (c *Client) RefreshConnection(ctx context.Context, connectionID string) (*T
     if v, ok := raw["provider"].(string); ok { tr.Provider = &v }
     if v, ok := raw["strategy"].(map[string]interface{}); ok { tr.Strategy = v }
     if v, ok := raw["credentials"].(map[string]interface{}); ok { tr.Credentials = v }
-    return tr, nil
+    return tr
 }
 
 // RefreshViaBroker calls RefreshConnection (Gateway Proxy).
