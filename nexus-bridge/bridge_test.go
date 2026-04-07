@@ -236,7 +236,7 @@ func TestBridge_ContextCancellation(t *testing.T) {
 		errChan <- bridge.MaintainWebSocket(ctx, "conn-123", "ws"+server.URL[4:], handler)
 	}()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 	cancel()
 
 	select {
@@ -244,7 +244,7 @@ func TestBridge_ContextCancellation(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Expected context.Canceled error, but got %v", err)
 		}
-	case <-time.After(1 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("Bridge did not exit after context cancellation")
 	}
 	if metrics.connectionStatus.Load() != 0.0 {

@@ -94,9 +94,13 @@ func main() {
 	store := provider.NewStore(db)
 
 	// Setup handlers
+	redirectPath := os.Getenv("REDIRECT_PATH")
+	if redirectPath == "" {
+		redirectPath = "/auth/callback"
+	}
 	providersHandler := handlers.NewProvidersHandler(store)
-	consentHandler := handlers.NewConsentHandler(db, baseURL, stateKey, cachingClient)
-	callbackHandler := handlers.NewCallbackHandler(db, encryptionKey, stateKey, cachingClient)
+	consentHandler := handlers.NewConsentHandler(db, baseURL, redirectPath, stateKey, cachingClient)
+	callbackHandler := handlers.NewCallbackHandler(db, baseURL, redirectPath, encryptionKey, stateKey, cachingClient)
 
 	// Setup routes
 	router := srv.Router()

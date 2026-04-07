@@ -32,14 +32,13 @@ func TestGetSpec_OAuth2(t *testing.T) {
 	defer mockProviderServer.Close()
 
 	// Pass the test server's client to the handler
-	handler := NewConsentHandler(sqlxDB, "http://localhost:8080", []byte("test-key"), mockProviderServer.Client())
+	handler := NewConsentHandler(sqlxDB, "http://localhost:8080", "/auth/callback", []byte("test-key"), mockProviderServer.Client())
 
 	paramsJSON := []byte(`{"access_type": "offline", "prompt": "consent"}`)
 
-
-rows := sqlmock.NewRows([]string{"id", "name", "auth_type", "auth_url", "client_id", "scopes", "params"}).
+	rows := sqlmock.NewRows([]string{"id", "name", "auth_type", "auth_url", "client_id", "scopes", "params"}).
 		AddRow("a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0", "Test OAuth2 Provider", "oauth2", "http://provider.com/auth", "test-client-id", "{openid}", paramsJSON)
-mock.ExpectQuery("SELECT id, name, auth_type, auth_url, client_id, scopes, params FROM provider_profiles WHERE id = \\$1").
+	mock.ExpectQuery("SELECT id, name, auth_type, auth_url, client_id, scopes, params FROM provider_profiles WHERE id = \\$1").
 		WithArgs("a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0").
 		WillReturnRows(rows)
 
@@ -82,12 +81,11 @@ func TestGetSpec_StaticKey(t *testing.T) {
 
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 	// For static key tests, we can pass a default client as no external calls are made.
-	handler := NewConsentHandler(sqlxDB, "http://localhost:8080", []byte("test-key"), http.DefaultClient)
+	handler := NewConsentHandler(sqlxDB, "http://localhost:8080", "/auth/callback", []byte("test-key"), http.DefaultClient)
 
-
-rows := sqlmock.NewRows([]string{"id", "name", "auth_type", "auth_url", "client_id", "scopes", "params"}).
+	rows := sqlmock.NewRows([]string{"id", "name", "auth_type", "auth_url", "client_id", "scopes", "params"}).
 		AddRow("b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1", "Test API", "api_key", nil, nil, "{}", []byte("{}"))
-mock.ExpectQuery("SELECT id, name, auth_type, auth_url, client_id, scopes, params FROM provider_profiles WHERE id = \\$1").
+	mock.ExpectQuery("SELECT id, name, auth_type, auth_url, client_id, scopes, params FROM provider_profiles WHERE id = \\$1").
 		WithArgs("b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1").
 		WillReturnRows(rows)
 
@@ -134,7 +132,7 @@ func TestGetSpec_MixedOAuth2_Discovery(t *testing.T) {
 				"authorization_endpoint": "http://%s/openid/connect/authorize",
 				"jwks_uri": "http://%s/jwks"
 			}`,
-			r.Host, r.Host, r.Host)
+				r.Host, r.Host, r.Host)
 			w.Write([]byte(oidcConfig))
 			return
 		}
@@ -143,16 +141,16 @@ func TestGetSpec_MixedOAuth2_Discovery(t *testing.T) {
 	defer ts.Close()
 
 	// Handler under test
-	handler := NewConsentHandler(sqlxDB, "http://localhost:8080", []byte("test-key"), ts.Client())
+	handler := NewConsentHandler(sqlxDB, "http://localhost:8080", "/auth/callback", []byte("test-key"), ts.Client())
 
 	// Define the configured (legacy) auth URL
 	configuredAuthURL := ts.URL + "/oauth/v2/authorize"
 
 	// 1. Mock DB Provider Query
 
-rows := sqlmock.NewRows([]string{"id", "name", "auth_type", "auth_url", "client_id", "scopes", "params"}).
+	rows := sqlmock.NewRows([]string{"id", "name", "auth_type", "auth_url", "client_id", "scopes", "params"}).
 		AddRow("00000000-0000-0000-0000-000000000000", "Slack", "oauth2", configuredAuthURL, "slack-client", "{chat:write}", []byte("{}"))
-	
+
 	// Use regex to avoid strict string matching issues with sqlmock
 	mock.ExpectQuery("SELECT .* FROM provider_profiles WHERE id = .*").
 		WithArgs("00000000-0000-0000-0000-000000000000").
