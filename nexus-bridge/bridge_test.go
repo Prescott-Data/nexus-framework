@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -12,13 +13,15 @@ import (
 
 	"github.com/Prescott-Data/nexus-framework/nexus-bridge/pkg/auth"
 	"github.com/gorilla/websocket"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // --- Mocks ---
 
 // mockOAuthClient is a mock implementation of the OAuthClient interface for testing.
 type mockOAuthClient struct {
-	getTokenFunc         func(ctx context.Context, connectionID string) (*Token, error)
+	getTokenFunc          func(ctx context.Context, connectionID string) (*Token, error)
 	refreshConnectionFunc func(ctx context.Context, connectionID string) (*Token, error)
 }
 
@@ -67,38 +70,22 @@ type mockMetrics struct {
 	connectionStatus atomic.Value
 }
 
-func (m *mockMetrics) IncConnections()           { atomic.AddInt32(&m.connections, 1) }
-func (m *mockMetrics) IncDisconnects()           { atomic.AddInt32(&m.disconnects, 1) }
-func (m *mockMetrics) IncTokenRefreshes()        { atomic.AddInt32(&m.tokenRefreshes, 1) }
+func (m *mockMetrics) IncConnections()                    { atomic.AddInt32(&m.connections, 1) }
+func (m *mockMetrics) IncDisconnects()                    { atomic.AddInt32(&m.disconnects, 1) }
+func (m *mockMetrics) IncTokenRefreshes()                 { atomic.AddInt32(&m.tokenRefreshes, 1) }
 func (m *mockMetrics) SetConnectionStatus(status float64) { m.connectionStatus.Store(status) }
 
 // testLogger is a mock implementation of the Logger interface for testing.
 type testLogger struct {
-	t      *testing.T
-	mu     sync.RWMutex
-	closed bool
-}
-
-func (l *testLogger) stop() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.closed = true
+	t *testing.T
 }
 
 func (l *testLogger) Info(msg string, keysAndValues ...interface{}) {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	if !l.closed {
-		l.t.Logf("INFO: %s %v", msg, keysAndValues)
-	}
+	l.t.Logf("INFO: %s %v", msg, keysAndValues)
 }
 
 func (l *testLogger) Error(err error, msg string, keysAndValues ...interface{}) {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	if !l.closed {
-		l.t.Logf("ERROR: %s %v err: %v", msg, keysAndValues, err)
-	}
+	l.t.Logf("ERROR: %s %v err: %v", msg, keysAndValues, err)
 }
 
 var upgrader = websocket.Upgrader{}
@@ -458,6 +445,237 @@ func TestBridge_TokenRefreshWithoutDisconnect(t *testing.T) {
 	if metrics.connectionStatus.Load() != 1.0 {
 		t.Errorf("Expected connection status to be 1, but got %v", metrics.connectionStatus.Load())
 	}
+}
 
-	logger.stop()
+// --- gRPC retry loop tests ---
+
+func grpcRetryPolicy() RetryPolicy {
+	return RetryPolicy{
+		MinBackoff: 10 * time.Millisecond,
+		MaxBackoff: 100 * time.Millisecond,
+		Jitter:     5 * time.Millisecond,
+	}
+}
+
+func TestGRPC_CleanExit(t *testing.T) {
+	t.Parallel()
+	authClient := &mockOAuthClient{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
+			return &Token{
+				Strategy:    auth.AuthStrategy{Type: "oauth2"},
+				Credentials: auth.Credentials{"access_token": "tok"},
+				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+			}, nil
+		},
+	}
+
+	metrics := &mockMetrics{}
+	b := New(authClient, WithMetrics(metrics), WithRetryPolicy(grpcRetryPolicy()), WithLogger(&testLogger{t: t}))
+
+	run := func(ctx context.Context, conn *grpc.ClientConn) error {
+		return nil
+	}
+
+	err := b.MaintainGRPCConnection(context.Background(), "conn-1", "passthrough:///localhost:0",
+		run, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("expected nil error on clean exit, got: %v", err)
+	}
+	if atomic.LoadInt32(&metrics.connections) != 1 {
+		t.Errorf("expected 1 connection, got %d", metrics.connections)
+	}
+}
+
+func TestGRPC_PermanentError(t *testing.T) {
+	t.Parallel()
+	authClient := &mockOAuthClient{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
+			return &Token{
+				Strategy:    auth.AuthStrategy{Type: "oauth2"},
+				Credentials: auth.Credentials{"access_token": "tok"},
+				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+			}, nil
+		},
+	}
+
+	metrics := &mockMetrics{}
+	b := New(authClient, WithMetrics(metrics), WithRetryPolicy(grpcRetryPolicy()), WithLogger(&testLogger{t: t}))
+
+	run := func(ctx context.Context, conn *grpc.ClientConn) error {
+		return NewPermanentError(fmt.Errorf("fatal"))
+	}
+
+	err := b.MaintainGRPCConnection(context.Background(), "conn-1", "passthrough:///localhost:0",
+		run, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	var permErr *PermanentError
+	if !errors.As(err, &permErr) {
+		t.Fatalf("expected PermanentError, got: %v", err)
+	}
+}
+
+func TestGRPC_InteractionRequired(t *testing.T) {
+	t.Parallel()
+	authClient := &mockOAuthClient{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
+			return &Token{
+				Strategy:    auth.AuthStrategy{Type: "oauth2"},
+				Credentials: auth.Credentials{"access_token": "tok"},
+				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+			}, nil
+		},
+	}
+
+	metrics := &mockMetrics{}
+	b := New(authClient, WithMetrics(metrics), WithRetryPolicy(grpcRetryPolicy()), WithLogger(&testLogger{t: t}))
+
+	run := func(ctx context.Context, conn *grpc.ClientConn) error {
+		return ErrInteractionRequired
+	}
+
+	err := b.MaintainGRPCConnection(context.Background(), "conn-1", "passthrough:///localhost:0",
+		run, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	if !errors.Is(err, ErrInteractionRequired) {
+		t.Fatalf("expected ErrInteractionRequired, got: %v", err)
+	}
+	if atomic.LoadInt32(&metrics.connections) != 1 {
+		t.Errorf("expected exactly 1 connection (no retry), got %d", metrics.connections)
+	}
+}
+
+func TestGRPC_RetryThenSucceed(t *testing.T) {
+	t.Parallel()
+	authClient := &mockOAuthClient{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
+			return &Token{
+				Strategy:    auth.AuthStrategy{Type: "oauth2"},
+				Credentials: auth.Credentials{"access_token": "tok"},
+				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+			}, nil
+		},
+	}
+
+	var callCount int32
+	metrics := &mockMetrics{}
+	b := New(authClient, WithMetrics(metrics), WithRetryPolicy(grpcRetryPolicy()), WithLogger(&testLogger{t: t}))
+
+	run := func(ctx context.Context, conn *grpc.ClientConn) error {
+		n := atomic.AddInt32(&callCount, 1)
+		if n < 3 {
+			return fmt.Errorf("transient error #%d", n)
+		}
+		return nil
+	}
+
+	err := b.MaintainGRPCConnection(context.Background(), "conn-1", "passthrough:///localhost:0",
+		run, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("expected nil after retries, got: %v", err)
+	}
+	if atomic.LoadInt32(&callCount) != 3 {
+		t.Errorf("expected run called 3 times, got %d", callCount)
+	}
+	if atomic.LoadInt32(&metrics.connections) != 3 {
+		t.Errorf("expected 3 connections, got %d", metrics.connections)
+	}
+}
+
+func TestGRPC_ContextCancelledDuringBackoff(t *testing.T) {
+	t.Parallel()
+	authClient := &mockOAuthClient{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
+			return &Token{
+				Strategy:    auth.AuthStrategy{Type: "oauth2"},
+				Credentials: auth.Credentials{"access_token": "tok"},
+				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+			}, nil
+		},
+	}
+
+	b := New(authClient, WithRetryPolicy(RetryPolicy{
+		MinBackoff: 10 * time.Second,
+		MaxBackoff: 10 * time.Second,
+		Jitter:     0,
+	}), WithLogger(&testLogger{t: t}))
+
+	var called int32
+	run := func(ctx context.Context, conn *grpc.ClientConn) error {
+		atomic.AddInt32(&called, 1)
+		return fmt.Errorf("transient")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errChan := make(chan error, 1)
+
+	go func() {
+		errChan <- b.MaintainGRPCConnection(ctx, "conn-1", "passthrough:///localhost:0",
+			run, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errChan:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("bridge did not exit promptly after context cancellation during backoff")
+	}
+
+	if atomic.LoadInt32(&called) != 1 {
+		t.Errorf("expected run called once before cancel, got %d", called)
+	}
+}
+
+func TestGRPC_BackoffGrowsExponentially(t *testing.T) {
+	t.Parallel()
+	authClient := &mockOAuthClient{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
+			return &Token{
+				Strategy:    auth.AuthStrategy{Type: "oauth2"},
+				Credentials: auth.Credentials{"access_token": "tok"},
+				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
+			}, nil
+		},
+	}
+
+	b := New(authClient, WithRetryPolicy(RetryPolicy{
+		MinBackoff: 20 * time.Millisecond,
+		MaxBackoff: 500 * time.Millisecond,
+		Jitter:     0,
+	}), WithLogger(&testLogger{t: t}))
+
+	var timestamps []time.Time
+	var callCount int32
+
+	run := func(ctx context.Context, conn *grpc.ClientConn) error {
+		timestamps = append(timestamps, time.Now())
+		n := atomic.AddInt32(&callCount, 1)
+		if n >= 4 {
+			return nil
+		}
+		return fmt.Errorf("transient")
+	}
+
+	err := b.MaintainGRPCConnection(context.Background(), "conn-1", "passthrough:///localhost:0",
+		run, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(timestamps) < 4 {
+		t.Fatalf("expected at least 4 run calls, got %d", len(timestamps))
+	}
+
+	// Gaps between calls 2→3 and 3→4 should grow (backoff doubles each time).
+	for i := 2; i < len(timestamps); i++ {
+		prevGap := timestamps[i-1].Sub(timestamps[i-2])
+		thisGap := timestamps[i].Sub(timestamps[i-1])
+		if thisGap < prevGap {
+			t.Errorf("backoff did not grow: gap[%d]=%v < gap[%d]=%v", i, thisGap, i-1, prevGap)
+		}
+	}
 }
