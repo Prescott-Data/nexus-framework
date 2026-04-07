@@ -10,6 +10,7 @@ import (
 	"time"
 
 	nexuspb "github.com/Prescott-Data/nexus-framework/nexus-gateway/gen/go/api/proto/nexus/v1"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/config"
 	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/usecase"
 
 	"github.com/go-chi/cors"
@@ -160,7 +161,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// CORS Setup
 	corsMiddleware := cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"https://*", "http://*"},
+		AllowedOrigins:   config.GetAllowedOrigins(),
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "Grpc-Metadata-X-Request-ID"},
 		ExposedHeaders:   []string{"Link", "Grpc-Metadata-X-Request-ID"},

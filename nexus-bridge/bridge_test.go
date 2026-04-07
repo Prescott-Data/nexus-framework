@@ -74,15 +74,31 @@ func (m *mockMetrics) SetConnectionStatus(status float64) { m.connectionStatus.S
 
 // testLogger is a mock implementation of the Logger interface for testing.
 type testLogger struct {
-	t *testing.T
+	t      *testing.T
+	mu     sync.RWMutex
+	closed bool
+}
+
+func (l *testLogger) stop() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.closed = true
 }
 
 func (l *testLogger) Info(msg string, keysAndValues ...interface{}) {
-	l.t.Logf("INFO: %s %v", msg, keysAndValues)
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if !l.closed {
+		l.t.Logf("INFO: %s %v", msg, keysAndValues)
+	}
 }
 
 func (l *testLogger) Error(err error, msg string, keysAndValues ...interface{}) {
-	l.t.Logf("ERROR: %s %v err: %v", msg, keysAndValues, err)
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if !l.closed {
+		l.t.Logf("ERROR: %s %v err: %v", msg, keysAndValues, err)
+	}
 }
 
 var upgrader = websocket.Upgrader{}
@@ -442,4 +458,6 @@ func TestBridge_TokenRefreshWithoutDisconnect(t *testing.T) {
 	if metrics.connectionStatus.Load() != 1.0 {
 		t.Errorf("Expected connection status to be 1, but got %v", metrics.connectionStatus.Load())
 	}
+
+	logger.stop()
 }

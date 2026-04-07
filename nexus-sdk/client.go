@@ -26,13 +26,16 @@ type Client struct {
     // Optional logger and retry policy
     Logger      Logger
     RetryPolicy RetryPolicy
+
+    randSource *rand.Rand
 }
 
 // New creates a new Client with sane defaults.
 func New(gatewayBaseURL string, opts ...Option) *Client {
     c := &Client{
         GatewayBaseURL: strings.TrimRight(gatewayBaseURL, "/"),
-        HTTPClient: &http.Client{Timeout: 30 * time.Second},
+        HTTPClient:     &http.Client{Timeout: 30 * time.Second},
+        randSource:     rand.New(rand.NewSource(time.Now().UnixNano())),
     }
     for _, o := range opts {
         o(c)
@@ -268,7 +271,7 @@ func (c *Client) do(ctx context.Context, method, urlStr string, headers map[stri
             return nil, err
         }
         // backoff with jitter
-        delay := backoff(i, pol.MinDelay, pol.MaxDelay)
+        delay := c.backoff(i, pol.MinDelay, pol.MaxDelay)
         if c.Logger != nil { c.Logger.Infof("retrying in %s: %v", delay, err) }
         select {
         case <-ctx.Done():
@@ -279,14 +282,14 @@ func (c *Client) do(ctx context.Context, method, urlStr string, headers map[stri
     return resp, err
 }
 
-func backoff(attempt int, minDelay, maxDelay time.Duration) time.Duration {
+func (c *Client) backoff(attempt int, minDelay, maxDelay time.Duration) time.Duration {
     // exponential with jitter, capped growth
     if attempt < 0 { attempt = 0 }
     if attempt > 10 { attempt = 10 }
     factor := 1 << uint(attempt)
     base := float64(minDelay) * float64(factor)
     if base > float64(maxDelay) { base = float64(maxDelay) }
-    jitter := 0.2 + rand.Float64()*0.6 // 0.2..0.8
+    jitter := 0.2 + c.randSource.Float64()*0.6 // 0.2..0.8
     return time.Duration(base * jitter)
 }
 

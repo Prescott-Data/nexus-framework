@@ -22,11 +22,15 @@ func TestStartOrphanTokenCleanup_DeletesOrphans(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	go StartOrphanTokenCleanup(ctx, sqlxDB, 50*time.Millisecond)
+	// Use a longer interval to ensure it only ticks once during our sleep
+	go StartOrphanTokenCleanup(ctx, sqlxDB, 200*time.Millisecond)
 
-	// Wait enough for one tick to fire
-	time.Sleep(150 * time.Millisecond)
+	// Wait enough for the first tick to fire, but less than two ticks
+	time.Sleep(300 * time.Millisecond)
 	cancel()
+
+	// Wait a bit for the goroutine to finish after cancel
+	time.Sleep(50 * time.Millisecond)
 
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
