@@ -37,7 +37,6 @@ type Bridge struct {
 	messageSizeLimit int64
 	writeTimeout     time.Duration
 	pingInterval     time.Duration
-	randSource       *rand.Rand
 }
 
 // New creates a new Bridge with optional configurations.
@@ -57,7 +56,6 @@ func New(oauthClient OAuthClient, opts ...Option) *Bridge {
 		messageSizeLimit: 65536, // 64KB
 		writeTimeout:     10 * time.Second,
 		pingInterval:     30 * time.Second,
-		randSource:       rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
 	// Apply all the functional options provided by the user
@@ -85,9 +83,7 @@ func NewStandard(oauthClient OAuthClient, agentLabels map[string]string, opts ..
 // MaintainWebSocket is the main entry point. It runs a loop that attempts
 // to establish and manage a connection, with a backoff policy for retries.
 func (b *Bridge) MaintainWebSocket(ctx context.Context, connectionID string, endpointURL string, handler Handler) error {
-	attempt := 0
 	for {
-		start := time.Now()
 		err := b.manageConnection(ctx, connectionID, endpointURL, handler)
 		if err != nil {
 			var permanentErr *PermanentError
@@ -99,11 +95,6 @@ func (b *Bridge) MaintainWebSocket(ctx context.Context, connectionID string, end
 			b.logger.Error(err, "Connection manager exited with recoverable error", "connectionID", connectionID)
 		}
 
-		// Reset attempt counter if the connection was stable for a while (e.g., 1 minute)
-		if time.Since(start) > 1*time.Minute {
-			attempt = 0
-		}
-
 		select {
 		case <-ctx.Done():
 			b.logger.Info("Context cancelled; shutting down bridge", "connectionID", connectionID)
@@ -111,17 +102,22 @@ func (b *Bridge) MaintainWebSocket(ctx context.Context, connectionID string, end
 			return ctx.Err()
 		default:
 			// Connection dropped for a recoverable reason, wait and retry.
-			backoff := b.calculateBackoff(attempt)
-			attempt++
-			b.logger.Info("Reconnecting", "connectionID", connectionID, "after", backoff, "attempt", attempt)
+			backoff := b.calculateBackoff()
+			b.logger.Info("Reconnecting", "connectionID", connectionID, "after", backoff)
 			time.Sleep(backoff)
 		}
 	}
 }
 
-// MaintainGRPCConnection manages a persistent gRPC connection.
-// It handles authentication, dialing, and reconnection.
-// The 'run' function is called with the established ClientConn.
+// MaintainGRPCConnection manages a persistent gRPC connection with exponential
+// backoff and context-aware retry. The run callback receives each established
+// connection; its return value determines whether to retry, stop, or exit cleanly.
+//
+// Terminal conditions (no retry):
+//   - run returns nil (clean exit)
+//   - run returns ErrInteractionRequired (user must re-authenticate)
+//   - run returns a *PermanentError
+//   - context is cancelled
 func (b *Bridge) MaintainGRPCConnection(
 	ctx context.Context,
 	connectionID string,
@@ -129,70 +125,66 @@ func (b *Bridge) MaintainGRPCConnection(
 	run func(ctx context.Context, conn *grpc.ClientConn) error,
 	opts ...grpc.DialOption,
 ) error {
+	backoff := b.retryPolicy.MinBackoff
 	attempt := 0
-	for {
-		start := time.Now()
-		// 1. Prepare Credentials
-		// We use our custom PerRPCCredentials implementation
-		creds := NewBridgeCredentials(b.oauthClient, connectionID, b.refreshBuffer, b.logger)
 
-		// 2. Dial Options
+	for {
+		if attempt > 0 {
+			wait := b.applyJitter(backoff)
+			b.logger.Info("Reconnecting gRPC", "target", target, "attempt", attempt, "after", wait)
+			select {
+			case <-ctx.Done():
+				b.logger.Info("Context cancelled during backoff; stopping gRPC bridge", "connectionID", connectionID)
+				return ctx.Err()
+			case <-time.After(wait):
+			}
+		}
+		attempt++
+
+		creds := NewBridgeCredentials(b.oauthClient, connectionID, b.refreshBuffer, b.logger)
 		dialOpts := append(opts, grpc.WithPerRPCCredentials(creds))
 
-		// 3. Dial
-		b.logger.Info("Dialing gRPC target", "target", target)
+		b.logger.Info("Dialing gRPC target", "target", target, "attempt", attempt)
 		conn, err := grpc.NewClient(target, dialOpts...)
 		if err != nil {
-			b.logger.Error(err, "Failed to dial gRPC target", "target", target)
-			goto Retry
+			b.logger.Error(err, "Failed to dial gRPC target", "target", target, "attempt", attempt)
+			backoff = b.growBackoff(backoff)
+			continue
 		}
 
 		b.metrics.IncConnections()
 		b.metrics.SetConnectionStatus(1)
 		b.logger.Info("gRPC connection established", "target", target)
 
-		// 4. Run User Logic
 		err = run(ctx, conn)
-		
-		// Cleanup
+
 		conn.Close()
 		b.metrics.SetConnectionStatus(0)
 		b.metrics.IncDisconnects()
 
-		// 5. Handle Error
-		if err != nil {
-			// Check if permanent
-			var permanentErr *PermanentError
-			if errors.As(err, &permanentErr) {
-				b.logger.Error(err, "Permanent error in gRPC run loop; stopping", "connectionID", connectionID)
-				return err
-			}
-			// Check if Context Done
-			if errors.Is(err, ctx.Err()) {
-				b.logger.Info("Context cancelled; shutting down gRPC bridge")
-				return err
-			}
-			
-			b.logger.Error(err, "gRPC run loop exited with error", "connectionID", connectionID)
-		} else {
+		if err == nil {
 			b.logger.Info("gRPC run loop exited cleanly", "connectionID", connectionID)
+			return nil
 		}
 
-		// Reset attempt counter if the connection was stable for a while
-		if time.Since(start) > 1*time.Minute {
-			attempt = 0
+		if errors.Is(err, ErrInteractionRequired) {
+			b.logger.Error(err, "Interaction required; stopping gRPC retry", "connectionID", connectionID)
+			return err
 		}
 
-	Retry:
-		select {
-		case <-ctx.Done():
+		var permanentErr *PermanentError
+		if errors.As(err, &permanentErr) {
+			b.logger.Error(err, "Permanent error in gRPC run loop; stopping", "connectionID", connectionID)
+			return err
+		}
+
+		if ctx.Err() != nil {
+			b.logger.Info("Context cancelled; shutting down gRPC bridge", "connectionID", connectionID)
 			return ctx.Err()
-		default:
-			backoff := b.calculateBackoff(attempt)
-			attempt++
-			b.logger.Info("Reconnecting gRPC", "after", backoff, "attempt", attempt)
-			time.Sleep(backoff)
 		}
+
+		b.logger.Error(err, "gRPC run loop exited with error; will retry", "connectionID", connectionID, "attempt", attempt)
+		backoff = b.growBackoff(backoff)
 	}
 }
 
@@ -381,19 +373,29 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 	}
 }
 
-// NEW: Helper function for calculating backoff with jitter.
-func (b *Bridge) calculateBackoff(attempt int) time.Duration {
-	if attempt < 0 {
-		attempt = 0
+// growBackoff doubles the current backoff, capping at MaxBackoff.
+func (b *Bridge) growBackoff(current time.Duration) time.Duration {
+	next := current * 2
+	if next > b.retryPolicy.MaxBackoff || next <= 0 {
+		return b.retryPolicy.MaxBackoff
 	}
-	if attempt > 10 {
-		attempt = 10
+	return next
+}
+
+// applyJitter adds random jitter to a duration to prevent thundering herd
+// when multiple agents reconnect simultaneously after a gateway restart.
+func (b *Bridge) applyJitter(d time.Duration) time.Duration {
+	if b.retryPolicy.Jitter <= 0 {
+		return d
 	}
-	factor := 1 << uint(attempt)
-	base := float64(b.retryPolicy.MinBackoff) * float64(factor)
-	if base > float64(b.retryPolicy.MaxBackoff) {
-		base = float64(b.retryPolicy.MaxBackoff)
+	return d + time.Duration(rand.Int63n(int64(b.retryPolicy.Jitter)))
+}
+
+// calculateBackoff returns a flat backoff with jitter (used by MaintainWebSocket).
+func (b *Bridge) calculateBackoff() time.Duration {
+	backoff := b.retryPolicy.MinBackoff + time.Duration(rand.Int63n(int64(b.retryPolicy.Jitter)))
+	if backoff > b.retryPolicy.MaxBackoff {
+		return b.retryPolicy.MaxBackoff
 	}
-	jitter := 0.2 + b.randSource.Float64()*0.6 // 0.2..0.8
-	return time.Duration(base * jitter)
+	return backoff
 }
