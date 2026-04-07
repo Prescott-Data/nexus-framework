@@ -40,8 +40,17 @@ type ConsentHandler struct {
 	consentsOpenID prometheus.Counter
 }
 
+// ConsentHandlerConfig holds the dependencies for ConsentHandler
+type ConsentHandlerConfig struct {
+	DB           *sqlx.DB
+	BaseURL      string
+	RedirectPath string
+	StateKey     []byte
+	HTTPClient   *http.Client
+}
+
 // NewConsentHandler creates a new consent handler
-func NewConsentHandler(db *sqlx.DB, baseURL, redirectPath string, stateKey []byte, httpClient *http.Client) *ConsentHandler {
+func NewConsentHandler(cfg ConsentHandlerConfig) *ConsentHandler {
 	metric := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "oauth_consents_created_total",
 		Help: "Total OAuth consents created",
@@ -61,11 +70,11 @@ func NewConsentHandler(db *sqlx.DB, baseURL, redirectPath string, stateKey []byt
 	}
 
 	return &ConsentHandler{
-		db:             db,
-		baseURL:        baseURL,
-		redirectPath:   redirectPath,
-		stateKey:       stateKey,
-		httpClient:     httpClient,
+		db:             cfg.DB,
+		baseURL:        cfg.BaseURL,
+		redirectPath:   cfg.RedirectPath,
+		stateKey:       cfg.StateKey,
+		httpClient:     cfg.HTTPClient,
 		consentsMetric: metric,
 		consentsOpenID: metricOpenID,
 	}

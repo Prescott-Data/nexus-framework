@@ -32,7 +32,13 @@ func TestGetSpec_OAuth2(t *testing.T) {
 	defer mockProviderServer.Close()
 
 	// Pass the test server's client to the handler
-	handler := NewConsentHandler(sqlxDB, "http://localhost:8080", "/auth/callback", []byte("test-key"), mockProviderServer.Client())
+	handler := NewConsentHandler(ConsentHandlerConfig{
+		DB:           sqlxDB,
+		BaseURL:      "http://localhost:8080",
+		RedirectPath: "/auth/callback",
+		StateKey:     []byte("test-key"),
+		HTTPClient:   mockProviderServer.Client(),
+	})
 
 	paramsJSON := []byte(`{"access_type": "offline", "prompt": "consent"}`)
 
@@ -81,7 +87,13 @@ func TestGetSpec_StaticKey(t *testing.T) {
 
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 	// For static key tests, we can pass a default client as no external calls are made.
-	handler := NewConsentHandler(sqlxDB, "http://localhost:8080", "/auth/callback", []byte("test-key"), http.DefaultClient)
+	handler := NewConsentHandler(ConsentHandlerConfig{
+		DB:           sqlxDB,
+		BaseURL:      "http://localhost:8080",
+		RedirectPath: "/auth/callback",
+		StateKey:     []byte("test-key"),
+		HTTPClient:   http.DefaultClient,
+	})
 
 	rows := sqlmock.NewRows([]string{"id", "name", "auth_type", "auth_url", "client_id", "scopes", "params"}).
 		AddRow("b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1", "Test API", "api_key", nil, nil, "{}", []byte("{}"))
@@ -141,7 +153,13 @@ func TestGetSpec_MixedOAuth2_Discovery(t *testing.T) {
 	defer ts.Close()
 
 	// Handler under test
-	handler := NewConsentHandler(sqlxDB, "http://localhost:8080", "/auth/callback", []byte("test-key"), ts.Client())
+	handler := NewConsentHandler(ConsentHandlerConfig{
+		DB:           sqlxDB,
+		BaseURL:      "http://localhost:8080",
+		RedirectPath: "/auth/callback",
+		StateKey:     []byte("test-key"),
+		HTTPClient:   ts.Client(),
+	})
 
 	// Define the configured (legacy) auth URL
 	configuredAuthURL := ts.URL + "/oauth/v2/authorize"
