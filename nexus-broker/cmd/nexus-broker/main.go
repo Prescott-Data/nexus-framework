@@ -115,7 +115,6 @@ func main() {
 		r.Get("/by-name/{name}", providersHandler.GetByName)
 		r.Delete("/by-name/{name}", providersHandler.DeleteByName)
 		r.Get("/{id}", providersHandler.Get)
-		r.Get("/{id}", providersHandler.Get)
 		r.Put("/{id}", providersHandler.Update)
 		r.Patch("/{id}", providersHandler.Patch)
 		r.Delete("/{id}", providersHandler.Delete)
