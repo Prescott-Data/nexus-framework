@@ -40,8 +40,18 @@ type CallbackHandler struct {
 	metricTokenGet        *prometheus.CounterVec
 }
 
+// CallbackHandlerConfig holds the dependencies for CallbackHandler
+type CallbackHandlerConfig struct {
+	DB            *sqlx.DB
+	BaseURL       string
+	RedirectPath  string
+	EncryptionKey []byte
+	StateKey      []byte
+	HTTPClient    *http.Client
+}
+
 // NewCallbackHandler creates a new callback handler
-func NewCallbackHandler(db *sqlx.DB, baseURL, redirectPath string, encryptionKey, stateKey []byte, httpClient *http.Client) *CallbackHandler {
+func NewCallbackHandler(cfg CallbackHandlerConfig) *CallbackHandler {
 	success := prometheus.NewCounter(prometheus.CounterOpts{
 		Name:        "oauth_token_exchanges_total",
 		Help:        "Total OAuth token exchanges",
@@ -76,12 +86,12 @@ func NewCallbackHandler(db *sqlx.DB, baseURL, redirectPath string, encryptionKey
 	}
 
 	return &CallbackHandler{
-		db:                    db,
-		baseURL:               baseURL,
-		redirectPath:          redirectPath,
-		encryptionKey:         encryptionKey,
-		stateKey:              stateKey,
-		httpClient:            httpClient,
+		db:                    cfg.DB,
+		baseURL:               cfg.BaseURL,
+		redirectPath:          cfg.RedirectPath,
+		encryptionKey:         cfg.EncryptionKey,
+		stateKey:              cfg.StateKey,
+		httpClient:            cfg.HTTPClient,
 		metricExchangeSuccess: success,
 		metricExchangeError:   failure,
 		histogramExchangeDur:  hist,
