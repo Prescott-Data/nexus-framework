@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/config"
 	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/usecase"
 )
 
@@ -25,7 +26,7 @@ func New(port, brokerBaseURL string, stateKey []byte, httpClient *http.Client) *
 
 	// CORS Setup
 	mux.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"https://*", "http://*"},
+		AllowedOrigins:   config.GetAllowedOrigins(),
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
