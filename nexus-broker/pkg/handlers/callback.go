@@ -113,7 +113,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if code == "" || state == "" {
-		http.Error(w, "Missing code or state parameter", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "missing_params", "Missing code or state parameter")
 		return
 	}
 
@@ -121,14 +121,14 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	stateData, err := auth.VerifyState(h.stateKey, state)
 	if err != nil {
 		h.logAuditEvent(nil, "state_verification_failed", map[string]string{"error": err.Error()}, r)
-		http.Error(w, "Invalid state", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_state", "Invalid state")
 		return
 	}
 
 	// Get connection
 	connectionID, err := uuid.Parse(stateData.Nonce)
 	if err != nil {
-		http.Error(w, "Invalid connection ID", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_connection_id", "Invalid connection ID")
 		return
 	}
 
@@ -148,7 +148,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		h.logAuditEvent(&connectionID, "connection_not_found", map[string]string{"error": err.Error()}, r)
-		http.Error(w, "Connection not found or expired", http.StatusNotFound)
+		httputil.WriteError(w, http.StatusNotFound, "connection_not_found", "Connection not found or expired")
 		return
 	}
 
@@ -169,7 +169,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		h.logAuditEvent(&connectionID, "provider_not_found", map[string]string{"error": err.Error()}, r)
-		http.Error(w, "Provider not found", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "provider_not_found", "Provider not found")
 		return
 	}
 
@@ -201,7 +201,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		h.logAuditEvent(&connectionID, "token_exchange_failed", map[string]string{"error": err.Error()}, r)
 		h.updateConnectionStatus(connectionID, "failed")
 		h.metricExchangeError.Inc()
-		http.Error(w, "Token exchange failed", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "token_exchange_failed", "Token exchange failed")
 		return
 	}
 	h.metricExchangeSuccess.Inc()
@@ -215,7 +215,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 			if _, err := oidcutil.VerifyIDToken(r.Context(), h.httpClient, raw, provider.ClientID.String, state); err != nil {
 				h.logAuditEvent(&connectionID, "id_token_verification_failed", map[string]string{"error": err.Error()}, r)
 				h.updateConnectionStatus(connectionID, "failed")
-				http.Error(w, "Invalid id_token", http.StatusUnauthorized)
+				httputil.WriteError(w, http.StatusUnauthorized, "invalid_id_token", "Invalid id_token")
 				return
 			}
 		}
@@ -225,7 +225,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	err = h.storeTokens(connectionID, tokens)
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_storage_failed", map[string]string{"error": err.Error()}, r)
-		http.Error(w, "Failed to store tokens", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "token_store_failed", "Failed to store tokens")
 		return
 	}
 
@@ -240,14 +240,14 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect to return URL with success
 	if !server.IsReturnURLAllowed(connection.ReturnURL) {
-		http.Error(w, "return_url not allowed", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "return_url_not_allowed", "return_url not allowed")
 		return
 	}
 
 	returnURL, err := url.Parse(connection.ReturnURL)
 	if err != nil {
 		h.logAuditEvent(&connectionID, "invalid_return_url", map[string]string{"error": err.Error(), "return_url": connection.ReturnURL}, r)
-		http.Error(w, "Invalid return_url", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "invalid_return_url", "Invalid return_url")
 		return
 	}
 	query := returnURL.Query()
@@ -266,13 +266,13 @@ func (h *CallbackHandler) GetCaptureSchema(w http.ResponseWriter, r *http.Reques
 	// Verify state
 	stateData, err := auth.VerifyState(h.stateKey, state)
 	if err != nil {
-		http.Error(w, "Invalid state", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_state", "Invalid state")
 		return
 	}
 
 	providerID, err := uuid.Parse(stateData.ProviderID)
 	if err != nil {
-		http.Error(w, "Invalid provider ID in state", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_provider_id", "Invalid provider ID in state")
 		return
 	}
 
@@ -283,21 +283,21 @@ func (h *CallbackHandler) GetCaptureSchema(w http.ResponseWriter, r *http.Reques
 
 	err = h.db.QueryRow("SELECT name, params FROM provider_profiles WHERE id = $1", providerID).Scan(&provider.Name, &provider.Params)
 	if err != nil {
-		http.Error(w, "Provider not found", http.StatusNotFound)
+		httputil.WriteError(w, http.StatusNotFound, "provider_not_found", "Provider not found")
 		return
 	}
 
 	var params map[string]json.RawMessage
 	if provider.Params != nil {
 		if err := json.Unmarshal(*provider.Params, &params); err != nil {
-			http.Error(w, "Failed to parse provider params", http.StatusInternalServerError)
+			httputil.WriteError(w, http.StatusInternalServerError, "params_parse_failed", "Failed to parse provider params")
 			return
 		}
 	}
 
 	schema, ok := params["credential_schema"]
 	if !ok {
-		http.Error(w, "Credential schema not found for this provider", http.StatusNotFound)
+		httputil.WriteError(w, http.StatusNotFound, "schema_not_found", "Credential schema not found for this provider")
 		return
 	}
 
@@ -321,27 +321,27 @@ func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 		Credentials map[string]interface{} `json:"credentials"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_json", "Invalid JSON body")
 		return
 	}
 
 	// Verify state
 	stateData, err := auth.VerifyState(h.stateKey, reqBody.State)
 	if err != nil {
-		http.Error(w, "Invalid state", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_state", "Invalid state")
 		return
 	}
 
 	connectionID, err := uuid.Parse(stateData.Nonce)
 	if err != nil {
-		http.Error(w, "Invalid connection ID", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_connection_id", "Invalid connection ID")
 		return
 	}
 
 	var returnURL string
 	err = h.db.QueryRow("SELECT return_url FROM connections WHERE id = $1", connectionID).Scan(&returnURL)
 	if err != nil {
-		http.Error(w, "Connection not found", http.StatusNotFound)
+		httputil.WriteError(w, http.StatusNotFound, "connection_not_found", "Connection not found")
 		return
 	}
 
@@ -353,25 +353,25 @@ func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 		JOIN provider_profiles pp ON pp.id = c.provider_id
 		WHERE c.id = $1`, connectionID).Scan(&authType, &authHeader, &apiBaseURL, &userInfoEndpoint)
 	if err != nil {
-		http.Error(w, "Failed to load provider config", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "provider_config_failed", "Failed to load provider config")
 		return
 	}
 
 	if userInfoEndpoint != "" && apiBaseURL != "" {
 		if err := validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint, reqBody.Credentials); err != nil {
-			http.Error(w, "Invalid credentials: "+err.Error(), http.StatusBadRequest)
+			httputil.WriteError(w, http.StatusBadRequest, "invalid_credentials", "Invalid credentials: "+err.Error())
 			return
 		}
 	}
 
 	err = h.storeTokens(connectionID, reqBody.Credentials)
 	if err != nil {
-		http.Error(w, "Failed to store credentials", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "credential_store_failed", "Failed to store credentials")
 		return
 	}
 
 	if err := h.updateConnectionStatus(connectionID, "active"); err != nil {
-		http.Error(w, "Failed to update connection status", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "status_update_failed", "Failed to update connection status")
 		return
 	}
 
@@ -444,7 +444,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	// Extract connection ID from URL path
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 3 {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_path", "Invalid path")
 		return
 	}
 	connectionIDStr := pathParts[len(pathParts)-2] // /connections/{id}/token
@@ -452,7 +452,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	connectionID, err := uuid.Parse(connectionIDStr)
 	if err != nil {
 		h.logAuditEvent(nil, "token_retrieval_failed", map[string]string{"error": "invalid connection ID", "id": connectionIDStr}, r)
-		http.Error(w, "Invalid connection ID", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_connection_id", "Invalid connection ID")
 		return
 	}
 
@@ -472,7 +472,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "connection not found or db error", "id": connectionID.String()}, r)
-		http.Error(w, "Connection not found", http.StatusNotFound)
+		httputil.WriteError(w, http.StatusNotFound, "connection_not_found", "Connection not found")
 		return
 	}
 
@@ -487,7 +487,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		http.Error(w, "Connection not active", http.StatusForbidden)
+		httputil.WriteError(w, http.StatusForbidden, "connection_not_active", "Connection not active")
 		return
 	}
 
@@ -500,7 +500,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	err = h.db.QueryRow("SELECT encrypted_data, expires_at FROM tokens WHERE connection_id = $1", connectionID).Scan(&token.EncryptedData, &token.ExpiresAt)
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "token not found"}, r)
-		http.Error(w, "Token not found", http.StatusNotFound)
+		httputil.WriteError(w, http.StatusNotFound, "token_not_found", "Token not found")
 		return
 	}
 
@@ -508,7 +508,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	decryptedData, err := vault.Decrypt(h.encryptionKey, token.EncryptedData)
 	if err != nil {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "decryption failed"}, r)
-		http.Error(w, "Failed to decrypt token", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "decrypt_failed", "Failed to decrypt token")
 		return
 	}
 
@@ -516,7 +516,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	var credentials map[string]interface{}
 	if err := json.Unmarshal(decryptedData, &credentials); err != nil {
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "invalid token format"}, r)
-		http.Error(w, "Invalid token format", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "invalid_token_format", "Invalid token format")
 		return
 	}
 
@@ -686,13 +686,13 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	// Extract connection ID
 	parts := strings.Split(r.URL.Path, "/")
 	if len(parts) < 3 {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_path", "Invalid path")
 		return
 	}
 	idStr := parts[len(parts)-2]
 	connectionID, err := uuid.Parse(idStr)
 	if err != nil {
-		http.Error(w, "Invalid connection ID", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_connection_id", "Invalid connection ID")
 		return
 	}
 
@@ -707,7 +707,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		WHERE c.id=$1 AND c.status='active'`, connectionID).Scan(&conn.ProviderID, &conn.AuthType)
 
 	if err != nil {
-		http.Error(w, "Connection not active or not found", http.StatusNotFound)
+		httputil.WriteError(w, http.StatusNotFound, "connection_not_found", "Connection not active or not found")
 		return
 	}
 
@@ -715,7 +715,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	switch conn.AuthType {
 	case "api_key", "basic_auth":
 		// Static tokens cannot be refreshed.
-		http.Error(w, "This connection uses a static token and cannot be refreshed", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "static_token", "This connection uses a static token and cannot be refreshed")
 		return // Stop execution here
 	case "oauth2", "":
 		// This is an OAuth2 provider, continue with the *existing* refresh logic
@@ -726,7 +726,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		}
 		err = h.db.QueryRow("SELECT token_url, client_id, client_secret FROM provider_profiles WHERE id=$1", conn.ProviderID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret)
 		if err != nil {
-			http.Error(w, "Provider not found", http.StatusInternalServerError)
+			httputil.WriteError(w, http.StatusInternalServerError, "provider_not_found", "Provider not found")
 			return
 		}
 		var tokenRow struct {
@@ -734,22 +734,22 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		}
 		err = h.db.QueryRow("SELECT encrypted_data FROM tokens WHERE connection_id=$1", connectionID).Scan(&tokenRow.EncryptedData)
 		if err != nil {
-			http.Error(w, "Token not found", http.StatusNotFound)
+			httputil.WriteError(w, http.StatusNotFound, "token_not_found", "Token not found")
 			return
 		}
 		plaintext, err := vault.Decrypt(h.encryptionKey, tokenRow.EncryptedData)
 		if err != nil {
-			http.Error(w, "Decrypt failed", http.StatusInternalServerError)
+			httputil.WriteError(w, http.StatusInternalServerError, "decrypt_failed", "Decrypt failed")
 			return
 		}
 		var current map[string]interface{}
 		if err := json.Unmarshal(plaintext, &current); err != nil {
-			http.Error(w, "Token parse failed", http.StatusInternalServerError)
+			httputil.WriteError(w, http.StatusInternalServerError, "token_parse_failed", "Token parse failed")
 			return
 		}
 		refreshToken, _ := current["refresh_token"].(string)
 		if refreshToken == "" {
-			http.Error(w, "No refresh_token available", http.StatusBadRequest)
+			httputil.WriteError(w, http.StatusBadRequest, "no_refresh_token", "No refresh_token available")
 			return
 		}
 		// Refresh
@@ -768,17 +768,17 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// For 5xx or network errors, we don't change state, just fail the request (Agent will retry)
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			httputil.WriteError(w, http.StatusBadGateway, "upstream_error", err.Error())
 			return
 		}
 		// Store new tokens
 		if err := h.storeTokens(connectionID, newTokens); err != nil {
-			http.Error(w, "Store refreshed token failed", http.StatusInternalServerError)
+			httputil.WriteError(w, http.StatusInternalServerError, "token_store_failed", "Store refreshed token failed")
 			return
 		}
 		httputil.WriteJSON(w, http.StatusOK, newTokens)
 	default:
-		http.Error(w, "Unsupported provider auth_type", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "unsupported_auth_type", "Unsupported provider auth_type")
 		return
 	}
 }
@@ -856,5 +856,5 @@ func (h *CallbackHandler) handleError(w http.ResponseWriter, r *http.Request, er
 		"description": description,
 	}, r)
 
-	http.Error(w, fmt.Sprintf("OAuth error: %s - %s", errorType, description), http.StatusBadRequest)
+	httputil.WriteError(w, http.StatusBadRequest, "oauth_error", fmt.Sprintf("OAuth error: %s - %s", errorType, description))
 }
