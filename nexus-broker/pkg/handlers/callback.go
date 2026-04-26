@@ -33,6 +33,8 @@ type CallbackHandler struct {
 	encryptionKey         []byte
 	stateKey              []byte
 	httpClient            *http.Client
+	enforceReturnURL      bool
+	allowedReturnDomains  []string
 	metricExchangeSuccess prometheus.Counter
 	metricExchangeError   prometheus.Counter
 	histogramExchangeDur  prometheus.Histogram
@@ -48,6 +50,9 @@ type CallbackHandlerConfig struct {
 	EncryptionKey []byte
 	StateKey      []byte
 	HTTPClient    *http.Client
+
+	EnforceReturnURL     bool
+	AllowedReturnDomains []string
 }
 
 // NewCallbackHandler creates a new callback handler
@@ -92,6 +97,8 @@ func NewCallbackHandler(cfg CallbackHandlerConfig) *CallbackHandler {
 		encryptionKey:         cfg.EncryptionKey,
 		stateKey:              cfg.StateKey,
 		httpClient:            cfg.HTTPClient,
+		enforceReturnURL:      cfg.EnforceReturnURL,
+		allowedReturnDomains:  cfg.AllowedReturnDomains,
 		metricExchangeSuccess: success,
 		metricExchangeError:   failure,
 		histogramExchangeDur:  hist,
@@ -239,7 +246,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	h.logAuditEvent(&connectionID, "oauth_flow_completed", map[string]string{"provider_id": connection.ProviderID}, r)
 
 	// Redirect to return URL with success
-	if !server.IsReturnURLAllowed(connection.ReturnURL) {
+	if !server.IsReturnURLAllowed(connection.ReturnURL, h.enforceReturnURL, h.allowedReturnDomains) {
 		httputil.WriteError(w, http.StatusBadRequest, "return_url_not_allowed", "return_url not allowed")
 		return
 	}
