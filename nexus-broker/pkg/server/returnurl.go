@@ -3,13 +3,12 @@ package server
 import (
 	"net"
 	"net/url"
-	"os"
 	"strings"
 )
 
-// IsReturnURLAllowed validates the return URL host against ALLOWED_RETURN_DOMAINS when ENFORCE_RETURN_URL=true.
-func IsReturnURLAllowed(raw string) bool {
-	enforce := strings.EqualFold(strings.TrimSpace(os.Getenv("ENFORCE_RETURN_URL")), "true")
+// IsReturnURLAllowed validates the return URL host against the allowed domains
+// when enforce is true. If enforce is false, all URLs are allowed.
+func IsReturnURLAllowed(raw string, enforce bool, allowedDomains []string) bool {
 	if !enforce {
 		return true
 	}
@@ -21,17 +20,11 @@ func IsReturnURLAllowed(raw string) bool {
 	if h, _, err := net.SplitHostPort(host); err == nil && h != "" {
 		host = h
 	}
-	allowed := strings.Split(strings.TrimSpace(os.Getenv("ALLOWED_RETURN_DOMAINS")), ",")
 	host = strings.ToLower(strings.TrimSpace(host))
-	for _, a := range allowed {
-		a = strings.ToLower(strings.TrimSpace(a))
-		if a == "" {
-			continue
-		}
+	for _, a := range allowedDomains {
 		if a == host {
 			return true
 		}
-		// Optional simple wildcard: *.example.com
 		if strings.HasPrefix(a, "*.") {
 			suf := strings.TrimPrefix(a, "*.")
 			if strings.HasSuffix(host, "."+suf) {

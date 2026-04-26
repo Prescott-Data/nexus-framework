@@ -3,19 +3,13 @@ package server
 import (
 	"net"
 	"net/http"
-	"os"
 	"strings"
+
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/httputil"
 )
 
-// AllowlistMiddleware restricts access to specified CIDRs
-func AllowlistMiddleware() func(http.Handler) http.Handler {
-	require := strings.EqualFold(strings.TrimSpace(os.Getenv("REQUIRE_ALLOWLIST")), "true")
-	allowedCIDRs := os.Getenv("ALLOWED_CIDRS")
-	if allowedCIDRs == "" {
-		// Default to localhost for development
-		allowedCIDRs = "127.0.0.1/32,::1/128"
-	}
-
+// AllowlistMiddleware restricts access to the specified CIDRs when require is true.
+func AllowlistMiddleware(require bool, allowedCIDRs string) func(http.Handler) http.Handler {
 	var nets []*net.IPNet
 	for _, cidr := range strings.Split(allowedCIDRs, ",") {
 		cidr = strings.TrimSpace(cidr)
@@ -44,7 +38,7 @@ func AllowlistMiddleware() func(http.Handler) http.Handler {
 			}
 
 			if !allowed {
-				http.Error(w, "Access denied", http.StatusForbidden)
+				httputil.WriteError(w, http.StatusForbidden, "access_denied", "Access denied")
 				return
 			}
 
@@ -53,11 +47,8 @@ func AllowlistMiddleware() func(http.Handler) http.Handler {
 	}
 }
 
-// getClientIP extracts the real client IP
 func getClientIP(r *http.Request) net.IP {
-	// Check X-Forwarded-For header (if behind a trusted proxy)
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP in the chain
 		ips := strings.Split(xff, ",")
 		if len(ips) > 0 {
 			ip := net.ParseIP(strings.TrimSpace(ips[0]))
@@ -67,10 +58,9 @@ func getClientIP(r *http.Request) net.IP {
 		}
 	}
 
-	// Fall back to RemoteAddr
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return net.ParseIP("127.0.0.1") // fallback
+		return net.ParseIP("127.0.0.1")
 	}
 	return net.ParseIP(host)
 }

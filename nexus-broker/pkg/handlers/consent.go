@@ -31,13 +31,15 @@ type ConsentSpec struct {
 
 // ConsentHandler handles OAuth consent flow
 type ConsentHandler struct {
-	db             *sqlx.DB
-	baseURL        string
-	redirectPath   string
-	stateKey       []byte
-	httpClient     *http.Client
-	consentsMetric prometheus.Counter
-	consentsOpenID prometheus.Counter
+	db                   *sqlx.DB
+	baseURL              string
+	redirectPath         string
+	stateKey             []byte
+	httpClient           *http.Client
+	enforceReturnURL     bool
+	allowedReturnDomains []string
+	consentsMetric       prometheus.Counter
+	consentsOpenID       prometheus.Counter
 }
 
 // ConsentHandlerConfig holds the dependencies for ConsentHandler
@@ -47,6 +49,9 @@ type ConsentHandlerConfig struct {
 	RedirectPath string
 	StateKey     []byte
 	HTTPClient   *http.Client
+
+	EnforceReturnURL     bool
+	AllowedReturnDomains []string
 }
 
 // NewConsentHandler creates a new consent handler
@@ -70,13 +75,15 @@ func NewConsentHandler(cfg ConsentHandlerConfig) *ConsentHandler {
 	}
 
 	return &ConsentHandler{
-		db:             cfg.DB,
-		baseURL:        cfg.BaseURL,
-		redirectPath:   cfg.RedirectPath,
-		stateKey:       cfg.StateKey,
-		httpClient:     cfg.HTTPClient,
-		consentsMetric: metric,
-		consentsOpenID: metricOpenID,
+		db:                   cfg.DB,
+		baseURL:              cfg.BaseURL,
+		redirectPath:         cfg.RedirectPath,
+		stateKey:             cfg.StateKey,
+		httpClient:           cfg.HTTPClient,
+		enforceReturnURL:     cfg.EnforceReturnURL,
+		allowedReturnDomains: cfg.AllowedReturnDomains,
+		consentsMetric:       metric,
+		consentsOpenID:       metricOpenID,
 	}
 }
 
@@ -90,18 +97,18 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_json", "Invalid JSON")
 		return
 	}
 
 	// Validate required fields
 	if request.WorkspaceID == "" || request.ProviderID == "" || request.ReturnURL == "" {
-		http.Error(w, "Missing required fields", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "missing_fields", "Missing required fields")
 		return
 	}
 	// Validate return URL domain if enforced
-	if !server.IsReturnURLAllowed(request.ReturnURL) {
-		http.Error(w, "return_url not allowed", http.StatusBadRequest)
+	if !server.IsReturnURLAllowed(request.ReturnURL, h.enforceReturnURL, h.allowedReturnDomains) {
+		httputil.WriteError(w, http.StatusBadRequest, "return_url_not_allowed", "return_url not allowed")
 		return
 	}
 
@@ -122,7 +129,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 	).Scan(&provider.ID, &provider.Name, &provider.AuthType, &provider.AuthURL, &provider.ClientID, pq.Array(&provider.Scopes), &provider.Params)
 	if err != nil {
 		log.Printf("/auth/consent-spec provider lookup error: %v", err)
-		http.Error(w, "Provider not found", http.StatusNotFound)
+		httputil.WriteError(w, http.StatusNotFound, "provider_not_found", "Provider not found")
 		return
 	}
 
@@ -131,7 +138,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		// Generate PKCE
 		codeVerifier, codeChallenge, err := auth.GeneratePKCE()
 		if err != nil {
-			http.Error(w, "Failed to generate PKCE", http.StatusInternalServerError)
+			httputil.WriteError(w, http.StatusInternalServerError, "pkce_failed", "Failed to generate PKCE")
 			return
 		}
 
@@ -144,7 +151,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 			connectionID, request.WorkspaceID, request.ProviderID, codeVerifier, pq.Array(request.Scopes), request.ReturnURL, expiresAt)
 		if err != nil {
-			http.Error(w, "Failed to create connection", http.StatusInternalServerError)
+			httputil.WriteError(w, http.StatusInternalServerError, "connection_create_failed", "Failed to create connection")
 			return
 		}
 
@@ -158,7 +165,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 
 		signedState, err := auth.SignState(h.stateKey, stateData)
 		if err != nil {
-			http.Error(w, "Failed to sign state", http.StatusInternalServerError)
+			httputil.WriteError(w, http.StatusInternalServerError, "state_sign_failed", "Failed to sign state")
 			return
 		}
 
@@ -182,7 +189,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		// Build auth URL
 		authURL, err := h.buildAuthURL(useAuthURL, provider.ClientID.String, signedState, codeChallenge, request.Scopes, provider.Params)
 		if err != nil {
-			http.Error(w, "Failed to build auth URL", http.StatusInternalServerError)
+			httputil.WriteError(w, http.StatusInternalServerError, "auth_url_failed", "Failed to build auth URL")
 			return
 		}
 
@@ -203,7 +210,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 			VALUES ($1, $2, $3, $4, $5, $6)`,
 			connectionID, request.WorkspaceID, request.ProviderID, pq.Array(request.Scopes), request.ReturnURL, expiresAt)
 		if err != nil {
-			http.Error(w, "Failed to create connection", http.StatusInternalServerError)
+			httputil.WriteError(w, http.StatusInternalServerError, "connection_create_failed", "Failed to create connection")
 			return
 		}
 
@@ -216,7 +223,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		}
 		signedState, err := auth.SignState(h.stateKey, stateData)
 		if err != nil {
-			http.Error(w, "Failed to sign state", http.StatusInternalServerError)
+			httputil.WriteError(w, http.StatusInternalServerError, "state_sign_failed", "Failed to sign state")
 			return
 		}
 
@@ -238,7 +245,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 
 		httputil.WriteJSON(w, http.StatusOK, response)
 	default:
-		http.Error(w, "Unsupported provider auth_type", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "unsupported_auth_type", "Unsupported provider auth_type")
 		return
 	}
 
