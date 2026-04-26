@@ -14,21 +14,9 @@ import (
 	"google.golang.org/grpc"
 )
 
-// MOCK for dromos-nexus-sdk
-type OAuthClient interface {
-	GetToken(ctx context.Context, connectionID string) (*Token, error)
-	RefreshConnection(ctx context.Context, connectionID string) (*Token, error)
-}
-
-type Token struct {
-	Strategy    auth.AuthStrategy
-	Credentials auth.Credentials
-	ExpiresAt   int64 // Unix timestamp
-}
-
 // Bridge manages persistent connections.
 type Bridge struct {
-	oauthClient      OAuthClient
+	oauthClient      auth.TokenProvider
 	logger           Logger
 	retryPolicy      RetryPolicy
 	metrics          Metrics
@@ -40,7 +28,7 @@ type Bridge struct {
 }
 
 // New creates a new Bridge with optional configurations.
-func New(oauthClient OAuthClient, opts ...Option) *Bridge {
+func New(oauthClient auth.TokenProvider, opts ...Option) *Bridge {
 	// Define default values
 	bridge := &Bridge{
 		oauthClient: oauthClient,
@@ -69,7 +57,7 @@ func New(oauthClient OAuthClient, opts ...Option) *Bridge {
 // NewStandard creates a new Bridge with production-ready defaults:
 // - Structured JSON logging (Slog) to Stdout
 // - Prometheus metrics registered to the default registry
-func NewStandard(oauthClient OAuthClient, agentLabels map[string]string, opts ...Option) *Bridge {
+func NewStandard(oauthClient auth.TokenProvider, agentLabels map[string]string, opts ...Option) *Bridge {
 	// Prepend telemetry options so user can still override them if needed (though unlikely)
 	defaultOpts := []Option{
 		WithLogger(telemetry.NewLogger()),
@@ -294,7 +282,7 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 	}()
 
 	// Step 5: Start the event loop for the active connection.
-	refreshResultChan := make(chan *Token, 1)
+	refreshResultChan := make(chan *auth.Token, 1)
 	refreshErrChan := make(chan error, 1)
 	refreshing := false
 	var timer *time.Timer
