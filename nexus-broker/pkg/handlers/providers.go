@@ -28,12 +28,12 @@ func (h *ProvidersHandler) Get(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		http.Error(w, "Invalid provider ID", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_provider_id", "Invalid provider ID")
 		return
 	}
 	profile, err := h.store.GetProfile(id)
 	if err != nil {
-		http.Error(w, "Provider not found", http.StatusNotFound)
+		httputil.WriteError(w, http.StatusNotFound, "provider_not_found", "Provider not found")
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, profile)
@@ -44,20 +44,20 @@ func (h *ProvidersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		http.Error(w, "Invalid provider ID", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_provider_id", "Invalid provider ID")
 		return
 	}
 
 	var profile provider.Profile
 	if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_json", "Invalid JSON")
 		return
 	}
 
 	profile.ID = id
 
 	if err := h.store.UpdateProfile(&profile); err != nil {
-		http.Error(w, "Failed to update provider profile", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "update_failed", "Failed to update provider profile")
 		return
 	}
 
@@ -69,18 +69,18 @@ func (h *ProvidersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		http.Error(w, "Invalid provider ID", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_provider_id", "Invalid provider ID")
 		return
 	}
 
 	var updates map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_json", "Invalid JSON")
 		return
 	}
 
 	if err := h.store.PatchProfile(id, updates); err != nil {
-		http.Error(w, "Failed to patch provider profile", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "patch_failed", "Failed to patch provider profile")
 		return
 	}
 
@@ -92,12 +92,12 @@ func (h *ProvidersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		http.Error(w, "Invalid provider ID", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_provider_id", "Invalid provider ID")
 		return
 	}
 
 	if err := h.store.DeleteProfile(id); err != nil {
-		http.Error(w, "Failed to delete provider profile", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "delete_failed", "Failed to delete provider profile")
 		return
 	}
 
@@ -160,7 +160,7 @@ func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
 func (h *ProvidersHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.store.ListProfiles()
 	if err != nil {
-		http.Error(w, "Failed to list providers", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "list_failed", "Failed to list providers")
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, rows)
@@ -170,7 +170,7 @@ func (h *ProvidersHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if name == "" {
-		http.Error(w, "missing name", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "missing_name", "missing name")
 		return
 	}
 
@@ -179,7 +179,7 @@ func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
 
 	profile, err := h.store.GetProfileByName(name)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		httputil.WriteError(w, http.StatusNotFound, "provider_not_found", err.Error())
 		return
 	}
 
@@ -190,30 +190,29 @@ func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
 func (h *ProvidersHandler) DeleteByName(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if name == "" {
-		http.Error(w, "missing name", http.StatusBadRequest)
+		httputil.WriteError(w, http.StatusBadRequest, "missing_name", "missing name")
 		return
 	}
 
 	rowsAffected, err := h.store.DeleteProfileByName(name)
 	if err != nil {
-		http.Error(w, "Failed to delete provider profile", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "delete_failed", "Failed to delete provider profile")
 		return
 	}
 
 	if rowsAffected == 0 {
-		http.Error(w, "provider not found", http.StatusNotFound)
+		httputil.WriteError(w, http.StatusNotFound, "provider_not_found", "provider not found")
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("Deleted %d provider(s)", rowsAffected)))
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Deleted %d provider(s)", rowsAffected)})
 }
 
 // Metadata handles GET /providers/metadata to retrieve grouped integration config
 func (h *ProvidersHandler) Metadata(w http.ResponseWriter, r *http.Request) {
 	metadata, err := h.store.GetMetadata()
 	if err != nil {
-		http.Error(w, "Failed to retrieve metadata", http.StatusInternalServerError)
+		httputil.WriteError(w, http.StatusInternalServerError, "metadata_failed", "Failed to retrieve metadata")
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, metadata)

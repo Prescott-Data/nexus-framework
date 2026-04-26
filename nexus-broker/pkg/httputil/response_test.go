@@ -77,3 +77,56 @@ func TestWriteJSON_EmptySlice(t *testing.T) {
 		t.Fatalf("expected [] body, got %q", body)
 	}
 }
+
+func TestWriteError_StructuredJSON(t *testing.T) {
+	w := httptest.NewRecorder()
+	WriteError(w, http.StatusBadRequest, "invalid_id", "Invalid provider ID")
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected application/json, got %q", ct)
+	}
+
+	var got APIError
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if got.Error != "invalid_id" {
+		t.Errorf("expected error code invalid_id, got %q", got.Error)
+	}
+	if got.Message != "Invalid provider ID" {
+		t.Errorf("expected message 'Invalid provider ID', got %q", got.Message)
+	}
+	if got.Details != nil {
+		t.Errorf("expected nil details, got %v", got.Details)
+	}
+}
+
+func TestWriteError_500(t *testing.T) {
+	w := httptest.NewRecorder()
+	WriteError(w, http.StatusInternalServerError, "internal_error", "something broke")
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestWriteErrorWithDetails(t *testing.T) {
+	w := httptest.NewRecorder()
+	WriteErrorWithDetails(w, http.StatusUnprocessableEntity, "validation_failed", "bad input",
+		map[string]string{"field": "email"})
+
+	var got APIError
+	if err := json.NewDecoder(w.Result().Body).Decode(&got); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if got.Error != "validation_failed" {
+		t.Errorf("expected error code validation_failed, got %q", got.Error)
+	}
+	if got.Details == nil {
+		t.Fatal("expected non-nil details")
+	}
+}
