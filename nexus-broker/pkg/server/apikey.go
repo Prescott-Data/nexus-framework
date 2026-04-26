@@ -2,41 +2,26 @@ package server
 
 import (
 	"net/http"
-	"os"
 	"strings"
+
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/httputil"
 )
 
-// ApiKeyMiddleware enforces X-API-Key header when REQUIRE_API_KEY=true.
-// Keys can be provided via API_KEYS (comma-separated) or API_KEY (single).
-func ApiKeyMiddleware() func(http.Handler) http.Handler {
-	require := strings.EqualFold(strings.TrimSpace(os.Getenv("REQUIRE_API_KEY")), "true")
-	// Build an allow set
-	allow := make(map[string]struct{})
-	if v := strings.TrimSpace(os.Getenv("API_KEYS")); v != "" {
-		for _, k := range strings.Split(v, ",") {
-			k = strings.TrimSpace(k)
-			if k != "" {
-				allow[k] = struct{}{}
-			}
-		}
-	}
-	if v := strings.TrimSpace(os.Getenv("API_KEY")); v != "" {
-		allow[v] = struct{}{}
-	}
-
+// ApiKeyMiddleware enforces X-API-Key header when requireKey is true.
+func ApiKeyMiddleware(requireKey bool, allowedKeys map[string]struct{}) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !require {
+			if !requireKey {
 				next.ServeHTTP(w, r)
 				return
 			}
 			key := strings.TrimSpace(r.Header.Get("X-API-Key"))
 			if key == "" {
-				http.Error(w, "missing api key", http.StatusUnauthorized)
+				httputil.WriteError(w, http.StatusUnauthorized, "missing_api_key", "missing api key")
 				return
 			}
-			if _, ok := allow[key]; !ok {
-				http.Error(w, "invalid api key", http.StatusForbidden)
+			if _, ok := allowedKeys[key]; !ok {
+				httputil.WriteError(w, http.StatusForbidden, "invalid_api_key", "invalid api key")
 				return
 			}
 			next.ServeHTTP(w, r)

@@ -31,13 +31,15 @@ type ConsentSpec struct {
 
 // ConsentHandler handles OAuth consent flow
 type ConsentHandler struct {
-	db             *sqlx.DB
-	baseURL        string
-	redirectPath   string
-	stateKey       []byte
-	httpClient     *http.Client
-	consentsMetric prometheus.Counter
-	consentsOpenID prometheus.Counter
+	db                   *sqlx.DB
+	baseURL              string
+	redirectPath         string
+	stateKey             []byte
+	httpClient           *http.Client
+	enforceReturnURL     bool
+	allowedReturnDomains []string
+	consentsMetric       prometheus.Counter
+	consentsOpenID       prometheus.Counter
 }
 
 // ConsentHandlerConfig holds the dependencies for ConsentHandler
@@ -47,6 +49,9 @@ type ConsentHandlerConfig struct {
 	RedirectPath string
 	StateKey     []byte
 	HTTPClient   *http.Client
+
+	EnforceReturnURL     bool
+	AllowedReturnDomains []string
 }
 
 // NewConsentHandler creates a new consent handler
@@ -70,13 +75,15 @@ func NewConsentHandler(cfg ConsentHandlerConfig) *ConsentHandler {
 	}
 
 	return &ConsentHandler{
-		db:             cfg.DB,
-		baseURL:        cfg.BaseURL,
-		redirectPath:   cfg.RedirectPath,
-		stateKey:       cfg.StateKey,
-		httpClient:     cfg.HTTPClient,
-		consentsMetric: metric,
-		consentsOpenID: metricOpenID,
+		db:                   cfg.DB,
+		baseURL:              cfg.BaseURL,
+		redirectPath:         cfg.RedirectPath,
+		stateKey:             cfg.StateKey,
+		httpClient:           cfg.HTTPClient,
+		enforceReturnURL:     cfg.EnforceReturnURL,
+		allowedReturnDomains: cfg.AllowedReturnDomains,
+		consentsMetric:       metric,
+		consentsOpenID:       metricOpenID,
 	}
 }
 
@@ -100,7 +107,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Validate return URL domain if enforced
-	if !server.IsReturnURLAllowed(request.ReturnURL) {
+	if !server.IsReturnURLAllowed(request.ReturnURL, h.enforceReturnURL, h.allowedReturnDomains) {
 		httputil.WriteError(w, http.StatusBadRequest, "return_url_not_allowed", "return_url not allowed")
 		return
 	}
