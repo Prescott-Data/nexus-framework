@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Prescott-Data/nexus-framework/nexus-sdk"
 	"github.com/Prescott-Data/nexus-framework/nexus-bridge"
 	"github.com/Prescott-Data/nexus-framework/nexus-bridge/pkg/auth"
+	"github.com/Prescott-Data/nexus-framework/nexus-sdk"
 	"github.com/gorilla/websocket"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -28,12 +28,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// SDKAdapter adapts the oauthsdk.Client to the bridge.OAuthClient interface.
+// SDKAdapter adapts the oauthsdk.Client to the auth.TokenProvider interface.
 type SDKAdapter struct {
 	client *oauthsdk.Client
 }
 
-func (a *SDKAdapter) GetToken(ctx context.Context, connectionID string) (*bridge.Token, error) {
+func (a *SDKAdapter) GetToken(ctx context.Context, connectionID string) (*auth.Token, error) {
 	resp, err := a.client.GetToken(ctx, connectionID)
 	if err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func (a *SDKAdapter) GetToken(ctx context.Context, connectionID string) (*bridge
 	return a.convertToken(resp), nil
 }
 
-func (a *SDKAdapter) RefreshConnection(ctx context.Context, connectionID string) (*bridge.Token, error) {
+func (a *SDKAdapter) RefreshConnection(ctx context.Context, connectionID string) (*auth.Token, error) {
 	resp, err := a.client.RefreshConnection(ctx, connectionID)
 	if err != nil {
 		return nil, err
@@ -49,7 +49,7 @@ func (a *SDKAdapter) RefreshConnection(ctx context.Context, connectionID string)
 	return a.convertToken(resp), nil
 }
 
-func (a *SDKAdapter) convertToken(resp *oauthsdk.TokenResponse) *bridge.Token {
+func (a *SDKAdapter) convertToken(resp *oauthsdk.TokenResponse) *auth.Token {
 	var strategy auth.AuthStrategy
 	if resp.Strategy != nil {
 		strategy.Type, _ = resp.Strategy["type"].(string)
@@ -63,7 +63,7 @@ func (a *SDKAdapter) convertToken(resp *oauthsdk.TokenResponse) *bridge.Token {
 		creds = auth.Credentials(resp.Credentials)
 	}
 
-	return &bridge.Token{
+	return &auth.Token{
 		Strategy:    strategy,
 		Credentials: creds,
 		ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
@@ -315,176 +315,145 @@ func TestBridge_Integration_GRPC(t *testing.T) {
 	broker := NewMockBroker()
 	defer broker.Close()
 
-		successChan := make(chan struct{})
+	successChan := make(chan struct{})
 
-		interceptor := func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	interceptor := func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 
-			md, ok := metadata.FromIncomingContext(ctx)
+		md, ok := metadata.FromIncomingContext(ctx)
 
-			if !ok {
+		if !ok {
 
-				return nil, status.Errorf(codes.Unauthenticated, "missing metadata")
-
-			}
-
-			t.Logf("gRPC Interceptor received metadata: %v", md)
-
-			if len(md.Get("authorization")) == 0 || md.Get("authorization")[0] != "Bearer grpc-secret-token" {
-
-				return nil, status.Errorf(codes.Unauthenticated, "invalid token")
-
-			}
-
-			// If validation is successful, signal it and call the handler
-
-			close(successChan)
-
-			return handler(ctx, req)
+			return nil, status.Errorf(codes.Unauthenticated, "missing metadata")
 
 		}
 
-	
+		t.Logf("gRPC Interceptor received metadata: %v", md)
 
-		provider, err := NewMockGRPCProvider(interceptor)
+		if len(md.Get("authorization")) == 0 || md.Get("authorization")[0] != "Bearer grpc-secret-token" {
+
+			return nil, status.Errorf(codes.Unauthenticated, "invalid token")
+
+		}
+
+		// If validation is successful, signal it and call the handler
+
+		close(successChan)
+
+		return handler(ctx, req)
+
+	}
+
+	provider, err := NewMockGRPCProvider(interceptor)
+
+	if err != nil {
+
+		t.Fatalf("Failed to create mock gRPC provider: %v", err)
+
+	}
+
+	defer provider.Close()
+
+	// 2. Configure Broker Response
+
+	broker.SetResponse("conn-grpc", map[string]interface{}{
+
+		"strategy": map[string]interface{}{
+
+			"type": "oauth2",
+		},
+
+		"credentials": map[string]interface{}{
+
+			"access_token": "grpc-secret-token",
+		},
+	})
+
+	// 3. Setup Bridge Client
+
+	sdkClient := oauthsdk.New(broker.URL())
+
+	adapter := &SDKAdapter{client: sdkClient}
+
+	b := bridge.New(adapter, bridge.WithLogger(&testLogger{t: t})) // Add logger to bridge
+
+	// 4. Run the Bridge
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+
+	defer cancel()
+
+	runFunc := func(ctx context.Context, conn *grpc.ClientConn) error {
+
+		client := grpc_health_v1.NewHealthClient(conn)
+
+		_, err := client.Check(ctx, &grpc_health_v1.HealthCheckRequest{Service: "test-service"})
 
 		if err != nil {
 
-			t.Fatalf("Failed to create mock gRPC provider: %v", err)
+			t.Logf("Health check failed: %v", err)
+
+			return err
 
 		}
 
-		defer provider.Close()
+		t.Logf("Health check successful")
 
-	
+		return nil
 
-		// 2. Configure Broker Response
+	}
 
-		broker.SetResponse("conn-grpc", map[string]interface{}{
+	// Run MaintainGRPCConnection in a goroutine
 
-			"strategy": map[string]interface{}{
+	go func() {
 
-				"type": "oauth2",
+		err := b.MaintainGRPCConnection(ctx, "conn-grpc", provider.Addr(), runFunc, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
-			},
+		if err != nil {
 
-			"credentials": map[string]interface{}{
-
-				"access_token": "grpc-secret-token",
-
-			},
-
-		})
-
-	
-
-		// 3. Setup Bridge Client
-
-		sdkClient := oauthsdk.New(broker.URL())
-
-		adapter := &SDKAdapter{client: sdkClient}
-
-		b := bridge.New(adapter, bridge.WithLogger(&testLogger{t: t})) // Add logger to bridge
-
-	
-
-		// 4. Run the Bridge
-
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-
-		defer cancel()
-
-	
-
-		runFunc := func(ctx context.Context, conn *grpc.ClientConn) error {
-
-			client := grpc_health_v1.NewHealthClient(conn)
-
-			_, err := client.Check(ctx, &grpc_health_v1.HealthCheckRequest{Service: "test-service"})
-
-			if err != nil {
-
-				t.Logf("Health check failed: %v", err)
-
-				return err
-
-			}
-
-			t.Logf("Health check successful")
-
-			return nil
+			t.Logf("MaintainGRPCConnection exited with error: %v", err)
 
 		}
 
-	
+	}()
 
-		// Run MaintainGRPCConnection in a goroutine
+	// 5. Wait for validation signal
 
-		go func() {
+	select {
 
-			err := b.MaintainGRPCConnection(ctx, "conn-grpc", provider.Addr(), runFunc, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	case <-successChan:
 
-			if err != nil {
+		// Test passed!
 
-				t.Logf("MaintainGRPCConnection exited with error: %v", err)
+	case <-ctx.Done():
 
-			}
-
-		}()
-
-	
-
-		// 5. Wait for validation signal
-
-		select {
-
-		case <-successChan:
-
-			// Test passed!
-
-		case <-ctx.Done():
-
-			t.Fatal("Timeout waiting for successful gRPC call")
-
-		}
+		t.Fatal("Timeout waiting for successful gRPC call")
 
 	}
 
-	
+}
 
-	type noopHandler struct{}
+type noopHandler struct{}
 
-	
+func (h *noopHandler) OnConnect(send func(message []byte) error) {}
 
-	func (h *noopHandler) OnConnect(send func(message []byte) error) {}
+func (h *noopHandler) OnMessage(message []byte) {}
 
-	func (h *noopHandler) OnMessage(message []byte)                  {}
+func (h *noopHandler) OnDisconnect(err error) {}
 
-	func (h *noopHandler) OnDisconnect(err error)                    {}
+// testLogger is a mock implementation of the Logger interface for testing.
 
-	
+type testLogger struct {
+	t *testing.T
+}
 
-	// testLogger is a mock implementation of the Logger interface for testing.
+func (l *testLogger) Info(msg string, keysAndValues ...interface{}) {
 
-	type testLogger struct {
+	l.t.Logf("INFO: %s %v", msg, keysAndValues)
 
-		t *testing.T
+}
 
-	}
+func (l *testLogger) Error(err error, msg string, keysAndValues ...interface{}) {
 
-	
+	l.t.Logf("ERROR: %s %v err: %v", msg, keysAndValues, err)
 
-	func (l *testLogger) Info(msg string, keysAndValues ...interface{}) {
-
-		l.t.Logf("INFO: %s %v", msg, keysAndValues)
-
-	}
-
-	
-
-	func (l *testLogger) Error(err error, msg string, keysAndValues ...interface{}) {
-
-		l.t.Logf("ERROR: %s %v err: %v", msg, keysAndValues, err)
-
-	}
-
-	
+}
