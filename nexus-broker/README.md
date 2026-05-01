@@ -76,6 +76,7 @@ curl -X PATCH http://localhost:8080/providers/<id> \
 - `auth_header`: Set to `"client_secret_basic"` for providers requiring Basic Auth (Twitter, GitHub). Default is `"client_secret_post"` (Body).
 - `api_base_url`: Root URL for the provider's API (e.g., `https://api.github.com`). Used by frontend.
 - `user_info_endpoint`: Path to fetch user profile (e.g., `/user`). Used by frontend.
+- `description`: Human-readable description of what this provider is used for. Shown in the connected apps UI. Optional but recommended.
 
 ### Google
 ```bash
@@ -83,6 +84,7 @@ jq -n '{
   profile: {
     name: "google",
     auth_type: "oauth2",
+    description: "Connect Google to access Gmail, Calendar, Drive, and Workspace apps for seamless productivity automation.",
     auth_url: "https://accounts.google.com/o/oauth2/v2/auth",
     token_url: "https://oauth2.googleapis.com/token",
     client_id: "<client-id>",
@@ -100,6 +102,7 @@ jq -n '{
   profile: {
     name: "twitter",
     auth_type: "oauth2",
+    description: "Connect Twitter (X) to automate tweet publishing, monitor mentions, and trigger social media workflows from engagement and timeline events.",
     auth_url: "https://twitter.com/i/oauth2/authorize",
     token_url: "https://api.twitter.com/2/oauth2/token",
     client_id: "<client-id>",
@@ -118,6 +121,7 @@ jq -n '{
   profile: {
     name: "microsoft-graph",
     auth_type: "oauth2",
+    description: "Connect Microsoft 365 to access Teams, Outlook, OneDrive, and SharePoint for enterprise automation.",
     auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
     token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
     client_id: "<application-client-id-guid>",
@@ -153,12 +157,14 @@ curl -H "X-API-Key: $API_KEY" http://localhost:8080/providers/metadata
     "google": {
       "api_base_url": "https://www.googleapis.com",
       "user_info_endpoint": "/oauth2/v3/userinfo",
-      "scopes": ["openid", "email", "profile"]
+      "scopes": ["openid", "email", "profile"],
+      "description": "Connect Google to access Gmail, Calendar, Drive, and Workspace apps for seamless productivity automation."
     },
     "twitter": {
       "api_base_url": "https://api.twitter.com/2",
       "user_info_endpoint": "/users/me",
-      "scopes": ["tweet.read", "users.read"]
+      "scopes": ["tweet.read", "users.read"],
+      "description": "Connect Twitter (X) to automate tweet publishing, monitor mentions, and trigger social media workflows."
     }
   },
   "api_key": { ... }
