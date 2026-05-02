@@ -66,6 +66,14 @@ func runBroker(t *testing.T, env map[string]string) (output string, exitCode int
 		}
 		cmd.Env = append(cmd.Env, e)
 	}
+
+	if _, ok := env["DATABASE_URL"]; !ok {
+		env["DATABASE_URL"] = "postgres://fake:fake@localhost:1/fake?sslmode=disable"
+	}
+	if _, ok := env["BASE_URL"]; !ok {
+		env["BASE_URL"] = "http://localhost:8080"
+	}
+
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
