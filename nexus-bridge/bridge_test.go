@@ -19,17 +19,17 @@ import (
 
 // --- Mocks ---
 
-// mockOAuthClient is a mock implementation of the OAuthClient interface for testing.
-type mockOAuthClient struct {
-	getTokenFunc          func(ctx context.Context, connectionID string) (*Token, error)
-	refreshConnectionFunc func(ctx context.Context, connectionID string) (*Token, error)
+// mockTokenProvider is a mock implementation of auth.TokenProvider for testing.
+type mockTokenProvider struct {
+	getTokenFunc          func(ctx context.Context, connectionID string) (*auth.Token, error)
+	refreshConnectionFunc func(ctx context.Context, connectionID string) (*auth.Token, error)
 }
 
-func (m *mockOAuthClient) GetToken(ctx context.Context, connectionID string) (*Token, error) {
+func (m *mockTokenProvider) GetToken(ctx context.Context, connectionID string) (*auth.Token, error) {
 	return m.getTokenFunc(ctx, connectionID)
 }
 
-func (m *mockOAuthClient) RefreshConnection(ctx context.Context, connectionID string) (*Token, error) {
+func (m *mockTokenProvider) RefreshConnection(ctx context.Context, connectionID string) (*auth.Token, error) {
 	if m.refreshConnectionFunc != nil {
 		return m.refreshConnectionFunc(ctx, connectionID)
 	}
@@ -94,8 +94,8 @@ var upgrader = websocket.Upgrader{}
 
 func TestBridge_PermanentTokenError(t *testing.T) {
 	t.Parallel()
-	authClient := &mockOAuthClient{
-		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
+	authClient := &mockTokenProvider{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
 			return nil, errors.New("invalid credentials")
 		},
 	}
@@ -117,9 +117,9 @@ func TestBridge_PermanentTokenError(t *testing.T) {
 
 func TestBridge_PermanentCloseCode(t *testing.T) {
 	t.Parallel()
-	authClient := &mockOAuthClient{
-		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{
+	authClient := &mockTokenProvider{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
+			return &auth.Token{
 				Strategy:    auth.AuthStrategy{Type: "oauth2"},
 				Credentials: auth.Credentials{"access_token": "test-token"},
 				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
@@ -156,9 +156,9 @@ func TestBridge_PermanentCloseCode(t *testing.T) {
 
 func TestBridge_ConnectionDropAndReconnect(t *testing.T) {
 	t.Parallel()
-	authClient := &mockOAuthClient{
-		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{
+	authClient := &mockTokenProvider{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
+			return &auth.Token{
 				Strategy:    auth.AuthStrategy{Type: "oauth2"},
 				Credentials: auth.Credentials{"access_token": "test-token"},
 				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
@@ -211,9 +211,9 @@ func TestBridge_ConnectionDropAndReconnect(t *testing.T) {
 
 func TestBridge_ContextCancellation(t *testing.T) {
 	t.Parallel()
-	authClient := &mockOAuthClient{
-		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{
+	authClient := &mockTokenProvider{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
+			return &auth.Token{
 				Strategy:    auth.AuthStrategy{Type: "oauth2"},
 				Credentials: auth.Credentials{"access_token": "test-token"},
 				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
@@ -254,9 +254,9 @@ func TestBridge_ContextCancellation(t *testing.T) {
 
 func TestBridge_HappyPath(t *testing.T) {
 	t.Parallel()
-	authClient := &mockOAuthClient{
-		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{
+	authClient := &mockTokenProvider{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
+			return &auth.Token{
 				Strategy:    auth.AuthStrategy{Type: "oauth2"},
 				Credentials: auth.Credentials{"access_token": "test-token"},
 				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
@@ -294,9 +294,9 @@ func TestBridge_HappyPath(t *testing.T) {
 
 func TestBridge_MessageSizeLimit(t *testing.T) {
 	t.Parallel()
-	authClient := &mockOAuthClient{
-		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{
+	authClient := &mockTokenProvider{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
+			return &auth.Token{
 				Strategy:    auth.AuthStrategy{Type: "oauth2"},
 				Credentials: auth.Credentials{"access_token": "test-token"},
 				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
@@ -341,7 +341,7 @@ func TestBridge_MessageSizeLimit(t *testing.T) {
 
 func TestBridge_Options(t *testing.T) {
 	t.Parallel()
-	authClient := &mockOAuthClient{}
+	authClient := &mockTokenProvider{}
 	bridge := New(authClient,
 		WithMessageSizeLimit(1234),
 		WithWriteTimeout(5*time.Second),
@@ -366,19 +366,19 @@ func TestBridge_TokenRefreshWithoutDisconnect(t *testing.T) {
 	disconnectChan := make(chan error, 1)
 	refreshChan := make(chan struct{}) // Unbuffered channel
 
-	authClient := &mockOAuthClient{
-		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
+	authClient := &mockTokenProvider{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
 			// Initial token expires soon.
-			return &Token{
+			return &auth.Token{
 				Strategy:    auth.AuthStrategy{Type: "oauth2"},
 				Credentials: auth.Credentials{"access_token": "initial-token"},
 				ExpiresAt:   time.Now().Add(2 * time.Second).Unix(),
 			}, nil
 		},
-		refreshConnectionFunc: func(ctx context.Context, connectionID string) (*Token, error) {
+		refreshConnectionFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
 			refreshChan <- struct{}{}
 			// Refreshed token has a long expiry.
-			return &Token{
+			return &auth.Token{
 				Strategy:    auth.AuthStrategy{Type: "oauth2"},
 				Credentials: auth.Credentials{"access_token": "refreshed-token"},
 				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
@@ -459,9 +459,9 @@ func grpcRetryPolicy() RetryPolicy {
 
 func TestGRPC_CleanExit(t *testing.T) {
 	t.Parallel()
-	authClient := &mockOAuthClient{
-		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{
+	authClient := &mockTokenProvider{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
+			return &auth.Token{
 				Strategy:    auth.AuthStrategy{Type: "oauth2"},
 				Credentials: auth.Credentials{"access_token": "tok"},
 				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
@@ -488,9 +488,9 @@ func TestGRPC_CleanExit(t *testing.T) {
 
 func TestGRPC_PermanentError(t *testing.T) {
 	t.Parallel()
-	authClient := &mockOAuthClient{
-		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{
+	authClient := &mockTokenProvider{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
+			return &auth.Token{
 				Strategy:    auth.AuthStrategy{Type: "oauth2"},
 				Credentials: auth.Credentials{"access_token": "tok"},
 				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
@@ -516,9 +516,9 @@ func TestGRPC_PermanentError(t *testing.T) {
 
 func TestGRPC_InteractionRequired(t *testing.T) {
 	t.Parallel()
-	authClient := &mockOAuthClient{
-		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{
+	authClient := &mockTokenProvider{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
+			return &auth.Token{
 				Strategy:    auth.AuthStrategy{Type: "oauth2"},
 				Credentials: auth.Credentials{"access_token": "tok"},
 				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
@@ -546,9 +546,9 @@ func TestGRPC_InteractionRequired(t *testing.T) {
 
 func TestGRPC_RetryThenSucceed(t *testing.T) {
 	t.Parallel()
-	authClient := &mockOAuthClient{
-		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{
+	authClient := &mockTokenProvider{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
+			return &auth.Token{
 				Strategy:    auth.AuthStrategy{Type: "oauth2"},
 				Credentials: auth.Credentials{"access_token": "tok"},
 				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
@@ -583,9 +583,9 @@ func TestGRPC_RetryThenSucceed(t *testing.T) {
 
 func TestGRPC_ContextCancelledDuringBackoff(t *testing.T) {
 	t.Parallel()
-	authClient := &mockOAuthClient{
-		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{
+	authClient := &mockTokenProvider{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
+			return &auth.Token{
 				Strategy:    auth.AuthStrategy{Type: "oauth2"},
 				Credentials: auth.Credentials{"access_token": "tok"},
 				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),
@@ -632,9 +632,9 @@ func TestGRPC_ContextCancelledDuringBackoff(t *testing.T) {
 
 func TestGRPC_BackoffGrowsExponentially(t *testing.T) {
 	t.Parallel()
-	authClient := &mockOAuthClient{
-		getTokenFunc: func(ctx context.Context, connectionID string) (*Token, error) {
-			return &Token{
+	authClient := &mockTokenProvider{
+		getTokenFunc: func(ctx context.Context, connectionID string) (*auth.Token, error) {
+			return &auth.Token{
 				Strategy:    auth.AuthStrategy{Type: "oauth2"},
 				Credentials: auth.Credentials{"access_token": "tok"},
 				ExpiresAt:   time.Now().Add(1 * time.Hour).Unix(),

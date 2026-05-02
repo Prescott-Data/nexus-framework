@@ -13,7 +13,7 @@ func TestAllowlistMiddleware(t *testing.T) {
 
 	testCases := []struct {
 		name           string
-		require        string
+		require        bool
 		cidrs          string
 		remoteAddr     string
 		forwardedFor   string
@@ -21,7 +21,7 @@ func TestAllowlistMiddleware(t *testing.T) {
 	}{
 		{
 			name:           "Not required",
-			require:        "false",
+			require:        false,
 			cidrs:          "",
 			remoteAddr:     "1.1.1.1:12345",
 			forwardedFor:   "",
@@ -29,7 +29,7 @@ func TestAllowlistMiddleware(t *testing.T) {
 		},
 		{
 			name:           "Allowed from RemoteAddr",
-			require:        "true",
+			require:        true,
 			cidrs:          "192.168.1.0/24",
 			remoteAddr:     "192.168.1.10:12345",
 			forwardedFor:   "",
@@ -37,7 +37,7 @@ func TestAllowlistMiddleware(t *testing.T) {
 		},
 		{
 			name:           "Disallowed from RemoteAddr",
-			require:        "true",
+			require:        true,
 			cidrs:          "192.168.1.0/24",
 			remoteAddr:     "10.0.0.5:12345",
 			forwardedFor:   "",
@@ -45,7 +45,7 @@ func TestAllowlistMiddleware(t *testing.T) {
 		},
 		{
 			name:           "Allowed from X-Forwarded-For",
-			require:        "true",
+			require:        true,
 			cidrs:          "10.0.0.0/16",
 			remoteAddr:     "1.1.1.1:12345",
 			forwardedFor:   "10.0.5.1",
@@ -53,7 +53,7 @@ func TestAllowlistMiddleware(t *testing.T) {
 		},
 		{
 			name:           "Disallowed from X-Forwarded-For",
-			require:        "true",
+			require:        true,
 			cidrs:          "10.0.0.0/16",
 			remoteAddr:     "1.1.1.1:12345",
 			forwardedFor:   "172.16.0.1",
@@ -63,9 +63,6 @@ func TestAllowlistMiddleware(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("REQUIRE_ALLOWLIST", tc.require)
-			t.Setenv("ALLOWED_CIDRS", tc.cidrs)
-
 			req := httptest.NewRequest("GET", "/", nil)
 			req.RemoteAddr = tc.remoteAddr
 			if tc.forwardedFor != "" {
@@ -73,7 +70,7 @@ func TestAllowlistMiddleware(t *testing.T) {
 			}
 
 			rr := httptest.NewRecorder()
-			handler := AllowlistMiddleware()(nextHandler)
+			handler := AllowlistMiddleware(tc.require, tc.cidrs)(nextHandler)
 			handler.ServeHTTP(rr, req)
 
 			if status := rr.Code; status != tc.expectedStatus {
