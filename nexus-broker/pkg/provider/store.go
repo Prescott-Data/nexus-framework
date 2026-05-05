@@ -28,6 +28,7 @@ type Profile struct {
 	ID               uuid.UUID        `json:"id" db:"id"`
 	Name             string           `json:"name" db:"name"`
 	Description      string           `json:"description,omitempty" db:"description"`
+	Category         string           `json:"category,omitempty" db:"category"`
 	AuthType         string           `json:"auth_type,omitempty" db:"auth_type"`
 	AuthHeader       string           `json:"auth_header,omitempty" db:"auth_header"`
 	ClientID         *string          `json:"client_id,omitempty" db:"client_id"`
@@ -131,15 +132,15 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	// Insert into DB
 	query := `
 		INSERT INTO provider_profiles
-		(name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, api_base_url, user_info_endpoint, params, description)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		(name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, api_base_url, user_info_endpoint, params, description, category)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		RETURNING id`
 
 	var id uuid.UUID
 	err = s.db.QueryRow(query,
 		p.Name, p.ClientID, p.ClientSecret, authURL, tokenURL, issuer,
 		p.EnableDiscovery, scopes, p.AuthType, p.AuthHeader,
-		p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description,
+		p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category,
 	).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("database: failed to create provider profile: %w", err)
@@ -152,10 +153,10 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 // GetProfile retrieves a provider profile by ID
 func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 	var p Profile
-	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params, COALESCE(description, '') FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
+	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params, COALESCE(description, ''), COALESCE(category, '') FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
 
 	row := s.db.QueryRow(query, id)
-	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description)
+	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider profile: %w", err)
 	}
@@ -173,7 +174,7 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 		SELECT id, name, client_id, client_secret, auth_url, token_url, issuer,
 		       enable_discovery, scopes, auth_type, COALESCE(auth_header, ''),
 		       COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params,
-		       COALESCE(description, '')
+		       COALESCE(description, ''), COALESCE(category, '')
 		FROM provider_profiles
 		WHERE LOWER(name) = $1 AND deleted_at IS NULL
 	`
@@ -190,7 +191,7 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 		err := rows.Scan(
 			&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL,
 			&p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType,
-			&p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description,
+			&p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan provider profile: %w", err)
@@ -233,10 +234,11 @@ func (s *Store) UpdateProfile(p *Profile) error {
 			user_info_endpoint = $12,
 			params = $13,
 			description = $14,
+			category = $15,
 			updated_at = NOW()
-		WHERE id = $15 AND deleted_at IS NULL`
+		WHERE id = $16 AND deleted_at IS NULL`
 
-	_, err := s.db.Exec(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.ID)
+	_, err := s.db.Exec(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update provider profile: %w", err)
 	}
@@ -301,6 +303,8 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 			}
 		case "description":
 			column = "description"
+		case "category":
+			column = "category"
 		default:
 			// Ignore unknown fields
 			continue
@@ -375,7 +379,8 @@ func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
 			COALESCE(api_base_url, '') as api_base_url,
 			COALESCE(user_info_endpoint, '') as user_info_endpoint,
 			scopes,
-			COALESCE(description, '') as description
+			COALESCE(description, '') as description,
+			COALESCE(category, '') as category
 		FROM provider_profiles
 		WHERE deleted_at IS NULL
 		ORDER BY name`
@@ -390,12 +395,12 @@ func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
 
 	for rows.Next() {
 		var id uuid.UUID
-		var name, authType, apiBaseURL, userInfoEndpoint, description string
+		var name, authType, apiBaseURL, userInfoEndpoint, description, category string
 		var scopes []string
 
 		// auth_type usually defaults to 'oauth2' if empty in some contexts,
 		// but here we trust the DB value.
-		if err := rows.Scan(&id, &name, &authType, &apiBaseURL, &userInfoEndpoint, pq.Array(&scopes), &description); err != nil {
+		if err := rows.Scan(&id, &name, &authType, &apiBaseURL, &userInfoEndpoint, pq.Array(&scopes), &description, &category); err != nil {
 			return nil, fmt.Errorf("failed to scan metadata: %w", err)
 		}
 
@@ -413,6 +418,7 @@ func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
 			"user_info_endpoint": userInfoEndpoint,
 			"scopes":             scopes,
 			"description":        description,
+			"category":           category,
 		}
 	}
 
