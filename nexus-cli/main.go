@@ -126,9 +126,34 @@ func runCommand(isPlanOnly bool) {
 	liveProviderMap := make(map[string]map[string]interface{})
 	for _, lp := range liveProviders {
 		name, nameOk := lp["name"].(string)
-		_, idOk := lp["id"].(string)
+		id, idOk := lp["id"].(string)
 		if nameOk && idOk {
-			liveProviderMap[name] = lp
+			// Fetch full profile for accurate drift detection
+			reqProfile, err := http.NewRequest("GET", brokerURL+"/providers/"+id, nil)
+			if err != nil {
+				log.Fatalf("Failed to create request for provider %s: %v", name, err)
+			}
+			setAPIKey(reqProfile, apiKey)
+
+			respProfile, err := httpClient.Do(reqProfile)
+			if err != nil {
+				log.Fatalf("Failed to fetch profile for provider %s: %v", name, err)
+			}
+
+			if respProfile.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(respProfile.Body)
+				respProfile.Body.Close()
+				log.Fatalf("Failed to fetch profile for %s, status: %d, body: %s", name, respProfile.StatusCode, string(body))
+			}
+
+			var fullProfile map[string]interface{}
+			if err := json.NewDecoder(respProfile.Body).Decode(&fullProfile); err != nil {
+				respProfile.Body.Close()
+				log.Fatalf("Failed to decode profile for %s: %v", name, err)
+			}
+			respProfile.Body.Close()
+
+			liveProviderMap[name] = fullProfile
 		}
 	}
 
