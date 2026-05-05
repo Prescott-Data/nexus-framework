@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -137,39 +138,77 @@ func runCommand(isPlanOnly bool) {
 		log.Fatalf("Failed to decode live providers: %v", err)
 	}
 
-	// Build live provider map: name → {id, full config}
+	// Build live provider map: name → full config.
+	// Fetch full profiles concurrently with a bounded worker pool to avoid N+1 latency.
+	type providerResult struct {
+		Name    string
+		Profile map[string]interface{}
+	}
+
+	const maxConcurrency = 5
+	sem := make(chan struct{}, maxConcurrency)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var fetchErr error
+
 	liveProviderMap := make(map[string]map[string]interface{})
+
 	for _, lp := range liveProviders {
 		name, nameOk := lp["name"].(string)
 		id, idOk := lp["id"].(string)
-		if nameOk && idOk {
-			// Fetch full profile for accurate drift detection
+		if !nameOk || !idOk {
+			continue
+		}
+
+		wg.Add(1)
+		go func(name, id string) {
+			defer wg.Done()
+			sem <- struct{}{}        // acquire
+			defer func() { <-sem }() // release
+
 			reqProfile, err := http.NewRequest("GET", brokerURL+"/providers/"+id, nil)
 			if err != nil {
-				log.Fatalf("Failed to create request for provider %s: %v", name, err)
+				mu.Lock()
+				fetchErr = fmt.Errorf("failed to create request for provider %s: %w", name, err)
+				mu.Unlock()
+				return
 			}
 			setAPIKey(reqProfile, apiKey)
 
 			respProfile, err := httpClient.Do(reqProfile)
 			if err != nil {
-				log.Fatalf("Failed to fetch profile for provider %s: %v", name, err)
+				mu.Lock()
+				fetchErr = fmt.Errorf("failed to fetch profile for provider %s: %w", name, err)
+				mu.Unlock()
+				return
 			}
+			defer respProfile.Body.Close()
 
 			if respProfile.StatusCode != http.StatusOK {
 				body, _ := io.ReadAll(respProfile.Body)
-				respProfile.Body.Close()
-				log.Fatalf("Failed to fetch profile for %s, status: %d, body: %s", name, respProfile.StatusCode, string(body))
+				mu.Lock()
+				fetchErr = fmt.Errorf("failed to fetch profile for %s, status: %d, body: %s", name, respProfile.StatusCode, string(body))
+				mu.Unlock()
+				return
 			}
 
 			var fullProfile map[string]interface{}
 			if err := json.NewDecoder(respProfile.Body).Decode(&fullProfile); err != nil {
-				respProfile.Body.Close()
-				log.Fatalf("Failed to decode profile for %s: %v", name, err)
+				mu.Lock()
+				fetchErr = fmt.Errorf("failed to decode profile for %s: %w", name, err)
+				mu.Unlock()
+				return
 			}
-			respProfile.Body.Close()
 
+			mu.Lock()
 			liveProviderMap[name] = fullProfile
-		}
+			mu.Unlock()
+		}(name, id)
+	}
+
+	wg.Wait()
+	if fetchErr != nil {
+		log.Fatalf("Error fetching provider profiles: %v", fetchErr)
 	}
 
 	manifestProviderMap := make(map[string]Provider)
