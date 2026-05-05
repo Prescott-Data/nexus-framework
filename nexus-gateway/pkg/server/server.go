@@ -61,6 +61,7 @@ func (s *Server) routes() {
 	s.mux.Get("/v1/token/{connectionID}", s.handler.GetToken)
 	s.mux.Post("/v1/refresh/{connectionID}", s.handler.RefreshConnection)
 	s.mux.Get("/v1/providers", s.handler.GetProviders)
+	s.mux.Get("/v1/providers/metadata", s.handler.GetProviders)
 	s.mux.Post("/v1/providers", s.handler.CreateProvider)
 	s.mux.Get("/v1/providers/{id}", s.handler.GetProvider)
 	s.mux.Put("/v1/providers/{id}", s.handler.UpdateProvider)
