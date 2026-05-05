@@ -232,6 +232,14 @@ func runCommand(isPlanOnly bool) {
 				toUpdate[id] = updates
 				toUpdateNames[id] = p.Name
 				fmt.Printf("~ UPDATE : %s\n", p.Name)
+				for field, newVal := range updates {
+					oldVal := live[field]
+					if isSecretField(field) {
+						fmt.Printf("    %s: *** → ***\n", field)
+					} else {
+						fmt.Printf("    %s: %v → %v\n", field, formatVal(oldVal), formatVal(newVal))
+					}
+				}
 			} else {
 				fmt.Printf("= OK     : %s (no changes)\n", p.Name)
 			}
@@ -372,3 +380,34 @@ func runCommand(isPlanOnly bool) {
 	}
 }
 
+
+// isSecretField returns true for fields that should be masked in plan output.
+func isSecretField(field string) bool {
+	switch field {
+	case "client_secret", "client_id":
+		return true
+	}
+	return false
+}
+
+// formatVal returns a human-readable string for a plan diff value.
+func formatVal(v interface{}) string {
+	if v == nil {
+		return "<nil>"
+	}
+	switch val := v.(type) {
+	case string:
+		if val == "" {
+			return `""`
+		}
+		return val
+	case []interface{}:
+		parts := make([]string, len(val))
+		for i, item := range val {
+			parts[i] = fmt.Sprintf("%v", item)
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
