@@ -72,9 +72,9 @@ type AuditEvent struct {
 	ID           uuid.UUID  `db:"id" json:"id"`
 	ConnectionID *uuid.UUID `db:"connection_id" json:"connection_id,omitempty"`
 	EventType    string     `db:"event_type" json:"event_type"`
-	EventData    string     `db:"event_data" json:"event_data,omitempty"`
-	IPAddress    string     `db:"ip_address" json:"ip_address,omitempty"`
-	UserAgent    string     `db:"user_agent" json:"user_agent,omitempty"`
+	EventData    *string    `db:"event_data" json:"event_data,omitempty"`
+	IPAddress    *string    `db:"ip_address" json:"ip_address,omitempty"`
+	UserAgent    *string    `db:"user_agent" json:"user_agent,omitempty"`
 	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
 }
 

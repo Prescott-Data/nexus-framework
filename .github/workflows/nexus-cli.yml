@@ -1,0 +1,47 @@
+name: Nexus CLI Provider Reconciliation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'nexus-cli/nexus-providers.yaml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'nexus-cli/nexus-providers.yaml'
+
+jobs:
+  plan-or-apply:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./nexus-cli
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache-dependency-path: ./nexus-cli/go.sum
+
+      - name: Build CLI
+        run: go build -o nexus-cli
+
+      - name: Plan (Pull Request)
+        if: github.event_name == 'pull_request'
+        env:
+          BROKER_BASE_URL: ${{ secrets.BROKER_BASE_URL }}
+          API_KEY: ${{ secrets.BROKER_API_KEY }}
+        run: ./nexus-cli plan
+
+      - name: Apply (Push to Main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          BROKER_BASE_URL: ${{ secrets.BROKER_BASE_URL }}
+          API_KEY: ${{ secrets.BROKER_API_KEY }}
+        run: ./nexus-cli apply --prune <<< "yes"

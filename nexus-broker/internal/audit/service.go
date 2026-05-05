@@ -25,10 +25,7 @@ func (s *Service) Log(eventType string, connectionID *uuid.UUID, data map[string
 	if r != nil {
 		// Extract IP
 		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-			ip := strings.Split(fwd, ",")[0]
-			if comma := strings.IndexByte(ip, ','); comma != -1 {
-				ip = strings.TrimSpace(ip[:comma])
-			}
+			ip := strings.TrimSpace(strings.Split(fwd, ",")[0])
 			ipVal = &ip
 		} else {
 			host, _, err := net.SplitHostPort(r.RemoteAddr)

@@ -59,6 +59,7 @@ func main() {
 func runCommand(isPlanOnly bool) {
 	cmdFlags := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
 	fileFlag := cmdFlags.String("file", "nexus-providers.yaml", "Path to the providers manifest file")
+	pruneFlag := cmdFlags.Bool("prune", false, "Delete providers not in the manifest")
 
 	if err := cmdFlags.Parse(os.Args[2:]); err != nil {
 		log.Fatalf("Failed to parse flags: %v", err)
@@ -145,9 +146,13 @@ func runCommand(isPlanOnly bool) {
 
 	for name, id := range liveProviderMap {
 		if _, exists := manifestProviderMap[name]; !exists {
-			toDelete = append(toDelete, id)
-			toDeleteNames = append(toDeleteNames, name)
-			fmt.Printf("- DELETE : %s\n", name)
+			if *pruneFlag {
+				toDelete = append(toDelete, id)
+				toDeleteNames = append(toDeleteNames, name)
+				fmt.Printf("- DELETE : %s\n", name)
+			} else {
+				fmt.Printf("! ORPHAN : %s (would be deleted if --prune was passed)\n", name)
+			}
 		}
 	}
 
