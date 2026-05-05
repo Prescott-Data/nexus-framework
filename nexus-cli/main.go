@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"reflect"
 	"strings"
 	"time"
 
@@ -181,15 +180,18 @@ func runCommand(isPlanOnly bool) {
 	fmt.Println("\n--- Execution Plan ---")
 
 	toCreate := []Provider{}
-	toUpdate := make(map[string]Provider) // map ID to Provider
-	toDelete := []string{}               // list of IDs
+	toUpdate := make(map[string]map[string]interface{}) // map ID to updates
+	toUpdateNames := make(map[string]string)            // map ID to Name for logging
+	toDelete := []string{}                              // list of IDs
 	toDeleteNames := []string{}
 
 	for _, p := range manifest.Providers {
 		if live, exists := liveProviderMap[p.Name]; exists {
 			id := live["id"].(string)
-			if providerDrifted(p, live) {
-				toUpdate[id] = p
+			drifted, updates := computeDrift(p, live)
+			if drifted {
+				toUpdate[id] = updates
+				toUpdateNames[id] = p.Name
 				fmt.Printf("~ UPDATE : %s\n", p.Name)
 			} else {
 				fmt.Printf("= OK     : %s (no changes)\n", p.Name)
@@ -273,16 +275,17 @@ func runCommand(isPlanOnly bool) {
 		}
 	}
 
-	for id, p := range toUpdate {
-		fmt.Printf("Updating %s... ", p.Name)
+	for id, updates := range toUpdate {
+		name := toUpdateNames[id]
+		fmt.Printf("Updating %s... ", name)
 
-		jsonData, err := json.Marshal(p)
+		jsonData, err := json.Marshal(updates)
 		if err != nil {
 			fmt.Printf("Failed to marshal: %v\n", err)
 			continue
 		}
 
-		req, err := http.NewRequest("PUT", brokerURL+"/providers/"+id, bytes.NewBuffer(jsonData))
+		req, err := http.NewRequest("PATCH", brokerURL+"/providers/"+id, bytes.NewBuffer(jsonData))
 		if err != nil {
 			fmt.Printf("Failed to create request: %v\n", err)
 			continue
@@ -330,15 +333,3 @@ func runCommand(isPlanOnly bool) {
 	}
 }
 
-// providerDrifted compares a manifest provider against the live state from the Broker.
-// It normalises the live map into a Provider struct and deep-compares key fields,
-// ignoring server-managed fields (id, created_at, updated_at).
-func providerDrifted(desired Provider, live map[string]interface{}) bool {
-	var liveProvider Provider
-	if b, err := json.Marshal(live); err == nil {
-		_ = json.Unmarshal(b, &liveProvider)
-	}
-	// Clear server-managed fields before comparing
-	liveProvider.Name = desired.Name // name is the reconciliation key, always equal here
-	return !reflect.DeepEqual(desired, liveProvider)
-}
