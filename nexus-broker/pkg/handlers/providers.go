@@ -3,9 +3,11 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/httputil"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 
@@ -16,11 +18,12 @@ import (
 // ProvidersHandler handles provider-related HTTP requests
 type ProvidersHandler struct {
 	store provider.ProfileStorer
+	audit audit.Logger
 }
 
 // NewProvidersHandler creates a new providers handler
-func NewProvidersHandler(store provider.ProfileStorer) *ProvidersHandler {
-	return &ProvidersHandler{store: store}
+func NewProvidersHandler(store provider.ProfileStorer, auditSvc audit.Logger) *ProvidersHandler {
+	return &ProvidersHandler{store: store, audit: auditSvc}
 }
 
 // Get handles GET /providers/{id} to retrieve a provider profile
@@ -61,6 +64,12 @@ func (h *ProvidersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.audit != nil {
+		if err := h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": profile.ID.String(), "name": profile.Name}, r); err != nil {
+			log.Printf("audit: failed to log provider.updated for provider_id=%v: %v", profile.ID, err)
+		}
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -84,6 +93,22 @@ func (h *ProvidersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.audit != nil {
+		// Redact sensitive fields — log only field names for credentials
+		redactedUpdates := make(map[string]interface{})
+		for k, v := range updates {
+			switch k {
+			case "client_secret", "client_id":
+				redactedUpdates[k] = "[REDACTED]"
+			default:
+				redactedUpdates[k] = v
+			}
+		}
+		if err := h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": id.String(), "updates": redactedUpdates}, r); err != nil {
+			log.Printf("audit: failed to log provider.updated for provider_id=%v: %v", id, err)
+		}
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -99,6 +124,12 @@ func (h *ProvidersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.DeleteProfile(id); err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "delete_failed", "Failed to delete provider profile")
 		return
+	}
+
+	if h.audit != nil {
+		if err := h.audit.Log("provider.deleted", nil, map[string]interface{}{"provider_id": id.String()}, r); err != nil {
+			log.Printf("audit: failed to log provider.deleted for provider_id=%v: %v", id, err)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -148,6 +179,12 @@ func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
 			"message": err.Error(),
 		})
 		return
+	}
+
+	if h.audit != nil {
+		if err := h.audit.Log("provider.created", nil, map[string]interface{}{"provider_id": profile.ID.String(), "name": profile.Name}, r); err != nil {
+			log.Printf("audit: failed to log provider.created for provider_id=%v: %v", profile.ID, err)
+		}
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, map[string]interface{}{
@@ -203,6 +240,12 @@ func (h *ProvidersHandler) DeleteByName(w http.ResponseWriter, r *http.Request) 
 	if rowsAffected == 0 {
 		httputil.WriteError(w, http.StatusNotFound, "provider_not_found", "provider not found")
 		return
+	}
+
+	if h.audit != nil {
+		if err := h.audit.Log("provider.deleted", nil, map[string]interface{}{"provider_name": name, "rows_affected": rowsAffected}, r); err != nil {
+			log.Printf("audit: failed to log provider.deleted for provider_name=%s: %v", name, err)
+		}
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Deleted %d provider(s)", rowsAffected)})

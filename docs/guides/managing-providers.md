@@ -2,6 +2,10 @@
 
 This guide provides a comprehensive overview of how to register, manage, and test identity providers within the Nexus OAuth Broker.
 
+!!! tip "Prefer a GitOps workflow?"
+    For production deployments, consider using **[`nexus-cli`](security-as-code.md)** — a declarative reconciler that manages providers via a YAML manifest committed to your repository. It gives you version history, code review, and an automatic audit trail for every change.
+
+
 ## Provider Types
 
 The broker supports two primary types of providers:

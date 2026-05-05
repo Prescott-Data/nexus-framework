@@ -1,0 +1,1 @@
+CREATE INDEX idx_audit_created_at ON audit_events(created_at DESC);

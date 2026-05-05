@@ -28,6 +28,20 @@ To ensure agents never face a "cold start" due to expired tokens:
 - It performs background refreshes using stored Refresh Tokens.
 - If a refresh fails permanently (e.g., user revoked access), it transitions the connection to `attention_required`.
 
+### 5. Audit Subsystem
+Every control-plane mutation is recorded in the `audit_events` table via the `audit.Service`:
+- **`provider.created`** — logged on every successful `POST /providers` call.
+- **`provider.updated`** — logged on `PUT` and `PATCH` mutations.
+- **`provider.deleted`** — logged on deletion by ID or by name.
+- **`oauth_flow_completed`** — logged on every successful OAuth callback (token exchange + storage).
+- **`token_exchange_failed`**, **`token_storage_failed`**, etc. — logged on callback failures.
+- **`token_retrieved`** — logged on every successful `GET /connections/{id}/token` call.
+- **`token_refresh_fatal`** — logged when a token refresh fails permanently (4xx from provider).
+
+Audit events capture the **caller IP** (respecting `X-Forwarded-For`), **User-Agent**, and structured **event data** (provider ID, name, etc.).
+
+See the [Audit Log Reference](../reference/audit-log.md) for how to query events.
+
 ## Environment Variables
 
 | Variable | Description | Default |
@@ -35,5 +49,6 @@ To ensure agents never face a "cold start" due to expired tokens:
 | `DATABASE_URL` | PostgreSQL connection string. | Required |
 | `REDIS_URL` | Redis URL for caching discovery and state. | Required |
 | `ENCRYPTION_KEY` | 32-byte Base64 key for AES-GCM. | Required |
-| `STATE_KEY` | 32-byte Base64 key for signing state. | Required |
+| `STATE_KEY` | 32-byte Base64 key for signing state. Must match the Gateway. The Broker will **fatal-exit** on startup if absent. | Required |
 | `API_KEY` | Key for Gateway-to-Broker authentication. | Required |
+

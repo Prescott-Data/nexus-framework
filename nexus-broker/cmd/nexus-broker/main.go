@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/caching"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/config"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/handlers"
@@ -58,8 +59,9 @@ func main() {
 
 	srv := server.NewServer(cfg.Port)
 	store := provider.NewStore(db)
+	auditSvc := audit.NewService(db)
 
-	providersHandler := handlers.NewProvidersHandler(store)
+	providersHandler := handlers.NewProvidersHandler(store, auditSvc)
 	consentHandler := handlers.NewConsentHandler(handlers.ConsentHandlerConfig{
 		DB:                   db,
 		BaseURL:              cfg.BaseURL,
@@ -71,6 +73,7 @@ func main() {
 	})
 	callbackHandler := handlers.NewCallbackHandler(handlers.CallbackHandlerConfig{
 		DB:                   db,
+		Audit:                auditSvc,
 		BaseURL:              cfg.BaseURL,
 		RedirectPath:         cfg.RedirectPath,
 		EncryptionKey:        cfg.EncryptionKey,
@@ -79,6 +82,7 @@ func main() {
 		EnforceReturnURL:     cfg.EnforceReturnURL,
 		AllowedReturnDomains: cfg.AllowedReturnDomains,
 	})
+	auditHandler := handlers.NewAuditHandler(db)
 
 	router := srv.Router()
 	router.Get("/auth/callback", callbackHandler.Handle)
@@ -90,6 +94,7 @@ func main() {
 		server.ApiKeyMiddleware(cfg.RequireAPIKey, cfg.APIKeys),
 		server.AllowlistMiddleware(cfg.RequireAllowlist, cfg.AllowedCIDRs),
 	)
+	protected.Get("/audit", auditHandler.List)
 	protected.Route("/providers", func(r chi.Router) {
 		r.Post("/", providersHandler.Register)
 		r.Get("/", providersHandler.List)

@@ -42,3 +42,35 @@ The Broker supports an `ALLOWED_CIDRS` policy. In production, this should be res
 
 ### mTLS (Roadmap)
 Future versions of Nexus will support mutual TLS between the Gateway and Broker for cryptographically enforced identity beyond API keys.
+
+---
+
+## Audit Trail
+
+Nexus maintains a tamper-evident **audit log** for all control-plane mutations. Every provider create, update, and delete — and every OAuth connection established — writes a record to the `audit_events` table with:
+
+- The **event type** (`provider.created`, `provider.deleted`, `connection.created`, etc.)
+- **Structured event data** (provider ID, name, workspace ID)
+- The **caller IP address** and **User-Agent**
+
+This audit log is queryable via the [`GET /audit`](audit-log.md) endpoint and is the foundational building block for compliance, forensic analysis, and detecting unauthorized mutations.
+
+!!! tip "GitOps for Auditability"
+    For the strongest audit posture, use [`nexus-cli`](../guides/security-as-code.md) to manage providers declaratively. Every `nexus-cli apply` run goes through git history AND generates audit log entries — giving you two independent sources of truth.
+
+---
+
+## `STATE_KEY` Startup Guard
+
+Both the Broker and Gateway will **fatal-exit at startup** if the `STATE_KEY` environment variable is absent:
+
+```
+FATAL: STATE_KEY environment variable is required and must be identical across Broker and Gateway
+```
+
+This prevents a class of silent misconfiguration where a randomly-generated key would cause all OAuth callbacks to fail with invalid state errors after any service restart. In production, `STATE_KEY` must be:
+
+1. A 32-byte cryptographically random value, Base64 encoded.
+2. **Identical** on both the Broker and all Gateway instances.
+3. Stored as a managed secret (e.g., Google Secret Manager, AWS Secrets Manager) — not hardcoded.
+

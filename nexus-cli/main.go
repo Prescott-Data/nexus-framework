@@ -1,0 +1,450 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// httpClient is shared across all requests with a conservative timeout.
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
+type Provider struct {
+	Name            string                 `yaml:"name" json:"name"`
+	AuthType        string                 `yaml:"auth_type,omitempty" json:"auth_type,omitempty"`
+	AuthHeader      string                 `yaml:"auth_header,omitempty" json:"auth_header,omitempty"`
+	ClientID        string                 `yaml:"client_id,omitempty" json:"client_id,omitempty"`
+	ClientSecret    string                 `yaml:"client_secret,omitempty" json:"client_secret,omitempty"`
+	AuthURL         string                 `yaml:"auth_url,omitempty" json:"auth_url,omitempty"`
+	TokenURL        string                 `yaml:"token_url,omitempty" json:"token_url,omitempty"`
+	Issuer          string                 `yaml:"issuer,omitempty" json:"issuer,omitempty"`
+	EnableDiscovery bool                   `yaml:"enable_discovery" json:"enable_discovery"`
+	Scopes          []string               `yaml:"scopes" json:"scopes"`
+	APIBaseURL      string                 `yaml:"api_base_url,omitempty" json:"api_base_url,omitempty"`
+	Params          map[string]interface{} `yaml:"params,omitempty" json:"params,omitempty"`
+}
+
+type Manifest struct {
+	Providers []Provider `yaml:"providers"`
+}
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: nexus-cli <command> [options]")
+		fmt.Println("Commands:")
+		fmt.Println("  plan     Show execution plan without making changes")
+		fmt.Println("  apply    Apply provider configurations from a manifest")
+		os.Exit(1)
+	}
+
+	command := os.Args[1]
+
+	switch command {
+	case "plan":
+		runCommand(true)
+	case "apply":
+		runCommand(false)
+	default:
+		fmt.Printf("Unknown command: %s\n", command)
+		os.Exit(1)
+	}
+}
+
+// setAPIKey sets the X-API-Key header on a request, matching the Broker's ApiKeyMiddleware.
+func setAPIKey(req *http.Request, apiKey string) {
+	if apiKey != "" {
+		req.Header.Set("X-API-Key", apiKey)
+	}
+}
+
+func runCommand(isPlanOnly bool) {
+	cmdFlags := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
+	fileFlag := cmdFlags.String("file", "nexus-providers.yaml", "Path to the providers manifest file")
+	pruneFlag := cmdFlags.Bool("prune", false, "Delete providers not in the manifest")
+
+	if err := cmdFlags.Parse(os.Args[2:]); err != nil {
+		log.Fatalf("Failed to parse flags: %v", err)
+	}
+
+	brokerURL := os.Getenv("BROKER_BASE_URL")
+	if brokerURL == "" {
+		brokerURL = "http://localhost:8080"
+	}
+	apiKey := os.Getenv("API_KEY")
+
+	// Read Manifest
+	data, err := os.ReadFile(*fileFlag)
+	if err != nil {
+		log.Fatalf("Failed to read manifest file %s: %v", *fileFlag, err)
+	}
+
+	// Expand environment variables
+	var missingVars []string
+	missingSet := make(map[string]bool)
+
+	expandedData := os.Expand(string(data), func(envVar string) string {
+		val, exists := os.LookupEnv(envVar)
+		if !exists {
+			if !missingSet[envVar] {
+				missingSet[envVar] = true
+				missingVars = append(missingVars, envVar)
+			}
+		}
+		return val
+	})
+
+	if len(missingVars) > 0 {
+		log.Fatalf("Failed to process manifest. The following environment variables are unset: %s", strings.Join(missingVars, ", "))
+	}
+
+	var manifest Manifest
+	if err := yaml.Unmarshal([]byte(expandedData), &manifest); err != nil {
+		log.Fatalf("Failed to parse YAML manifest: %v", err)
+	}
+
+	fmt.Printf("Read %d providers from %s\n", len(manifest.Providers), *fileFlag)
+
+	// Fetch current live state
+	req, err := http.NewRequest("GET", brokerURL+"/providers", nil)
+	if err != nil {
+		log.Fatalf("Failed to create request: %v", err)
+	}
+	setAPIKey(req, apiKey)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		log.Fatalf("Failed to fetch live providers: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Fatalf("Failed to fetch live providers, status: %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var liveProviders []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&liveProviders); err != nil {
+		log.Fatalf("Failed to decode live providers: %v", err)
+	}
+
+	// Build live provider map: name → full config.
+	// Fetch full profiles concurrently with a bounded worker pool to avoid N+1 latency.
+
+	const maxConcurrency = 5
+	sem := make(chan struct{}, maxConcurrency)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var fetchErr error
+
+	liveProviderMap := make(map[string]map[string]interface{})
+
+	for _, lp := range liveProviders {
+		name, nameOk := lp["name"].(string)
+		id, idOk := lp["id"].(string)
+		if !nameOk || !idOk {
+			continue
+		}
+
+		wg.Add(1)
+		go func(name, id string) {
+			defer wg.Done()
+			sem <- struct{}{}        // acquire
+			defer func() { <-sem }() // release
+
+			reqProfile, err := http.NewRequest("GET", brokerURL+"/providers/"+id, nil)
+			if err != nil {
+				mu.Lock()
+				fetchErr = fmt.Errorf("failed to create request for provider %s: %w", name, err)
+				mu.Unlock()
+				return
+			}
+			setAPIKey(reqProfile, apiKey)
+
+			respProfile, err := httpClient.Do(reqProfile)
+			if err != nil {
+				mu.Lock()
+				fetchErr = fmt.Errorf("failed to fetch profile for provider %s: %w", name, err)
+				mu.Unlock()
+				return
+			}
+			defer respProfile.Body.Close()
+
+			if respProfile.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(respProfile.Body)
+				mu.Lock()
+				fetchErr = fmt.Errorf("failed to fetch profile for %s, status: %d, body: %s", name, respProfile.StatusCode, string(body))
+				mu.Unlock()
+				return
+			}
+
+			var fullProfile map[string]interface{}
+			if err := json.NewDecoder(respProfile.Body).Decode(&fullProfile); err != nil {
+				mu.Lock()
+				fetchErr = fmt.Errorf("failed to decode profile for %s: %w", name, err)
+				mu.Unlock()
+				return
+			}
+
+			mu.Lock()
+			liveProviderMap[name] = fullProfile
+			mu.Unlock()
+		}(name, id)
+	}
+
+	wg.Wait()
+	if fetchErr != nil {
+		log.Fatalf("Error fetching provider profiles: %v", fetchErr)
+	}
+
+	manifestProviderMap := make(map[string]Provider)
+	for _, p := range manifest.Providers {
+		manifestProviderMap[p.Name] = p
+	}
+
+	fmt.Println("\n--- Execution Plan ---")
+
+	toCreate := []Provider{}
+	toUpdate := make(map[string]map[string]interface{}) // map ID to updates
+	toUpdateNames := make(map[string]string)            // map ID to Name for logging
+	toDelete := []string{}                              // list of IDs
+	toDeleteNames := []string{}
+
+	for _, p := range manifest.Providers {
+		if live, exists := liveProviderMap[p.Name]; exists {
+			id, ok := live["id"].(string)
+			if !ok {
+				log.Fatalf("Provider %s has invalid or missing 'id' in live state", p.Name)
+			}
+			drifted, updates, err := computeDrift(p, live)
+			if err != nil {
+				log.Fatalf("Failed to compute drift for provider %s: %v", p.Name, err)
+			}
+			if drifted {
+				toUpdate[id] = updates
+				toUpdateNames[id] = p.Name
+				fmt.Printf("~ UPDATE : %s\n", p.Name)
+				// Sort keys for deterministic plan output
+				fields := make([]string, 0, len(updates))
+				for field := range updates {
+					fields = append(fields, field)
+				}
+				sort.Strings(fields)
+				for _, field := range fields {
+					newVal := updates[field]
+					oldVal := live[field]
+					if isSecretField(field) {
+						fmt.Printf("    %s: *** → ***\n", field)
+					} else {
+						fmt.Printf("    %s: %v → %v\n", field, formatVal(oldVal), formatVal(newVal))
+					}
+				}
+			} else {
+				fmt.Printf("= OK     : %s (no changes)\n", p.Name)
+			}
+		} else {
+			toCreate = append(toCreate, p)
+			fmt.Printf("+ CREATE : %s\n", p.Name)
+		}
+	}
+
+	for name, live := range liveProviderMap {
+		if _, exists := manifestProviderMap[name]; !exists {
+			if *pruneFlag {
+				id, ok := live["id"].(string)
+				if !ok {
+					log.Fatalf("Provider %s has invalid or missing 'id' in live state", name)
+				}
+				toDelete = append(toDelete, id)
+				toDeleteNames = append(toDeleteNames, name)
+				fmt.Printf("- DELETE : %s\n", name)
+			} else {
+				fmt.Printf("! ORPHAN : %s (would be deleted if --prune was passed)\n", name)
+			}
+		}
+	}
+
+	if len(toCreate) == 0 && len(toUpdate) == 0 && len(toDelete) == 0 {
+		fmt.Println("\nNo changes required. Infrastructure matches configuration.")
+		return
+	}
+
+	if isPlanOnly {
+		fmt.Println("\nPlan complete. Run 'nexus-cli apply' to perform these actions.")
+		return
+	}
+
+	fmt.Print("\nDo you want to perform these actions?\n  Nexus will perform the actions described above.\n  Only 'yes' will be accepted to approve.\n\n  Enter a value: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	confirmation, err := reader.ReadString('\n')
+	if err != nil {
+		log.Fatalf("Failed to read input: %v", err)
+	}
+
+	if strings.TrimSpace(confirmation) != "yes" {
+		fmt.Println("\nApply cancelled.")
+		return
+	}
+
+	fmt.Println("\n--- Applying Changes ---")
+
+	hadFailures := false
+
+	for _, p := range toCreate {
+		fmt.Printf("Creating %s... ", p.Name)
+
+		payload := map[string]interface{}{
+			"profile": p,
+		}
+
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			fmt.Printf("Failed to marshal: %v\n", err)
+			hadFailures = true
+			continue
+		}
+
+		req, err := http.NewRequest("POST", brokerURL+"/providers", bytes.NewBuffer(jsonData))
+		if err != nil {
+			fmt.Printf("Failed to create request: %v\n", err)
+			hadFailures = true
+			continue
+		}
+		setAPIKey(req, apiKey)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			fmt.Printf("Request failed: %v\n", err)
+			hadFailures = true
+			continue
+		}
+
+		if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
+			fmt.Println("OK")
+		} else {
+			errBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			fmt.Printf("FAILED (Status %d): %s\n", resp.StatusCode, string(errBody))
+			hadFailures = true
+		}
+	}
+
+	for id, updates := range toUpdate {
+		name := toUpdateNames[id]
+		fmt.Printf("Updating %s... ", name)
+
+		jsonData, err := json.Marshal(updates)
+		if err != nil {
+			fmt.Printf("Failed to marshal: %v\n", err)
+			hadFailures = true
+			continue
+		}
+
+		req, err := http.NewRequest("PATCH", brokerURL+"/providers/"+id, bytes.NewBuffer(jsonData))
+		if err != nil {
+			fmt.Printf("Failed to create request: %v\n", err)
+			hadFailures = true
+			continue
+		}
+		setAPIKey(req, apiKey)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			fmt.Printf("Request failed: %v\n", err)
+			hadFailures = true
+			continue
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
+			fmt.Println("OK")
+		} else {
+			errBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			fmt.Printf("FAILED (Status %d): %s\n", resp.StatusCode, string(errBody))
+			hadFailures = true
+		}
+	}
+
+	for i, id := range toDelete {
+		name := toDeleteNames[i]
+		fmt.Printf("Deleting %s... ", name)
+
+		req, err := http.NewRequest("DELETE", brokerURL+"/providers/"+id, nil)
+		if err != nil {
+			fmt.Printf("Failed to create request: %v\n", err)
+			hadFailures = true
+			continue
+		}
+		setAPIKey(req, apiKey)
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			fmt.Printf("Request failed: %v\n", err)
+			hadFailures = true
+			continue
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
+			fmt.Println("OK")
+		} else {
+			errBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			fmt.Printf("FAILED (Status %d): %s\n", resp.StatusCode, string(errBody))
+			hadFailures = true
+		}
+	}
+
+	if hadFailures {
+		fmt.Println("\nApply completed with errors.")
+		os.Exit(1)
+	}
+}
+
+
+// isSecretField returns true for fields that should be masked in plan output.
+func isSecretField(field string) bool {
+	switch field {
+	case "client_secret", "client_id":
+		return true
+	}
+	return false
+}
+
+// formatVal returns a human-readable string for a plan diff value.
+func formatVal(v interface{}) string {
+	if v == nil {
+		return "<nil>"
+	}
+	switch val := v.(type) {
+	case string:
+		if val == "" {
+			return `""`
+		}
+		return val
+	case []interface{}:
+		parts := make([]string, len(val))
+		for i, item := range val {
+			parts[i] = fmt.Sprintf("%v", item)
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
