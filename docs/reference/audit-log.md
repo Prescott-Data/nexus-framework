@@ -77,14 +77,13 @@ curl -s "http://localhost:8080/audit?event_type=provider.created&since=2026-05-0
     "id": "a1b2c3d4-...",
     "connection_id": "f5e6d7c8-...",
     "event_type": "oauth_flow_completed",
-    "event_data": "{\"provider_id\": \"...\", \"workspace_id\": \"ws-123\"}",
+    "event_data": "{\"provider_id\": \"...\"}",
     "ip_address": "10.0.0.1",
     "user_agent": "nexus-gateway/1.0",
     "created_at": "2026-05-05T10:30:00Z"
   },
   {
     "id": "b2c3d4e5-...",
-    "connection_id": null,
     "event_type": "provider.deleted",
     "event_data": "{\"provider_id\": \"...\", \"provider_name\": \"old-slack\"}",
     "ip_address": "192.168.1.5",
@@ -93,6 +92,8 @@ curl -s "http://localhost:8080/audit?event_type=provider.created&since=2026-05-0
   }
 ]
 ```
+
+> **Note:** Fields with `omitempty` (`connection_id`, `event_data`, `ip_address`, `user_agent`) are omitted from the response when their value is null, rather than being rendered as `null`.
 
 ### Field Descriptions
 

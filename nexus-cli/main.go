@@ -226,8 +226,14 @@ func runCommand(isPlanOnly bool) {
 
 	for _, p := range manifest.Providers {
 		if live, exists := liveProviderMap[p.Name]; exists {
-			id := live["id"].(string)
-			drifted, updates := computeDrift(p, live)
+			id, ok := live["id"].(string)
+			if !ok {
+				log.Fatalf("Provider %s has invalid or missing 'id' in live state", p.Name)
+			}
+			drifted, updates, err := computeDrift(p, live)
+			if err != nil {
+				log.Fatalf("Failed to compute drift for provider %s: %v", p.Name, err)
+			}
 			if drifted {
 				toUpdate[id] = updates
 				toUpdateNames[id] = p.Name
@@ -252,7 +258,10 @@ func runCommand(isPlanOnly bool) {
 	for name, live := range liveProviderMap {
 		if _, exists := manifestProviderMap[name]; !exists {
 			if *pruneFlag {
-				id := live["id"].(string)
+				id, ok := live["id"].(string)
+				if !ok {
+					log.Fatalf("Provider %s has invalid or missing 'id' in live state", name)
+				}
 				toDelete = append(toDelete, id)
 				toDeleteNames = append(toDeleteNames, name)
 				fmt.Printf("- DELETE : %s\n", name)
@@ -313,12 +322,14 @@ func runCommand(isPlanOnly bool) {
 			fmt.Printf("Request failed: %v\n", err)
 			continue
 		}
-		resp.Body.Close()
 
 		if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
 			fmt.Println("OK")
 		} else {
-			fmt.Printf("FAILED (Status %d)\n", resp.StatusCode)
+			errBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			fmt.Printf("FAILED (Status %d): %s\n", resp.StatusCode, string(errBody))
 		}
 	}
 
@@ -345,12 +356,14 @@ func runCommand(isPlanOnly bool) {
 			fmt.Printf("Request failed: %v\n", err)
 			continue
 		}
-		resp.Body.Close()
 
 		if resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
 			fmt.Println("OK")
 		} else {
-			fmt.Printf("FAILED (Status %d)\n", resp.StatusCode)
+			errBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			fmt.Printf("FAILED (Status %d): %s\n", resp.StatusCode, string(errBody))
 		}
 	}
 
@@ -370,12 +383,14 @@ func runCommand(isPlanOnly bool) {
 			fmt.Printf("Request failed: %v\n", err)
 			continue
 		}
-		resp.Body.Close()
 
 		if resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
 			fmt.Println("OK")
 		} else {
-			fmt.Printf("FAILED (Status %d)\n", resp.StatusCode)
+			errBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			fmt.Printf("FAILED (Status %d): %s\n", resp.StatusCode, string(errBody))
 		}
 	}
 }

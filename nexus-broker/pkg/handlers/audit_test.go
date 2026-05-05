@@ -145,7 +145,7 @@ func TestAuditList_CustomLimit(t *testing.T) {
 	}
 }
 
-func TestAuditList_LimitAboveMax_ClampedTo1000(t *testing.T) {
+func TestAuditList_LimitAboveMax_FallsBackToDefault(t *testing.T) {
 	db, mock := newSqlxDB(t)
 	defer db.Close()
 

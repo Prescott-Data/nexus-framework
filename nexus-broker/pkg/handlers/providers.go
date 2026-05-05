@@ -66,7 +66,7 @@ func (h *ProvidersHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	if h.audit != nil {
 		if err := h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": profile.ID, "name": profile.Name}, r); err != nil {
-			log.Printf("audit: failed to log provider.updated for provider_id=%s: %v", profile.ID, err)
+			log.Printf("audit: failed to log provider.updated for provider_id=%v: %v", profile.ID, err)
 		}
 	}
 
@@ -95,7 +95,7 @@ func (h *ProvidersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 
 	if h.audit != nil {
 		if err := h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": id.String(), "updates": updates}, r); err != nil {
-			log.Printf("audit: failed to log provider.updated for provider_id=%s: %v", id, err)
+			log.Printf("audit: failed to log provider.updated for provider_id=%v: %v", id, err)
 		}
 	}
 
@@ -118,7 +118,7 @@ func (h *ProvidersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	if h.audit != nil {
 		if err := h.audit.Log("provider.deleted", nil, map[string]interface{}{"provider_id": id.String()}, r); err != nil {
-			log.Printf("audit: failed to log provider.deleted for provider_id=%s: %v", id, err)
+			log.Printf("audit: failed to log provider.deleted for provider_id=%v: %v", id, err)
 		}
 	}
 
@@ -173,7 +173,7 @@ func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	if h.audit != nil {
 		if err := h.audit.Log("provider.created", nil, map[string]interface{}{"provider_id": profile.ID, "name": profile.Name}, r); err != nil {
-			log.Printf("audit: failed to log provider.created for provider_id=%s: %v", profile.ID, err)
+			log.Printf("audit: failed to log provider.created for provider_id=%v: %v", profile.ID, err)
 		}
 	}
 
