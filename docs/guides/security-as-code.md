@@ -11,7 +11,7 @@ The **`nexus-cli`** tool brings a GitOps-compatible, Terraform-style workflow to
 
 `nexus-cli` follows a **plan → confirm → apply** workflow:
 
-1. **Fetches** the current live state from `GET /v1/providers`.
+1. **Fetches** the current live state from `GET /providers`.
 2. **Diffs** it against your `nexus-providers.yaml` manifest.
 3. **Prints** a human-readable plan showing creates, updates, and orphaned providers.
 4. **Applies** the changes only after you confirm with `yes` (or non-interactively in CI).
