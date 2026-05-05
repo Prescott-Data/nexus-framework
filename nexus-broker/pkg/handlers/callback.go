@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/discovery"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/httputil"
@@ -28,6 +28,7 @@ import (
 // CallbackHandler handles OAuth callback and token exchange
 type CallbackHandler struct {
 	db                    *sqlx.DB
+	audit                 *audit.Service
 	baseURL               string
 	redirectPath          string
 	encryptionKey         []byte
@@ -45,6 +46,7 @@ type CallbackHandler struct {
 // CallbackHandlerConfig holds the dependencies for CallbackHandler
 type CallbackHandlerConfig struct {
 	DB            *sqlx.DB
+	Audit         *audit.Service
 	BaseURL       string
 	RedirectPath  string
 	EncryptionKey []byte
@@ -92,6 +94,7 @@ func NewCallbackHandler(cfg CallbackHandlerConfig) *CallbackHandler {
 
 	return &CallbackHandler{
 		db:                    cfg.DB,
+		audit:                 cfg.Audit,
 		baseURL:               cfg.BaseURL,
 		redirectPath:          cfg.RedirectPath,
 		encryptionKey:         cfg.EncryptionKey,
@@ -831,28 +834,17 @@ func (h *CallbackHandler) updateConnectionStatus(connectionID uuid.UUID, status 
 
 // logAuditEvent logs an audit event
 func (h *CallbackHandler) logAuditEvent(connectionID *uuid.UUID, eventType string, data map[string]string, r *http.Request) {
-	eventData, _ := json.Marshal(data)
-	// Sanitize and extract client IP for inet field
-	var ipVal interface{}
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		ip := forwarded
-		if comma := strings.Index(ip, ","); comma != -1 {
-			ip = strings.TrimSpace(ip[:comma])
-		}
-		ipVal = ip
-	} else {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err == nil {
-			ipVal = host
-		} else {
-			ipVal = nil
-		}
+	if h.audit == nil {
+		return
 	}
 
-	_, _ = h.db.Exec(`
-		INSERT INTO audit_events (connection_id, event_type, event_data, ip_address, user_agent)
-		VALUES ($1, $2, $3, $4, $5)`,
-		connectionID, eventType, string(eventData), ipVal, r.Header.Get("User-Agent"))
+	// Convert map[string]string to map[string]interface{} for the audit service
+	auditData := make(map[string]interface{})
+	for k, v := range data {
+		auditData[k] = v
+	}
+
+	_ = h.audit.Log(eventType, connectionID, auditData, r)
 }
 
 // handleError handles OAuth errors

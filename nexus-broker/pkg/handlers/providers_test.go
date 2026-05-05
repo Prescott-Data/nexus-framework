@@ -87,7 +87,7 @@ func ptr(s string) *string {
 func TestRegisterProvider_Success(t *testing.T) {
 	// 1. Mocks the provider.Store.
 	mockStore := new(MockStore)
-	handler := NewProvidersHandler(mockStore)
+	handler := NewProvidersHandler(mockStore, nil)
 
 	// 2. Mocks the store.RegisterProfile method to return a valid Profile.
 	expectedProfile := &provider.Profile{
@@ -142,7 +142,7 @@ func TestRegisterProvider_Success(t *testing.T) {
 func TestRegisterProvider_StoreError(t *testing.T) {
 	// 1. Mocks the provider.Store.
 	mockStore := new(MockStore)
-	handler := NewProvidersHandler(mockStore)
+	handler := NewProvidersHandler(mockStore, nil)
 
 	// 2. Mocks the store.RegisterProfile method to return an error.
 	expectedError := errors.New("validation failed")
@@ -170,7 +170,7 @@ func TestRegisterProvider_StoreError(t *testing.T) {
 func TestRegisterProvider_InvalidJSON(t *testing.T) {
 	// 1. Mocks the provider.Store.
 	mockStore := new(MockStore)
-	handler := NewProvidersHandler(mockStore)
+	handler := NewProvidersHandler(mockStore, nil)
 
 	// 2. Sends a POST request with invalid JSON.
 	req, err := http.NewRequest("POST", "/providers", bytes.NewReader([]byte("invalid json")))

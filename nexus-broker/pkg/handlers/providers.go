@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/httputil"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 
@@ -16,11 +17,12 @@ import (
 // ProvidersHandler handles provider-related HTTP requests
 type ProvidersHandler struct {
 	store provider.ProfileStorer
+	audit *audit.Service
 }
 
 // NewProvidersHandler creates a new providers handler
-func NewProvidersHandler(store provider.ProfileStorer) *ProvidersHandler {
-	return &ProvidersHandler{store: store}
+func NewProvidersHandler(store provider.ProfileStorer, auditSvc *audit.Service) *ProvidersHandler {
+	return &ProvidersHandler{store: store, audit: auditSvc}
 }
 
 // Get handles GET /providers/{id} to retrieve a provider profile
@@ -61,6 +63,10 @@ func (h *ProvidersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.audit != nil {
+		_ = h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": profile.ID, "name": profile.Name}, r)
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -84,6 +90,10 @@ func (h *ProvidersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.audit != nil {
+		_ = h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": id.String(), "updates": updates}, r)
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -99,6 +109,10 @@ func (h *ProvidersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.DeleteProfile(id); err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "delete_failed", "Failed to delete provider profile")
 		return
+	}
+
+	if h.audit != nil {
+		_ = h.audit.Log("provider.deleted", nil, map[string]interface{}{"provider_id": id.String()}, r)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -148,6 +162,10 @@ func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
 			"message": err.Error(),
 		})
 		return
+	}
+
+	if h.audit != nil {
+		_ = h.audit.Log("provider.created", nil, map[string]interface{}{"provider_id": profile.ID, "name": profile.Name}, r)
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, map[string]interface{}{
@@ -203,6 +221,10 @@ func (h *ProvidersHandler) DeleteByName(w http.ResponseWriter, r *http.Request) 
 	if rowsAffected == 0 {
 		httputil.WriteError(w, http.StatusNotFound, "provider_not_found", "provider not found")
 		return
+	}
+
+	if h.audit != nil {
+		_ = h.audit.Log("provider.deleted", nil, map[string]interface{}{"provider_name": name, "rows_affected": rowsAffected}, r)
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Deleted %d provider(s)", rowsAffected)})
