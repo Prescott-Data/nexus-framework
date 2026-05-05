@@ -134,8 +134,8 @@ The Twitter provider configuration is fixed, the duplicate data has been cleaned
 
 ## INFRASTRUCTURE DETAILS
 
-- **Azure OAuth Broker URL**: `https://nexus-broker.bravesea-3f5f7e75.eastus.azurecontainerapps.io`
-- **Azure Gateway URL**: `https://nexus-gateway.bravesea-3f5f7e75.eastus.azurecontainerapps.io`
+- **Azure OAuth Broker URL**: `http://localhost:8080`
+- **Azure Gateway URL**: `http://localhost:8090`
 - **Database**: Azure PostgreSQL at `172.190.152.215`
 - **Redis**: Azure VM at `172.190.34.75:6379`
 - **Deployment**: Automatic via Bitbucket Pipelines on push to main

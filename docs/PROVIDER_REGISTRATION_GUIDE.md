@@ -1,5 +1,11 @@
 # Provider Registration Guide
 
+> **Note:** All examples in this guide use the default local development URLs from `docker compose up`:
+> - **Gateway:** `http://localhost:8090`
+> - **Broker:** `http://localhost:8080`
+>
+> In production, substitute your own deployed URLs (e.g., `https://nexus-gateway.example.com`).
+
 ## 1. Core Concepts
 
 ### What is a Provider?
@@ -28,7 +34,7 @@ Before touching Nexus, you must create an "App" in the Provider's Developer Port
 1.  **Create App:** Look for "OAuth Apps", "Integrations", or "API Credentials".
 2.  **Configure Redirect URI:**
     *   This is CRITICAL. It must match exactly.
-    *   **Value:** `https://nexus-broker.bravesea-3f5f7e75.eastus.azurecontainerapps.io/auth/callback`
+    *   **Value:** `http://localhost:8080/auth/callback`
 3.  **Compliance Fields:**
     *   Most providers will strictly limit your app (making it "Development Mode" only) until you fill these out:
     *   **App Name:** `Nexus`
@@ -45,7 +51,7 @@ Before touching Nexus, you must create an "App" in the Provider's Developer Port
 Use this template to register the provider in Nexus.
 
 ```bash
-GATEWAY_URL="https://nexus-gateway.bravesea-3f5f7e75.eastus.azurecontainerapps.io"
+GATEWAY_URL="http://localhost:8090"
 
 jq -n '{
   profile: {
@@ -77,7 +83,7 @@ curl -s -X POST "$GATEWAY_URL/v1/request-connection" \
     "user_id": "test-user-001",
     "provider_name": "[provider-slug]",
     "scopes": ["scope1", "scope2"],
-    "return_url": "https://nexus-frontend-staging.bravesea-3f5f7e75.eastus.azurecontainerapps.io/app-launcher/connected-apps/all-connected-apps/" 
+    "return_url": "http://localhost:3000/callback" 
     # ^ Client App URL. httpbin.org is used to visualize the success params.
   }' | jq .
 ```
@@ -93,7 +99,7 @@ These providers do not require a Console App. You define a **Schema** for the fo
 *Single token field.*
 
 ```bash
-GATEWAY_URL="https://nexus-gateway.bravesea-3f5f7e75.eastus.azurecontainerapps.io"
+GATEWAY_URL="http://localhost:8090"
 
 jq -n '{
   profile: {
@@ -118,7 +124,7 @@ jq -n '{
 *Username and Password.*
 
 ```bash
-GATEWAY_URL="https://nexus-gateway.bravesea-3f5f7e75.eastus.azurecontainerapps.io"
+GATEWAY_URL="http://localhost:8090"
 
 jq -n '{
   profile: {
@@ -144,7 +150,7 @@ jq -n '{
 *AWS Access Key & Secret Key.*
 
 ```bash
-GATEWAY_URL="https://nexus-gateway.bravesea-3f5f7e75.eastus.azurecontainerapps.io"
+GATEWAY_URL="http://localhost:8090"
 
 jq -n '{
   profile: {
@@ -172,7 +178,7 @@ jq -n '{
 *API Key injected into URL query string.*
 
 ```bash
-GATEWAY_URL="https://nexus-gateway.bravesea-3f5f7e75.eastus.azurecontainerapps.io"
+GATEWAY_URL="http://localhost:8090"
 
 jq -n '{
   profile: {
@@ -198,7 +204,7 @@ jq -n '{
 *Request signing with a secret.*
 
 ```bash
-GATEWAY_URL="https://nexus-gateway.bravesea-3f5f7e75.eastus.azurecontainerapps.io"
+GATEWAY_URL="http://localhost:8090"
 
 jq -n '{
   profile: {
@@ -237,7 +243,7 @@ Non-OAuth providers do not use a browser redirect. You must verify them via API.
       -d '{
         "user_id": "test-user-123",
         "provider_id": "'$PROVIDER_ID'",
-        "return_url": "https://nexus-frontend-staging.bravesea-3f5f7e75.eastus.azurecontainerapps.io/app-launcher/connected-apps/all-connected-apps/"
+        "return_url": "http://localhost:3000/callback"
       }' | jq -r .authUrl)
     ```
 
@@ -245,7 +251,7 @@ Non-OAuth providers do not use a browser redirect. You must verify them via API.
     Extract `state` from the URL and submit the API Key. 
     *Note: This request hits the Broker directly as defined in the `authUrl`.*
     ```bash
-    BROKER_URL="https://nexus-broker.bravesea-3f5f7e75.eastus.azurecontainerapps.io"
+    BROKER_URL="http://localhost:8080"
     STATE=$(echo "$AUTH_URL" | grep -o 'state=[^&]*' | cut -d= -f2)
     
     curl -v -X POST "$BROKER_URL/auth/capture-credential" \
@@ -275,7 +281,7 @@ curl -s "$GATEWAY_URL/v1/providers" | jq -r '.. | .["[slug]"]? | .id // empty' |
 **2. Update Command (Rotate Secret):**
 ```bash
 PROVIDER_ID="<provider-uuid>"
-GATEWAY_URL="https://nexus-gateway.bravesea-3f5f7e75.eastus.azurecontainerapps.io"
+GATEWAY_URL="http://localhost:8090"
 
 curl -s -X PATCH "$GATEWAY_URL/v1/providers/$PROVIDER_ID" \
   -H "Content-Type: application/json" \
