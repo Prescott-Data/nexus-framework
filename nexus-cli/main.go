@@ -90,7 +90,23 @@ func runCommand(isPlanOnly bool) {
 	}
 
 	// Expand environment variables
-	expandedData := os.ExpandEnv(string(data))
+	var missingVars []string
+	missingSet := make(map[string]bool)
+
+	expandedData := os.Expand(string(data), func(envVar string) string {
+		val, exists := os.LookupEnv(envVar)
+		if !exists {
+			if !missingSet[envVar] {
+				missingSet[envVar] = true
+				missingVars = append(missingVars, envVar)
+			}
+		}
+		return val
+	})
+
+	if len(missingVars) > 0 {
+		log.Fatalf("Failed to process manifest. The following environment variables are unset: %s", strings.Join(missingVars, ", "))
+	}
 
 	var manifest Manifest
 	if err := yaml.Unmarshal([]byte(expandedData), &manifest); err != nil {
