@@ -65,7 +65,7 @@ func (h *ProvidersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.audit != nil {
-		if err := h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": profile.ID, "name": profile.Name}, r); err != nil {
+		if err := h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": profile.ID.String(), "name": profile.Name}, r); err != nil {
 			log.Printf("audit: failed to log provider.updated for provider_id=%v: %v", profile.ID, err)
 		}
 	}
@@ -182,7 +182,7 @@ func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.audit != nil {
-		if err := h.audit.Log("provider.created", nil, map[string]interface{}{"provider_id": profile.ID, "name": profile.Name}, r); err != nil {
+		if err := h.audit.Log("provider.created", nil, map[string]interface{}{"provider_id": profile.ID.String(), "name": profile.Name}, r); err != nil {
 			log.Printf("audit: failed to log provider.created for provider_id=%v: %v", profile.ID, err)
 		}
 	}

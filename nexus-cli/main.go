@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -234,7 +235,14 @@ func runCommand(isPlanOnly bool) {
 				toUpdate[id] = updates
 				toUpdateNames[id] = p.Name
 				fmt.Printf("~ UPDATE : %s\n", p.Name)
-				for field, newVal := range updates {
+				// Sort keys for deterministic plan output
+				fields := make([]string, 0, len(updates))
+				for field := range updates {
+					fields = append(fields, field)
+				}
+				sort.Strings(fields)
+				for _, field := range fields {
+					newVal := updates[field]
 					oldVal := live[field]
 					if isSecretField(field) {
 						fmt.Printf("    %s: *** → ***\n", field)
@@ -292,6 +300,8 @@ func runCommand(isPlanOnly bool) {
 
 	fmt.Println("\n--- Applying Changes ---")
 
+	hadFailures := false
+
 	for _, p := range toCreate {
 		fmt.Printf("Creating %s... ", p.Name)
 
@@ -302,12 +312,14 @@ func runCommand(isPlanOnly bool) {
 		jsonData, err := json.Marshal(payload)
 		if err != nil {
 			fmt.Printf("Failed to marshal: %v\n", err)
+			hadFailures = true
 			continue
 		}
 
 		req, err := http.NewRequest("POST", brokerURL+"/providers", bytes.NewBuffer(jsonData))
 		if err != nil {
 			fmt.Printf("Failed to create request: %v\n", err)
+			hadFailures = true
 			continue
 		}
 		setAPIKey(req, apiKey)
@@ -316,6 +328,7 @@ func runCommand(isPlanOnly bool) {
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			fmt.Printf("Request failed: %v\n", err)
+			hadFailures = true
 			continue
 		}
 
@@ -326,6 +339,7 @@ func runCommand(isPlanOnly bool) {
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			fmt.Printf("FAILED (Status %d): %s\n", resp.StatusCode, string(errBody))
+			hadFailures = true
 		}
 	}
 
@@ -336,12 +350,14 @@ func runCommand(isPlanOnly bool) {
 		jsonData, err := json.Marshal(updates)
 		if err != nil {
 			fmt.Printf("Failed to marshal: %v\n", err)
+			hadFailures = true
 			continue
 		}
 
 		req, err := http.NewRequest("PATCH", brokerURL+"/providers/"+id, bytes.NewBuffer(jsonData))
 		if err != nil {
 			fmt.Printf("Failed to create request: %v\n", err)
+			hadFailures = true
 			continue
 		}
 		setAPIKey(req, apiKey)
@@ -350,6 +366,7 @@ func runCommand(isPlanOnly bool) {
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			fmt.Printf("Request failed: %v\n", err)
+			hadFailures = true
 			continue
 		}
 
@@ -360,6 +377,7 @@ func runCommand(isPlanOnly bool) {
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			fmt.Printf("FAILED (Status %d): %s\n", resp.StatusCode, string(errBody))
+			hadFailures = true
 		}
 	}
 
@@ -370,6 +388,7 @@ func runCommand(isPlanOnly bool) {
 		req, err := http.NewRequest("DELETE", brokerURL+"/providers/"+id, nil)
 		if err != nil {
 			fmt.Printf("Failed to create request: %v\n", err)
+			hadFailures = true
 			continue
 		}
 		setAPIKey(req, apiKey)
@@ -377,6 +396,7 @@ func runCommand(isPlanOnly bool) {
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			fmt.Printf("Request failed: %v\n", err)
+			hadFailures = true
 			continue
 		}
 
@@ -387,7 +407,13 @@ func runCommand(isPlanOnly bool) {
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			fmt.Printf("FAILED (Status %d): %s\n", resp.StatusCode, string(errBody))
+			hadFailures = true
 		}
+	}
+
+	if hadFailures {
+		fmt.Println("\nApply completed with errors.")
+		os.Exit(1)
 	}
 }
 

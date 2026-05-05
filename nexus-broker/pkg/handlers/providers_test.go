@@ -53,8 +53,8 @@ func (m *MockStore) UpdateProfile(p *provider.Profile) error {
 }
 
 func (m *MockStore) PatchProfile(id uuid.UUID, updates map[string]interface{}) error {
-	// Mock implementation for testing
-	return nil
+	args := m.Called(id, updates)
+	return args.Error(0)
 }
 
 func (m *MockStore) DeleteProfile(id uuid.UUID) error {
