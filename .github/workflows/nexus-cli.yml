@@ -33,11 +33,17 @@ jobs:
         run: go build -o nexus-cli
 
       - name: Plan (Pull Request)
-        if: github.event_name == 'pull_request'
+        # Only run plan when BROKER_BASE_URL is set (not available for forked PRs).
+        # This prevents the job from failing with "connection refused" for external contributors.
+        if: github.event_name == 'pull_request' && secrets.BROKER_BASE_URL != ''
         env:
           BROKER_BASE_URL: ${{ secrets.BROKER_BASE_URL }}
           API_KEY: ${{ secrets.BROKER_API_KEY }}
         run: ./nexus-cli plan
+
+      - name: Plan skipped (no Broker secret)
+        if: github.event_name == 'pull_request' && secrets.BROKER_BASE_URL == ''
+        run: echo "ℹ️ Skipping live plan — BROKER_BASE_URL secret not available (forked PR)."
 
       - name: Apply (Push to Main)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

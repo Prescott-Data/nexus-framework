@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -844,7 +845,9 @@ func (h *CallbackHandler) logAuditEvent(connectionID *uuid.UUID, eventType strin
 		auditData[k] = v
 	}
 
-	_ = h.audit.Log(eventType, connectionID, auditData, r)
+	if err := h.audit.Log(eventType, connectionID, auditData, r); err != nil {
+		log.Printf("audit: failed to log %s (connection_id=%v): %v", eventType, connectionID, err)
+	}
 }
 
 // handleError handles OAuth errors

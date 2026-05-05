@@ -23,16 +23,16 @@ func (s *Service) Log(eventType string, connectionID *uuid.UUID, data map[string
 	var userAgent *string
 
 	if r != nil {
-		// Extract IP
+		// Extract IP — validate with net.ParseIP to avoid storing arbitrary text in the inet column.
 		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 			ip := strings.TrimSpace(strings.Split(fwd, ",")[0])
-			ipVal = &ip
+			if net.ParseIP(ip) != nil {
+				ipVal = &ip
+			}
 		} else {
 			host, _, err := net.SplitHostPort(r.RemoteAddr)
-			if err == nil {
+			if err == nil && net.ParseIP(host) != nil {
 				ipVal = &host
-			} else {
-				ipVal = &r.RemoteAddr
 			}
 		}
 

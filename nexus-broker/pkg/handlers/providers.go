@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -64,7 +65,9 @@ func (h *ProvidersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.audit != nil {
-		_ = h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": profile.ID, "name": profile.Name}, r)
+		if err := h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": profile.ID, "name": profile.Name}, r); err != nil {
+			log.Printf("audit: failed to log provider.updated for provider_id=%s: %v", profile.ID, err)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -91,7 +94,9 @@ func (h *ProvidersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.audit != nil {
-		_ = h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": id.String(), "updates": updates}, r)
+		if err := h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": id.String(), "updates": updates}, r); err != nil {
+			log.Printf("audit: failed to log provider.updated for provider_id=%s: %v", id, err)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -112,7 +117,9 @@ func (h *ProvidersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.audit != nil {
-		_ = h.audit.Log("provider.deleted", nil, map[string]interface{}{"provider_id": id.String()}, r)
+		if err := h.audit.Log("provider.deleted", nil, map[string]interface{}{"provider_id": id.String()}, r); err != nil {
+			log.Printf("audit: failed to log provider.deleted for provider_id=%s: %v", id, err)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -165,7 +172,9 @@ func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.audit != nil {
-		_ = h.audit.Log("provider.created", nil, map[string]interface{}{"provider_id": profile.ID, "name": profile.Name}, r)
+		if err := h.audit.Log("provider.created", nil, map[string]interface{}{"provider_id": profile.ID, "name": profile.Name}, r); err != nil {
+			log.Printf("audit: failed to log provider.created for provider_id=%s: %v", profile.ID, err)
+		}
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, map[string]interface{}{
@@ -224,7 +233,9 @@ func (h *ProvidersHandler) DeleteByName(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if h.audit != nil {
-		_ = h.audit.Log("provider.deleted", nil, map[string]interface{}{"provider_name": name, "rows_affected": rowsAffected}, r)
+		if err := h.audit.Log("provider.deleted", nil, map[string]interface{}{"provider_name": name, "rows_affected": rowsAffected}, r); err != nil {
+			log.Printf("audit: failed to log provider.deleted for provider_name=%s: %v", name, err)
+		}
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Deleted %d provider(s)", rowsAffected)})

@@ -21,10 +21,12 @@ This provides a queryable history of who changed what and when, which is essenti
 ## Query the Audit Log
 
 ```
-GET /v1/audit
+GET /audit
 ```
 
 Returns recent audit events in descending chronological order. This endpoint is protected by `ApiKeyMiddleware`.
+
+> **Note:** The Nexus Broker API is unversioned — all routes are mounted at the root (e.g., `/providers`, `/audit`). The `/v1/audit` path referenced elsewhere is aspirational and will apply if/when the Broker adopts a versioned API prefix.
 
 ### Query Parameters
 

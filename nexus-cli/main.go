@@ -10,10 +10,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"reflect"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+// httpClient is shared across all requests with a conservative timeout.
+var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type Provider struct {
 	Name            string                 `yaml:"name" json:"name"`
@@ -56,6 +61,13 @@ func main() {
 	}
 }
 
+// setAPIKey sets the X-API-Key header on a request, matching the Broker's ApiKeyMiddleware.
+func setAPIKey(req *http.Request, apiKey string) {
+	if apiKey != "" {
+		req.Header.Set("X-API-Key", apiKey)
+	}
+}
+
 func runCommand(isPlanOnly bool) {
 	cmdFlags := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
 	fileFlag := cmdFlags.String("file", "nexus-providers.yaml", "Path to the providers manifest file")
@@ -92,12 +104,9 @@ func runCommand(isPlanOnly bool) {
 	if err != nil {
 		log.Fatalf("Failed to create request: %v", err)
 	}
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	}
+	setAPIKey(req, apiKey)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		log.Fatalf("Failed to fetch live providers: %v", err)
 	}
@@ -113,12 +122,13 @@ func runCommand(isPlanOnly bool) {
 		log.Fatalf("Failed to decode live providers: %v", err)
 	}
 
-	liveProviderMap := make(map[string]string) // map name to ID
+	// Build live provider map: name → {id, full config}
+	liveProviderMap := make(map[string]map[string]interface{})
 	for _, lp := range liveProviders {
 		name, nameOk := lp["name"].(string)
-		id, idOk := lp["id"].(string)
+		_, idOk := lp["id"].(string)
 		if nameOk && idOk {
-			liveProviderMap[name] = id
+			liveProviderMap[name] = lp
 		}
 	}
 
@@ -131,22 +141,28 @@ func runCommand(isPlanOnly bool) {
 
 	toCreate := []Provider{}
 	toUpdate := make(map[string]Provider) // map ID to Provider
-	toDelete := []string{}                // list of IDs
+	toDelete := []string{}               // list of IDs
 	toDeleteNames := []string{}
 
 	for _, p := range manifest.Providers {
-		if id, exists := liveProviderMap[p.Name]; exists {
-			toUpdate[id] = p
-			fmt.Printf("~ UPDATE : %s\n", p.Name)
+		if live, exists := liveProviderMap[p.Name]; exists {
+			id := live["id"].(string)
+			if providerDrifted(p, live) {
+				toUpdate[id] = p
+				fmt.Printf("~ UPDATE : %s\n", p.Name)
+			} else {
+				fmt.Printf("= OK     : %s (no changes)\n", p.Name)
+			}
 		} else {
 			toCreate = append(toCreate, p)
 			fmt.Printf("+ CREATE : %s\n", p.Name)
 		}
 	}
 
-	for name, id := range liveProviderMap {
+	for name, live := range liveProviderMap {
 		if _, exists := manifestProviderMap[name]; !exists {
 			if *pruneFlag {
+				id := live["id"].(string)
 				toDelete = append(toDelete, id)
 				toDeleteNames = append(toDeleteNames, name)
 				fmt.Printf("- DELETE : %s\n", name)
@@ -199,12 +215,10 @@ func runCommand(isPlanOnly bool) {
 			fmt.Printf("Failed to create request: %v\n", err)
 			continue
 		}
-		if apiKey != "" {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-		}
+		setAPIKey(req, apiKey)
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := client.Do(req)
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			fmt.Printf("Request failed: %v\n", err)
 			continue
@@ -232,12 +246,10 @@ func runCommand(isPlanOnly bool) {
 			fmt.Printf("Failed to create request: %v\n", err)
 			continue
 		}
-		if apiKey != "" {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-		}
+		setAPIKey(req, apiKey)
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := client.Do(req)
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			fmt.Printf("Request failed: %v\n", err)
 			continue
@@ -260,11 +272,9 @@ func runCommand(isPlanOnly bool) {
 			fmt.Printf("Failed to create request: %v\n", err)
 			continue
 		}
-		if apiKey != "" {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-		}
+		setAPIKey(req, apiKey)
 
-		resp, err := client.Do(req)
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			fmt.Printf("Request failed: %v\n", err)
 			continue
@@ -277,4 +287,17 @@ func runCommand(isPlanOnly bool) {
 			fmt.Printf("FAILED (Status %d)\n", resp.StatusCode)
 		}
 	}
+}
+
+// providerDrifted compares a manifest provider against the live state from the Broker.
+// It normalises the live map into a Provider struct and deep-compares key fields,
+// ignoring server-managed fields (id, created_at, updated_at).
+func providerDrifted(desired Provider, live map[string]interface{}) bool {
+	var liveProvider Provider
+	if b, err := json.Marshal(live); err == nil {
+		_ = json.Unmarshal(b, &liveProvider)
+	}
+	// Clear server-managed fields before comparing
+	liveProvider.Name = desired.Name // name is the reconciliation key, always equal here
+	return !reflect.DeepEqual(desired, liveProvider)
 }
