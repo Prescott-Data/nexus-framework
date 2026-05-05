@@ -169,55 +169,34 @@ Updating google-workspace... OK
 
 ---
 
-## CI/CD Integration
+## CI/CD Integration (Optional)
 
-The recommended pattern is to use `nexus-cli` in your GitHub Actions pipeline so that every change to the manifest goes through a code review + automated reconciliation cycle.
+`nexus-cli` is a standalone binary — you can run it from your laptop, a bastion host, or a CI pipeline. If you want to integrate it into your own CI/CD, here's a recommended pattern:
 
-A workflow is included at `.github/workflows/nexus-cli.yml` and runs automatically when `nexus-cli/nexus-providers.yaml` is modified:
+- **On pull requests**: run `nexus-cli plan` as an informational check so reviewers can see what would change.
+- **Apply manually**: use a `workflow_dispatch` trigger or run `nexus-cli apply` from a trusted environment when you're ready.
 
-```yaml title=".github/workflows/nexus-cli.yml"
-on:
-  pull_request:
-    paths: ['nexus-cli/nexus-providers.yaml']
-  push:
-    branches: [main]
-    paths: ['nexus-cli/nexus-providers.yaml']
+> **Note:** Auto-applying on merge is discouraged. Provider configurations are live operational data — you should always review a plan before applying.
 
-jobs:
-  plan-or-apply:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-      - run: go build -o nexus-cli
-        working-directory: ./nexus-cli
+### Example GitHub Actions Snippet
 
-      # On PRs: show a plan as a check
-      - name: Plan (Pull Request)
-        if: github.event_name == 'pull_request'
-        env:
-          BROKER_BASE_URL: ${{ secrets.BROKER_BASE_URL }}
-          API_KEY: ${{ secrets.BROKER_API_KEY }}
-        run: ./nexus-cli plan
-
-      # On merge to main: apply with prune
-      - name: Apply (Push to Main)
-        if: github.event_name == 'push'
-        env:
-          BROKER_BASE_URL: ${{ secrets.BROKER_BASE_URL }}
-          API_KEY: ${{ secrets.BROKER_API_KEY }}
-        run: ./nexus-cli apply --prune <<< "yes"
-        working-directory: ./nexus-cli
+```yaml
+# Add this to your internal repo's workflow — not the open-source framework repo.
+- name: Plan
+  env:
+    BROKER_BASE_URL: ${{ secrets.BROKER_BASE_URL }}
+    API_KEY: ${{ secrets.BROKER_API_KEY }}
+    # Add all env vars referenced in your manifest
+  run: ./nexus-cli plan
 ```
 
-### Required GitHub Secrets
+### Required Environment Variables
 
-| Secret | Description |
+| Variable | Description |
 | :--- | :--- |
-| `BROKER_BASE_URL` | URL of your production Nexus Broker |
-| `BROKER_API_KEY` | API key for Broker authentication |
+| `BROKER_BASE_URL` | URL of your target Nexus Broker (staging, prod, etc.) |
+| `API_KEY` | API key for Broker authentication |
+| `*_CLIENT_ID` / `*_CLIENT_SECRET` | Any provider credentials referenced via `${...}` in your manifest |
 
 ---
 
