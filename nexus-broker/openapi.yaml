@@ -57,7 +57,13 @@ components:
         params:
           type: object
           description: Provider-specific extra parameters (e.g., prompt, access_type)
-    
+        description:
+          type: string
+          description: Human-readable description of the provider
+        category:
+          type: string
+          description: Category grouping for the provider (e.g. "CRM & Sales", "Analytics")
+
     ProviderProfilePatch:
       type: object
       properties:
@@ -95,7 +101,13 @@ components:
         params:
           type: object
           description: Provider-specific extra parameters (e.g., prompt, access_type)
-    
+        description:
+          type: string
+          description: Human-readable description of the provider
+        category:
+          type: string
+          description: Category grouping for the provider (e.g. "CRM & Sales", "Analytics")
+
     ConsentSpecRequest:
       type: object
       required: [workspace_id, return_url]
@@ -151,6 +163,8 @@ components:
             id: { type: string }
             api_base_url: { type: string }
             user_info_endpoint: { type: string }
+            description: { type: string }
+            category: { type: string }
             scopes:
               type: array
               items: { type: string }
@@ -218,6 +232,7 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '200':
+          description: Provider profile
           content:
             application/json:
               schema:
@@ -279,6 +294,7 @@ paths:
           schema: { type: string }
       responses:
         '200':
+          description: Provider id and name
           content:
             application/json:
               schema:
@@ -297,6 +313,7 @@ paths:
               $ref: '#/components/schemas/ConsentSpecRequest'
       responses:
         '200':
+          description: Authorization URL and state
           content:
             application/json:
               schema:
@@ -328,6 +345,7 @@ paths:
           schema: { type: string }
       responses:
         '200':
+          description: Stored token response
           content:
             application/json:
               schema:
@@ -344,6 +362,7 @@ paths:
           schema: { type: string }
       responses:
         '200':
+          description: Refreshed token response
           content:
             application/json:
               schema:

@@ -67,6 +67,7 @@ type ConsentSpecResponse struct {
 // MetadataResponse Grouped provider metadata
 type MetadataResponse map[string]map[string]struct {
 	ApiBaseUrl       *string   `json:"api_base_url,omitempty"`
+	Category         *string   `json:"category,omitempty"`
 	Description      *string   `json:"description,omitempty"`
 	Id               *string   `json:"id,omitempty"`
 	Scopes           *[]string `json:"scopes,omitempty"`
