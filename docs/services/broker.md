@@ -33,7 +33,10 @@ Every control-plane mutation is recorded in the `audit_events` table via the `au
 - **`provider.created`** — logged on every successful `POST /providers` call.
 - **`provider.updated`** — logged on `PUT` and `PATCH` mutations.
 - **`provider.deleted`** — logged on deletion by ID or by name.
-- **`connection.created`** — logged on every successful OAuth callback.
+- **`oauth_flow_completed`** — logged on every successful OAuth callback (token exchange + storage).
+- **`token_exchange_failed`**, **`token_storage_failed`**, etc. — logged on callback failures.
+- **`token_retrieved`** — logged on every successful `GET /connections/{id}/token` call.
+- **`token_refresh_fatal`** — logged when a token refresh fails permanently (4xx from provider).
 
 Audit events capture the **caller IP** (respecting `X-Forwarded-For`), **User-Agent**, and structured **event data** (provider ID, name, etc.).
 

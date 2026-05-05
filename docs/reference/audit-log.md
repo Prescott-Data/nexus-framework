@@ -10,11 +10,16 @@ This provides a queryable history of who changed what and when, which is essenti
 
 | Event Type | Trigger |
 | :--- | :--- |
-| `provider.created` | A new provider profile is registered |
+| `provider.created` | A new provider profile is registered via `POST /providers` |
 | `provider.updated` | A provider's configuration is modified (`PUT` or `PATCH`) |
 | `provider.deleted` | A provider is deleted (by ID or by name) |
-| `connection.created` | An OAuth callback completes successfully and a connection is established |
-| `connection.revoked` | A connection is explicitly revoked |
+| `oauth_flow_completed` | An OAuth callback completes successfully and a connection is established |
+| `token_exchange_failed` | The authorization code → token exchange failed |
+| `token_storage_failed` | Tokens were exchanged but could not be encrypted/stored |
+| `token_retrieved` | A downstream service fetched a connection's token via `GET /connections/{id}/token` |
+| `token_retrieval_failed` | A token fetch failed (not found, decryption error, inactive connection, etc.) |
+| `token_refresh_fatal` | A refresh token was rejected by the provider (4xx), connection moved to `attention` |
+| `oauth_error` | The provider returned an error on the OAuth callback (e.g. `access_denied`) |
 
 ---
 
@@ -71,7 +76,7 @@ curl -s "http://localhost:8080/audit?event_type=provider.created&since=2026-05-0
   {
     "id": "a1b2c3d4-...",
     "connection_id": "f5e6d7c8-...",
-    "event_type": "connection.created",
+    "event_type": "oauth_flow_completed",
     "event_data": "{\"provider_id\": \"...\", \"workspace_id\": \"ws-123\"}",
     "ip_address": "10.0.0.1",
     "user_agent": "nexus-gateway/1.0",
