@@ -18,11 +18,11 @@ import (
 // ProvidersHandler handles provider-related HTTP requests
 type ProvidersHandler struct {
 	store provider.ProfileStorer
-	audit *audit.Service
+	audit audit.Logger
 }
 
 // NewProvidersHandler creates a new providers handler
-func NewProvidersHandler(store provider.ProfileStorer, auditSvc *audit.Service) *ProvidersHandler {
+func NewProvidersHandler(store provider.ProfileStorer, auditSvc audit.Logger) *ProvidersHandler {
 	return &ProvidersHandler{store: store, audit: auditSvc}
 }
 
@@ -94,7 +94,17 @@ func (h *ProvidersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.audit != nil {
-		if err := h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": id.String(), "updates": updates}, r); err != nil {
+		// Redact sensitive fields — log only field names for credentials
+		redactedUpdates := make(map[string]interface{})
+		for k, v := range updates {
+			switch k {
+			case "client_secret", "client_id":
+				redactedUpdates[k] = "[REDACTED]"
+			default:
+				redactedUpdates[k] = v
+			}
+		}
+		if err := h.audit.Log("provider.updated", nil, map[string]interface{}{"provider_id": id.String(), "updates": redactedUpdates}, r); err != nil {
 			log.Printf("audit: failed to log provider.updated for provider_id=%v: %v", id, err)
 		}
 	}

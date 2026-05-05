@@ -140,10 +140,6 @@ func runCommand(isPlanOnly bool) {
 
 	// Build live provider map: name → full config.
 	// Fetch full profiles concurrently with a bounded worker pool to avoid N+1 latency.
-	type providerResult struct {
-		Name    string
-		Profile map[string]interface{}
-	}
 
 	const maxConcurrency = 5
 	sem := make(chan struct{}, maxConcurrency)

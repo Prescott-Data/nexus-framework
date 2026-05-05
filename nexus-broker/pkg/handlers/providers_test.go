@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
+
+	"github.com/go-chi/chi/v5"
 )
 
 // MockStore is a mock implementation of the provider.ProfileStorer interface.
@@ -186,4 +189,84 @@ func TestRegisterProvider_InvalidJSON(t *testing.T) {
 
 	// 4. Asserts the response is http.StatusBadRequest.
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+// --- Audit mock ---
+
+// MockAuditLogger is a mock implementation of the audit.Logger interface.
+type MockAuditLogger struct {
+	mock.Mock
+}
+
+func (m *MockAuditLogger) Log(eventType string, connectionID *uuid.UUID, data map[string]interface{}, r *http.Request) error {
+	args := m.Called(eventType, connectionID, data, r)
+	return args.Error(0)
+}
+
+func TestRegisterProvider_AuditsCreation(t *testing.T) {
+	mockStore := new(MockStore)
+	mockAudit := new(MockAuditLogger)
+	handler := NewProvidersHandler(mockStore, mockAudit)
+
+	expectedProfile := &provider.Profile{
+		ID:       uuid.New(),
+		Name:     "Audited Provider",
+		AuthType: "oauth2",
+	}
+	mockStore.On("RegisterProfile", mock.AnythingOfType("string")).Return(expectedProfile, nil)
+	mockAudit.On("Log", "provider.created", (*uuid.UUID)(nil), mock.AnythingOfType("map[string]interface {}"), mock.AnythingOfType("*http.Request")).Return(nil)
+
+	body := map[string]interface{}{"profile": map[string]interface{}{"name": "Audited Provider", "auth_type": "oauth2"}}
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/providers", bytes.NewReader(jsonBody))
+
+	rr := httptest.NewRecorder()
+	handler.Register(rr, req)
+
+	assert.Equal(t, http.StatusCreated, rr.Code)
+	mockAudit.AssertCalled(t, "Log", "provider.created", (*uuid.UUID)(nil), mock.AnythingOfType("map[string]interface {}"), mock.AnythingOfType("*http.Request"))
+	mockAudit.AssertNumberOfCalls(t, "Log", 1)
+}
+
+func TestPatchProvider_AuditRedactsSecrets(t *testing.T) {
+	mockStore := new(MockStore)
+	mockAudit := new(MockAuditLogger)
+	handler := NewProvidersHandler(mockStore, mockAudit)
+
+	testID := uuid.New()
+	mockStore.On("PatchProfile", testID, mock.AnythingOfType("map[string]interface {}")).Return(nil)
+	mockAudit.On("Log", "provider.updated", (*uuid.UUID)(nil), mock.AnythingOfType("map[string]interface {}"), mock.AnythingOfType("*http.Request")).Return(nil)
+
+	updates := map[string]interface{}{
+		"auth_url":      "https://new.example.com/auth",
+		"client_secret": "super-secret-value",
+	}
+	jsonBody, _ := json.Marshal(updates)
+
+	req, _ := http.NewRequest("PATCH", "/providers/"+testID.String(), bytes.NewReader(jsonBody))
+
+	// Use chi context to set URL params
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", testID.String())
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	rr := httptest.NewRecorder()
+	handler.Patch(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	mockAudit.AssertCalled(t, "Log", "provider.updated", (*uuid.UUID)(nil), mock.MatchedBy(func(data map[string]interface{}) bool {
+		updates, ok := data["updates"].(map[string]interface{})
+		if !ok {
+			return false
+		}
+		// client_secret must be redacted
+		if updates["client_secret"] != "[REDACTED]" {
+			return false
+		}
+		// non-secret fields should be passed through
+		if updates["auth_url"] != "https://new.example.com/auth" {
+			return false
+		}
+		return true
+	}), mock.AnythingOfType("*http.Request"))
 }
