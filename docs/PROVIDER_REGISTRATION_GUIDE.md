@@ -37,12 +37,12 @@ Before touching Nexus, you must create an "App" in the Provider's Developer Port
     *   **Value:** `http://localhost:8080/auth/callback`
 3.  **Compliance Fields:**
     *   Most providers will strictly limit your app (making it "Development Mode" only) until you fill these out:
-    *   **App Name:** `Nexus`
-    *   **App Logo:** (Use Company Logo)
-    *   **Website URL:** `https://prescottdata.io/`
-    *   **Privacy Policy URL:** `https://support.prescottdata.io/privacy`
-    *   **Terms of Service URL:** `https://support.prescottdata.io/terms`
-    *   **Support Email:** `support@prescottdata.io`
+    *   **App Name:** `Your App Name`
+    *   **App Logo:** (Your company logo)
+    *   **Website URL:** `https://your-company.com/`
+    *   **Privacy Policy URL:** `https://your-company.com/privacy`
+    *   **Terms of Service URL:** `https://your-company.com/terms`
+    *   **Support Email:** `support@your-company.com`
 4.  **Credentials:**
     *   Locate the **Client ID** and **Client Secret**.
     *   Copy them securely.
