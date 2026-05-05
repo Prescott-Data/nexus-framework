@@ -2,6 +2,7 @@ package audit
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -45,7 +46,11 @@ func (s *Service) Log(eventType string, connectionID *uuid.UUID, data map[string
 
 	var eventDataJSON []byte
 	if data != nil {
-		eventDataJSON, _ = json.Marshal(data)
+		var err error
+		eventDataJSON, err = json.Marshal(data)
+		if err != nil {
+			return fmt.Errorf("audit: failed to marshal event data: %w", err)
+		}
 	}
 
 	query := `
