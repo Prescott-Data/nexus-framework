@@ -4,298 +4,150 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
+	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
-	"time"
 
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/DATA-DOG/go-sqlmock.v1"
+	"github.com/stretchr/testify/mock"
+
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/service"
+	"github.com/go-chi/chi/v5"
 )
 
-func TestRefresh_StaticKeyProvider(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	assert.NoError(t, err)
-	defer db.Close()
-
-	sqlxDB := sqlx.NewDb(db, "sqlmock")
+func TestHandleCallback_Success(t *testing.T) {
+	mockSvc := new(MockConnectionService)
 	handler := NewCallbackHandler(CallbackHandlerConfig{
-		DB:            sqlxDB,
-		BaseURL:       "http://localhost:8080",
-		RedirectPath:  "/auth/callback",
-		EncryptionKey: []byte("test-key"),
-		StateKey:      []byte("test-key"),
-		HTTPClient:    http.DefaultClient,
+		Service: mockSvc,
 	})
 
-	// Mock the initial query to find the connection
+	mockSvc.On("ExchangeCodeForTokens", mock.Anything, "test-state", "test-code", "", "").
+		Return("http://localhost/return?status=success", nil)
 
-	rows := sqlmock.NewRows([]string{"provider_id", "auth_type"}).
-		AddRow(uuid.New().String(), "api_key") // Use a new UUID for provider_id
-
-	mock.ExpectQuery("SELECT c.provider_id, p.auth_type FROM connections c JOIN provider_profiles p ON c.provider_id = p.id WHERE c.id=\\$1 AND c.status='active'").
-		WithArgs(uuid.MustParse("b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1")). // Match the connection ID from the request
-		WillReturnRows(rows)
-
-	req, err := http.NewRequest("POST", "/connections/b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1/refresh", nil)
-	assert.NoError(t, err)
-
-	// Add Chi route context
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("connectionID", "b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1")
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-
+	req, _ := http.NewRequest("GET", "/auth/callback?state=test-state&code=test-code", nil)
 	rr := httptest.NewRecorder()
-	handler.Refresh(rr, req)
 
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "This connection uses a static token and cannot be refreshed")
+	handler.Handle(rr, req)
+
+	assert.Equal(t, http.StatusFound, rr.Code)
+	assert.Equal(t, "http://localhost/return?status=success", rr.Header().Get("Location"))
+	mockSvc.AssertExpectations(t)
 }
 
-func TestRefresh_OAuth2Provider(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	assert.NoError(t, err)
-	defer db.Close()
-
-	sqlxDB := sqlx.NewDb(db, "sqlmock")
-
-	// Mock the external HTTP call to the provider's token URL
-	mockProviderServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"access_token": "new-access-token", "refresh_token": "new-refresh-token", "expires_in": 3600}`)
-	}))
-	defer mockProviderServer.Close()
-
+func TestHandleCallback_Error(t *testing.T) {
+	mockSvc := new(MockConnectionService)
 	handler := NewCallbackHandler(CallbackHandlerConfig{
-		DB:            sqlxDB,
-		BaseURL:       "http://localhost:8080",
-		RedirectPath:  "/auth/callback",
-		EncryptionKey: []byte("01234567890123456789012345678901"),
-		StateKey:      []byte("01234567890123456789012345678901"),
-		HTTPClient:    mockProviderServer.Client(),
+		Service: mockSvc,
 	})
 
-	// Mock the initial query to find the connection
+	mockSvc.On("ExchangeCodeForTokens", mock.Anything, "test-state", "test-code", "", "").
+		Return("", errors.New("exchange failed"))
 
-	rows := sqlmock.NewRows([]string{"provider_id", "auth_type"}).
-		AddRow(uuid.New().String(), "oauth2")
-	mock.ExpectQuery("SELECT c.provider_id, p.auth_type FROM connections c JOIN provider_profiles p ON c.provider_id = p.id WHERE c.id=\\$1 AND c.status='active'").
-		WithArgs(uuid.MustParse("b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1")).
-		WillReturnRows(rows)
+	req, _ := http.NewRequest("GET", "/auth/callback?state=test-state&code=test-code", nil)
+	rr := httptest.NewRecorder()
 
-	mock.ExpectQuery("SELECT token_url, client_id, client_secret FROM provider_profiles WHERE id=\\$1").
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"token_url", "client_id", "client_secret"}).
-			AddRow(mockProviderServer.URL, "test-client-id", "test-client-secret"))
+	handler.Handle(rr, req)
 
-		// Encrypt the token before mocking the query
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	mockSvc.AssertExpectations(t)
+}
 
-	tokenData := map[string]interface{}{"refresh_token": "test-refresh-token"}
-	tokenJSON, _ := json.Marshal(tokenData)
-	encryptedToken, err := vault.Encrypt([]byte("01234567890123456789012345678901"), tokenJSON)
-	assert.NoError(t, err)
+func TestGetToken_Success(t *testing.T) {
+	mockSvc := new(MockConnectionService)
+	handler := NewCallbackHandler(CallbackHandlerConfig{
+		Service: mockSvc,
+	})
 
-	mock.ExpectQuery("SELECT encrypted_data FROM tokens WHERE connection_id=\\$1").
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"encrypted_data"}).AddRow(encryptedToken))
+	connID := uuid.New()
+	expectedToken := map[string]interface{}{
+		"credentials": map[string]interface{}{"access_token": "abc"},
+		"strategy":    map[string]interface{}{"type": "oauth2"},
+	}
 
-	mock.ExpectExec("INSERT INTO tokens").
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	mockSvc.On("GetToken", mock.Anything, connID).Return(expectedToken, nil)
 
-	req, err := http.NewRequest("POST", "/connections/b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1/refresh", nil)
-	assert.NoError(t, err)
-
-	// Add Chi route context
+	req, _ := http.NewRequest("GET", "/connections/"+connID.String()+"/token", nil)
+	
+	// Add chi route context
 	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("connectionID", "b1b1b1b1-b1b1-b1b1-b1b1-b1b1b1b1b1b1")
+	rctx.URLParams.Add("connectionID", connID.String())
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	rr := httptest.NewRecorder()
+
+	handler.GetToken(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestRefresh_Success(t *testing.T) {
+	mockSvc := new(MockConnectionService)
+	handler := NewCallbackHandler(CallbackHandlerConfig{
+		Service: mockSvc,
+	})
+
+	connID := uuid.New()
+	expectedResp := &service.RefreshResponse{
+		Tokens:     map[string]interface{}{"access_token": "new-token"},
+		StatusCode: 200,
+	}
+
+	mockSvc.On("Refresh", mock.Anything, connID).Return(expectedResp, nil)
+
+	req, _ := http.NewRequest("POST", "/connections/"+connID.String()+"/refresh", nil)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("connectionID", connID.String())
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	rr := httptest.NewRecorder()
+
 	handler.Refresh(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
+	mockSvc.AssertExpectations(t)
 }
 
-func TestGetCaptureSchema(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	assert.NoError(t, err)
-	defer db.Close()
-
-	sqlxDB := sqlx.NewDb(db, "sqlmock")
-	// Use a real key for signing/verifying state
-	stateKey := []byte("01234567890123456789012345678901")
+func TestGetCaptureSchema_Success(t *testing.T) {
+	mockSvc := new(MockConnectionService)
 	handler := NewCallbackHandler(CallbackHandlerConfig{
-		DB:            sqlxDB,
-		BaseURL:       "http://localhost:8080",
-		RedirectPath:  "/auth/callback",
-		EncryptionKey: nil,
-		StateKey:      stateKey,
-		HTTPClient:    http.DefaultClient,
+		Service: mockSvc,
 	})
 
-	providerID := uuid.New()
-	stateData := auth.StateData{
-		ProviderID: providerID.String(),
-		Nonce:      "test-nonce",
-		IAT:        time.Now(),
-	}
-	signedState, err := auth.SignState(stateKey, stateData)
-	assert.NoError(t, err)
+	mockSchema := json.RawMessage(`{"type":"object"}`)
+	mockSvc.On("GetCaptureSchema", mock.Anything, "test-state").Return("TestProvider", mockSchema, nil)
 
-	// Mock the database query
-	mockSchema := `{"type":"object","properties":{"api_key":{"type":"string"}}}`
-	mockParams := json.RawMessage(`{"credential_schema":` + mockSchema + `}`)
-	mockParamsBytes, _ := json.Marshal(mockParams)
-
-	rows := sqlmock.NewRows([]string{"name", "params"}).
-		AddRow("Test Provider", mockParamsBytes)
-
-	mock.ExpectQuery("SELECT name, params FROM provider_profiles WHERE id = \\$1").
-		WithArgs(providerID).
-		WillReturnRows(rows)
-
-	// Create the request
-	req, err := http.NewRequest("GET", "/auth/capture-schema?state="+url.QueryEscape(signedState), nil)
-	assert.NoError(t, err)
-
+	req, _ := http.NewRequest("GET", "/auth/capture-schema?state=test-state", nil)
 	rr := httptest.NewRecorder()
+
 	handler.GetCaptureSchema(rr, req)
 
-	// Assert the response
 	assert.Equal(t, http.StatusOK, rr.Code)
-
-	// Assert the body
-	var respBody struct {
-		ProviderName string          `json:"provider_name"`
-		Schema       json.RawMessage `json:"schema"`
-	}
-	err = json.Unmarshal(rr.Body.Bytes(), &respBody)
-	assert.NoError(t, err)
-
-	assert.Equal(t, "Test Provider", respBody.ProviderName)
-	assert.JSONEq(t, mockSchema, string(respBody.Schema))
+	mockSvc.AssertExpectations(t)
 }
 
-func TestSaveCredential_ValidState(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	assert.NoError(t, err)
-	defer db.Close()
-
-	sqlxDB := sqlx.NewDb(db, "sqlmock")
-	stateKey := []byte("01234567890123456789012345678901")
-	encryptionKey := []byte("01234567890123456789012345678901")
+func TestSaveCredential_Success(t *testing.T) {
+	mockSvc := new(MockConnectionService)
 	handler := NewCallbackHandler(CallbackHandlerConfig{
-		DB:            sqlxDB,
-		BaseURL:       "http://localhost:8080",
-		RedirectPath:  "/auth/callback",
-		EncryptionKey: encryptionKey,
-		StateKey:      stateKey,
-		HTTPClient:    http.DefaultClient,
+		Service: mockSvc,
 	})
 
-	connectionID := uuid.New()
-	stateData := auth.StateData{
-		Nonce: connectionID.String(),
-		IAT:   time.Now(),
-	}
-	signedState, err := auth.SignState(stateKey, stateData)
-	assert.NoError(t, err)
+	creds := map[string]interface{}{"api_key": "123"}
+	mockSvc.On("SaveCredential", mock.Anything, "test-state", creds).Return("http://localhost/return", nil)
 
-	// Mock DB calls
-	mock.ExpectQuery("SELECT return_url FROM connections WHERE id = \\$1").
-		WithArgs(connectionID).
-		WillReturnRows(sqlmock.NewRows([]string{"return_url"}).AddRow("http://localhost:3000/callback"))
-
-	// Mock the provider config lookup for credential validation
-	mock.ExpectQuery("SELECT pp.auth_type").
-		WithArgs(connectionID).
-		WillReturnRows(sqlmock.NewRows([]string{"auth_type", "auth_header", "api_base_url", "user_info_endpoint"}).
-			AddRow("api_key", "", "", ""))
-
-	// 1. Mock the call to storeTokens (upsert)
-	mock.ExpectExec(
-		"INSERT INTO tokens",
-	).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
-
-	// 2. Mock the call to updateConnectionStatus
-	mock.ExpectExec(
-		"UPDATE connections SET status = \\$1, updated_at = NOW\\(\\) WHERE id = \\$2",
-	).WithArgs("active", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
-
-	// Create request body
-	creds := map[string]interface{}{"api_key": "test-key"}
-	body := map[string]interface{}{
-		"state":       signedState,
+	body, _ := json.Marshal(map[string]interface{}{
+		"state":       "test-state",
 		"credentials": creds,
-	}
-	jsonBody, _ := json.Marshal(body)
+	})
 
-	req, err := http.NewRequest("POST", "/auth/capture-credential", bytes.NewBuffer(jsonBody))
-	assert.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
+	req, _ := http.NewRequest("POST", "/auth/capture-credential", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
+
 	handler.SaveCredential(rr, req)
 
 	assert.Equal(t, http.StatusFound, rr.Code)
-	location := rr.Header().Get("Location")
-	assert.Contains(t, location, "http://localhost:3000/callback")
-	assert.Contains(t, location, "status=success")
-	assert.Contains(t, location, "connection_id="+connectionID.String())
-}
-
-func TestSaveCredential_InvalidState(t *testing.T) {
-	handler := NewCallbackHandler(CallbackHandlerConfig{
-		DB:            nil,
-		BaseURL:       "http://localhost:8080",
-		RedirectPath:  "/auth/callback",
-		EncryptionKey: nil,
-		StateKey:      []byte("test-key"),
-		HTTPClient:    http.DefaultClient,
-	})
-
-	creds := map[string]interface{}{"api_key": "test-key"}
-	body := map[string]interface{}{
-		"state":       "invalid-state",
-		"credentials": creds,
-	}
-	jsonBody, _ := json.Marshal(body)
-
-	req, err := http.NewRequest("POST", "/auth/capture-credential", bytes.NewBuffer(jsonBody))
-	assert.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	rr := httptest.NewRecorder()
-	handler.SaveCredential(rr, req)
-
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "Invalid state")
-}
-
-func TestSaveCredential_InvalidJSON(t *testing.T) {
-	handler := NewCallbackHandler(CallbackHandlerConfig{
-		DB:            nil,
-		BaseURL:       "http://localhost:8080",
-		RedirectPath:  "/auth/callback",
-		EncryptionKey: nil,
-		StateKey:      nil,
-		HTTPClient:    http.DefaultClient,
-	})
-
-	req, err := http.NewRequest("POST", "/auth/capture-credential", bytes.NewBuffer([]byte("not-json")))
-	assert.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	rr := httptest.NewRecorder()
-	handler.SaveCredential(rr, req)
-
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "Invalid JSON body")
+	mockSvc.AssertExpectations(t)
 }

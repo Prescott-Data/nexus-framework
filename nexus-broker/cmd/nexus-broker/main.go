@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository/postgres"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/service"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/caching"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/config"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/handlers"
@@ -62,25 +64,30 @@ func main() {
 	auditSvc := audit.NewService(db)
 
 	providersHandler := handlers.NewProvidersHandler(store, auditSvc)
+
+	connRepo := postgres.NewConnectionRepository(db)
+	tokenRepo := postgres.NewTokenRepository(db)
+
+	connSvc := service.NewConnectionService(
+		connRepo,
+		tokenRepo,
+		store,
+		auditSvc,
+		cfg.BaseURL,
+		cfg.RedirectPath,
+		cfg.EncryptionKey,
+		cfg.StateKey,
+		cachingClient,
+		cfg.EnforceReturnURL,
+		cfg.AllowedReturnDomains,
+	)
+
 	consentHandler := handlers.NewConsentHandler(handlers.ConsentHandlerConfig{
-		DB:                   db,
-		BaseURL:              cfg.BaseURL,
-		RedirectPath:         cfg.RedirectPath,
-		StateKey:             cfg.StateKey,
-		HTTPClient:           cachingClient,
-		EnforceReturnURL:     cfg.EnforceReturnURL,
-		AllowedReturnDomains: cfg.AllowedReturnDomains,
+		Service: connSvc,
 	})
 	callbackHandler := handlers.NewCallbackHandler(handlers.CallbackHandlerConfig{
-		DB:                   db,
-		Audit:                auditSvc,
-		BaseURL:              cfg.BaseURL,
-		RedirectPath:         cfg.RedirectPath,
-		EncryptionKey:        cfg.EncryptionKey,
-		StateKey:             cfg.StateKey,
-		HTTPClient:           cachingClient,
-		EnforceReturnURL:     cfg.EnforceReturnURL,
-		AllowedReturnDomains: cfg.AllowedReturnDomains,
+		Service: connSvc,
+		Audit:   auditSvc,
 	})
 	auditHandler := handlers.NewAuditHandler(db)
 

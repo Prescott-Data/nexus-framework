@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -60,6 +61,7 @@ func (h *AuditHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	var events []storage.AuditEvent
 	if err := h.db.Select(&events, query, args...); err != nil {
+		log.Printf("audit query failed: %v", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "query_failed", "Failed to query audit events")
 		return
 	}
@@ -71,3 +73,4 @@ func (h *AuditHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	httputil.WriteJSON(w, http.StatusOK, events)
 }
+
