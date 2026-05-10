@@ -27,14 +27,14 @@ func TestAuditList_NoFilters_ReturnsDefaultLimit(t *testing.T) {
 	db, mock := newSqlxDB(t)
 	defer db.Close()
 
-	id := uuid.New()
-	connID := uuid.New()
+	id := uuid.New().String()
+	connID := uuid.New().String()
 	now := time.Now()
 
 	rows := sqlmock.NewRows([]string{
 		"id", "connection_id", "event_type", "event_data", "ip_address", "user_agent", "created_at",
 	}).AddRow(
-		id, &connID, "provider.created", `{"name":"google"}`, "127.0.0.1", "curl/7.88", now,
+		id, connID, "provider.created", `{"name":"google"}`, "127.0.0.1", "curl/7.88", now,
 	)
 
 	mock.ExpectQuery(`SELECT id, connection_id, event_type, event_data, ip_address, user_agent, created_at`).

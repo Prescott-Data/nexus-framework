@@ -1,42 +1,25 @@
 package handlers
 
 import (
-	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
-	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/discovery"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/service"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/httputil"
-	oidcutil "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/oidc"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/server"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
 )
 
 // CallbackHandler handles OAuth callback and token exchange
 type CallbackHandler struct {
-	db                    *sqlx.DB
+	svc                   service.ConnectionService
 	audit                 *audit.Service
-	baseURL               string
-	redirectPath          string
-	encryptionKey         []byte
-	stateKey              []byte
-	httpClient            *http.Client
-	enforceReturnURL      bool
-	allowedReturnDomains  []string
 	metricExchangeSuccess prometheus.Counter
 	metricExchangeError   prometheus.Counter
 	histogramExchangeDur  prometheus.Histogram
@@ -46,16 +29,8 @@ type CallbackHandler struct {
 
 // CallbackHandlerConfig holds the dependencies for CallbackHandler
 type CallbackHandlerConfig struct {
-	DB            *sqlx.DB
-	Audit         *audit.Service
-	BaseURL       string
-	RedirectPath  string
-	EncryptionKey []byte
-	StateKey      []byte
-	HTTPClient    *http.Client
-
-	EnforceReturnURL     bool
-	AllowedReturnDomains []string
+	Service service.ConnectionService
+	Audit   *audit.Service
 }
 
 // NewCallbackHandler creates a new callback handler
@@ -94,15 +69,8 @@ func NewCallbackHandler(cfg CallbackHandlerConfig) *CallbackHandler {
 	}
 
 	return &CallbackHandler{
-		db:                    cfg.DB,
+		svc:                   cfg.Service,
 		audit:                 cfg.Audit,
-		baseURL:               cfg.BaseURL,
-		redirectPath:          cfg.RedirectPath,
-		encryptionKey:         cfg.EncryptionKey,
-		stateKey:              cfg.StateKey,
-		httpClient:            cfg.HTTPClient,
-		enforceReturnURL:      cfg.EnforceReturnURL,
-		allowedReturnDomains:  cfg.AllowedReturnDomains,
 		metricExchangeSuccess: success,
 		metricExchangeError:   failure,
 		histogramExchangeDur:  hist,
@@ -113,13 +81,17 @@ func NewCallbackHandler(cfg CallbackHandlerConfig) *CallbackHandler {
 
 // Handle handles GET /auth/callback
 func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
-	// Get parameters from query string
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 	errorParam := r.URL.Query().Get("error")
+	errorDesc := r.URL.Query().Get("error_description")
 
 	if errorParam != "" {
-		h.handleError(w, r, errorParam, r.URL.Query().Get("error_description"))
+		h.logAuditEvent(nil, "oauth_error", map[string]string{
+			"error":       errorParam,
+			"description": errorDesc,
+		}, r)
+		httputil.WriteError(w, http.StatusBadRequest, "oauth_error", fmt.Sprintf("OAuth error: %s - %s", errorParam, errorDesc))
 		return
 	}
 
@@ -128,187 +100,30 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify state
-	stateData, err := auth.VerifyState(h.stateKey, state)
-	if err != nil {
-		h.logAuditEvent(nil, "state_verification_failed", map[string]string{"error": err.Error()}, r)
-		httputil.WriteError(w, http.StatusBadRequest, "invalid_state", "Invalid state")
-		return
-	}
-
-	// Get connection
-	connectionID, err := uuid.Parse(stateData.Nonce)
-	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "invalid_connection_id", "Invalid connection ID")
-		return
-	}
-
-	var connection struct {
-		ID           string         `db:"id"`
-		CodeVerifier sql.NullString `db:"code_verifier"`
-		ReturnURL    string         `db:"return_url"`
-		ProviderID   string         `db:"provider_id"`
-		Scopes       []string       `db:"scopes"`
-	}
-
-	err = h.db.QueryRow(`
-		SELECT id, code_verifier, return_url, provider_id, scopes
-		FROM connections
-		WHERE id = $1 AND status = 'pending' AND expires_at > NOW()`,
-		connectionID).Scan(&connection.ID, &connection.CodeVerifier, &connection.ReturnURL, &connection.ProviderID, pq.Array(&connection.Scopes))
-
-	if err != nil {
-		h.logAuditEvent(&connectionID, "connection_not_found", map[string]string{"error": err.Error()}, r)
-		httputil.WriteError(w, http.StatusNotFound, "connection_not_found", "Connection not found or expired")
-		return
-	}
-
-	// Get provider details
-	var provider struct {
-		TokenURL     sql.NullString   `db:"token_url"`
-		ClientID     sql.NullString   `db:"client_id"`
-		ClientSecret sql.NullString   `db:"client_secret"`
-		Name         string           `db:"name"`
-		AuthHeader   string           `db:"auth_header"`
-		Params       *json.RawMessage `db:"params"`
-	}
-
-	err = h.db.QueryRow(`
-		SELECT token_url, client_id, client_secret, name, COALESCE(auth_header, '') as auth_header, params
-		FROM provider_profiles WHERE id = $1`,
-		connection.ProviderID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret, &provider.Name, &provider.AuthHeader, &provider.Params)
-
-	if err != nil {
-		h.logAuditEvent(&connectionID, "provider_not_found", map[string]string{"error": err.Error()}, r)
-		httputil.WriteError(w, http.StatusInternalServerError, "provider_not_found", "Provider not found")
-		return
-	}
-
-	// Compute redirect_uri to match the auth request
-	redirectPath := h.redirectPath
-	base := strings.TrimSuffix(h.baseURL, "/")
-	redirectURI := base + redirectPath
-
-	// Check if provider wants to skip scope on token exchange (e.g., Salesforce rejects it)
-	skipScopeOnExchange := false
-	if provider.Params != nil {
-		var paramsMap map[string]interface{}
-		if err := json.Unmarshal(*provider.Params, &paramsMap); err == nil {
-			if skip, ok := paramsMap["skip_scope_on_exchange"].(bool); ok {
-				skipScopeOnExchange = skip
-			}
-		}
-	}
-
-	// Exchange code for tokens
 	start := time.Now()
-	useTokenURL := provider.TokenURL.String
-	if md, errD := discovery.Discover(r.Context(), h.httpClient, discovery.Hint{AuthURL: useTokenURL}); errD == nil && strings.TrimSpace(md.AuthorizationEndpoint) != "" {
-		useTokenURL = md.TokenEndpoint
-	}
-	tokens, err := h.exchangeCodeForTokens(useTokenURL, provider.ClientID.String, provider.ClientSecret.String, code, connection.CodeVerifier.String, redirectURI, connection.Scopes, provider.AuthHeader, skipScopeOnExchange)
+	returnURL, err := h.svc.ExchangeCodeForTokens(r.Context(), state, code, errorParam, errorDesc)
 	h.histogramExchangeDur.Observe(time.Since(start).Seconds())
+
 	if err != nil {
-		h.logAuditEvent(&connectionID, "token_exchange_failed", map[string]string{"error": err.Error()}, r)
-		h.updateConnectionStatus(connectionID, "failed")
+		h.logAuditEvent(nil, "token_exchange_failed", map[string]string{"error": err.Error()}, r)
 		h.metricExchangeError.Inc()
-		httputil.WriteError(w, http.StatusInternalServerError, "token_exchange_failed", "Token exchange failed")
+		httputil.WriteError(w, http.StatusInternalServerError, "token_exchange_failed", err.Error())
 		return
 	}
+
 	h.metricExchangeSuccess.Inc()
-	if _, ok := tokens["id_token"]; ok {
-		h.metricIDTokens.Inc()
-	}
+	h.logAuditEvent(nil, "oauth_flow_completed", map[string]string{}, r)
 
-	// Verify OIDC id_token if present and openid scope requested
-	if raw, ok := tokens["id_token"].(string); ok && raw != "" {
-		if containsScope(connection.Scopes, "openid") {
-			if _, err := oidcutil.VerifyIDToken(r.Context(), h.httpClient, raw, provider.ClientID.String, state); err != nil {
-				h.logAuditEvent(&connectionID, "id_token_verification_failed", map[string]string{"error": err.Error()}, r)
-				h.updateConnectionStatus(connectionID, "failed")
-				httputil.WriteError(w, http.StatusUnauthorized, "invalid_id_token", "Invalid id_token")
-				return
-			}
-		}
-	}
-
-	// Encrypt and store tokens
-	err = h.storeTokens(connectionID, tokens)
-	if err != nil {
-		h.logAuditEvent(&connectionID, "token_storage_failed", map[string]string{"error": err.Error()}, r)
-		httputil.WriteError(w, http.StatusInternalServerError, "token_store_failed", "Failed to store tokens")
-		return
-	}
-
-	// Update connection status
-	err = h.updateConnectionStatus(connectionID, "active")
-	if err != nil {
-		h.logAuditEvent(&connectionID, "status_update_failed", map[string]string{"error": err.Error()}, r)
-	}
-
-	// Log success
-	h.logAuditEvent(&connectionID, "oauth_flow_completed", map[string]string{"provider_id": connection.ProviderID}, r)
-
-	// Redirect to return URL with success
-	if !server.IsReturnURLAllowed(connection.ReturnURL, h.enforceReturnURL, h.allowedReturnDomains) {
-		httputil.WriteError(w, http.StatusBadRequest, "return_url_not_allowed", "return_url not allowed")
-		return
-	}
-
-	returnURL, err := url.Parse(connection.ReturnURL)
-	if err != nil {
-		h.logAuditEvent(&connectionID, "invalid_return_url", map[string]string{"error": err.Error(), "return_url": connection.ReturnURL}, r)
-		httputil.WriteError(w, http.StatusInternalServerError, "invalid_return_url", "Invalid return_url")
-		return
-	}
-	query := returnURL.Query()
-	query.Set("status", "success")
-	query.Set("connection_id", connectionID.String())
-	query.Set("provider", provider.Name)
-	returnURL.RawQuery = query.Encode()
-
-	http.Redirect(w, r, returnURL.String(), http.StatusFound)
+	http.Redirect(w, r, returnURL, http.StatusFound)
 }
 
 // GetCaptureSchema serves a JSON schema for the credential capture form.
 func (h *CallbackHandler) GetCaptureSchema(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 
-	// Verify state
-	stateData, err := auth.VerifyState(h.stateKey, state)
+	providerName, schema, err := h.svc.GetCaptureSchema(r.Context(), state)
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "invalid_state", "Invalid state")
-		return
-	}
-
-	providerID, err := uuid.Parse(stateData.ProviderID)
-	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "invalid_provider_id", "Invalid provider ID in state")
-		return
-	}
-
-	var provider struct {
-		Name   string           `db:"name"`
-		Params *json.RawMessage `db:"params"`
-	}
-
-	err = h.db.QueryRow("SELECT name, params FROM provider_profiles WHERE id = $1", providerID).Scan(&provider.Name, &provider.Params)
-	if err != nil {
-		httputil.WriteError(w, http.StatusNotFound, "provider_not_found", "Provider not found")
-		return
-	}
-
-	var params map[string]json.RawMessage
-	if provider.Params != nil {
-		if err := json.Unmarshal(*provider.Params, &params); err != nil {
-			httputil.WriteError(w, http.StatusInternalServerError, "params_parse_failed", "Failed to parse provider params")
-			return
-		}
-	}
-
-	schema, ok := params["credential_schema"]
-	if !ok {
-		httputil.WriteError(w, http.StatusNotFound, "schema_not_found", "Credential schema not found for this provider")
+		httputil.WriteError(w, http.StatusBadRequest, "schema_error", err.Error())
 		return
 	}
 
@@ -318,7 +133,7 @@ func (h *CallbackHandler) GetCaptureSchema(w http.ResponseWriter, r *http.Reques
 	}
 
 	response := SchemaResponse{
-		ProviderName: provider.Name,
+		ProviderName: providerName,
 		Schema:       schema,
 	}
 
@@ -336,129 +151,23 @@ func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Verify state
-	stateData, err := auth.VerifyState(h.stateKey, reqBody.State)
+	returnURL, err := h.svc.SaveCredential(r.Context(), reqBody.State, reqBody.Credentials)
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "invalid_state", "Invalid state")
+		httputil.WriteError(w, http.StatusInternalServerError, "credential_save_failed", err.Error())
 		return
 	}
 
-	connectionID, err := uuid.Parse(stateData.Nonce)
-	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "invalid_connection_id", "Invalid connection ID")
-		return
-	}
-
-	var returnURL string
-	err = h.db.QueryRow("SELECT return_url FROM connections WHERE id = $1", connectionID).Scan(&returnURL)
-	if err != nil {
-		httputil.WriteError(w, http.StatusNotFound, "connection_not_found", "Connection not found")
-		return
-	}
-
-	// Validate credentials against the provider before storing
-	var authType, authHeader, apiBaseURL, userInfoEndpoint string
-	err = h.db.QueryRow(`
-		SELECT pp.auth_type, COALESCE(pp.auth_header, ''), COALESCE(pp.api_base_url, ''), COALESCE(pp.user_info_endpoint, '')
-		FROM connections c
-		JOIN provider_profiles pp ON pp.id = c.provider_id
-		WHERE c.id = $1`, connectionID).Scan(&authType, &authHeader, &apiBaseURL, &userInfoEndpoint)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "provider_config_failed", "Failed to load provider config")
-		return
-	}
-
-	if userInfoEndpoint != "" && apiBaseURL != "" {
-		if err := validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint, reqBody.Credentials); err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "invalid_credentials", "Invalid credentials: "+err.Error())
-			return
-		}
-	}
-
-	err = h.storeTokens(connectionID, reqBody.Credentials)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "credential_store_failed", "Failed to store credentials")
-		return
-	}
-
-	if err := h.updateConnectionStatus(connectionID, "active"); err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "status_update_failed", "Failed to update connection status")
-		return
-	}
-
-	http.Redirect(w, r, returnURL+"?status=success&connection_id="+connectionID.String(), http.StatusFound)
-}
-
-// validateCredentials makes a test call to the provider's user_info_endpoint to verify the submitted credentials.
-func validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint string, credentials map[string]interface{}) error {
-	testURL := strings.TrimRight(apiBaseURL, "/") + "/" + strings.TrimLeft(userInfoEndpoint, "/")
-
-	req, err := http.NewRequest(http.MethodGet, testURL, nil)
-	if err != nil {
-		return fmt.Errorf("could not build validation request")
-	}
-
-	switch authType {
-	case "api_key":
-		apiKey, _ := credentials["api_key"].(string)
-		if apiKey == "" {
-			return fmt.Errorf("api_key credential is required")
-		}
-		headerName := authHeader
-		if headerName == "" {
-			headerName = "Authorization"
-		}
-		if strings.ToLower(headerName) == "authorization" {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-		} else {
-			req.Header.Set(headerName, apiKey)
-		}
-
-	case "basic_auth":
-		username, _ := credentials["username"].(string)
-		password, _ := credentials["password"].(string)
-		encoded := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
-		req.Header.Set("Authorization", "Basic "+encoded)
-
-	default:
-		// No validation possible for unknown auth types
-		return nil
-	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("could not reach provider to validate credentials")
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("credentials rejected by provider")
-	}
-
-	return nil
-}
-
-// containsScope returns true if target (case-insensitive) is present in scopes
-func containsScope(scopes []string, target string) bool {
-	t := strings.ToLower(strings.TrimSpace(target))
-	for _, s := range scopes {
-		if strings.ToLower(strings.TrimSpace(s)) == t {
-			return true
-		}
-	}
-	return false
+	http.Redirect(w, r, returnURL, http.StatusFound)
 }
 
 // GetToken handles GET /connections/{connection_id}/token
 func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
-	// Extract connection ID from URL path
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 3 {
 		httputil.WriteError(w, http.StatusBadRequest, "invalid_path", "Invalid path")
 		return
 	}
-	connectionIDStr := pathParts[len(pathParts)-2] // /connections/{id}/token
+	connectionIDStr := pathParts[len(pathParts)-2]
 
 	connectionID, err := uuid.Parse(connectionIDStr)
 	if err != nil {
@@ -467,234 +176,34 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if connection exists and is active, and fetch provider config
-	var connection struct {
-		Status     string           `db:"status"`
-		ProviderID string           `db:"provider_id"`
-		AuthType   string           `db:"auth_type"`
-		Params     *json.RawMessage `db:"params"`
-	}
-
-	err = h.db.QueryRow(`
-		SELECT c.status, c.provider_id, p.auth_type, p.params
-		FROM connections c
-		JOIN provider_profiles p ON c.provider_id = p.id
-		WHERE c.id = $1`, connectionID).Scan(&connection.Status, &connection.ProviderID, &connection.AuthType, &connection.Params)
-
+	response, err := h.svc.GetToken(r.Context(), connectionID)
 	if err != nil {
-		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "connection not found or db error", "id": connectionID.String()}, r)
-		httputil.WriteError(w, http.StatusNotFound, "connection_not_found", "Connection not found")
-		return
-	}
-
-	if connection.Status != "active" {
-		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "connection not active", "status": connection.Status}, r)
-
-		if connection.Status == "attention" {
+		if err.Error() == "attention_required" {
 			httputil.WriteJSON(w, http.StatusConflict, map[string]string{
 				"error":  "attention_required",
 				"detail": "Connection requires attention. The user must re-authenticate.",
 			})
 			return
 		}
-
-		httputil.WriteError(w, http.StatusForbidden, "connection_not_active", "Connection not active")
+		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": err.Error()}, r)
+		httputil.WriteError(w, http.StatusInternalServerError, "token_error", err.Error())
 		return
 	}
 
-	// Get the encrypted token
-	var token struct {
-		EncryptedData string     `db:"encrypted_data"`
-		ExpiresAt     *time.Time `db:"expires_at"`
-	}
-
-	err = h.db.QueryRow("SELECT encrypted_data, expires_at FROM tokens WHERE connection_id = $1", connectionID).Scan(&token.EncryptedData, &token.ExpiresAt)
-	if err != nil {
-		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "token not found"}, r)
-		httputil.WriteError(w, http.StatusNotFound, "token_not_found", "Token not found")
-		return
-	}
-
-	// Decrypt the token
-	decryptedData, err := vault.Decrypt(h.encryptionKey, token.EncryptedData)
-	if err != nil {
-		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "decryption failed"}, r)
-		httputil.WriteError(w, http.StatusInternalServerError, "decrypt_failed", "Failed to decrypt token")
-		return
-	}
-
-	// Parse the JSON token data (the credentials)
-	var credentials map[string]interface{}
-	if err := json.Unmarshal(decryptedData, &credentials); err != nil {
-		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": "invalid token format"}, r)
-		httputil.WriteError(w, http.StatusInternalServerError, "invalid_token_format", "Invalid token format")
-		return
-	}
-
-	// Add expiration info to credentials if available (for back-compat and ease of use)
-	if token.ExpiresAt != nil {
-		credentials["expires_at"] = token.ExpiresAt.Format(time.RFC3339)
-		credentials["expired"] = token.ExpiresAt.Before(time.Now())
-	}
-
-	// Construct the final response payload
-	response := make(map[string]interface{})
-
-	// 1. Determine Strategy
-	var strategy map[string]interface{}
-
-	if connection.AuthType == "oauth2" || connection.AuthType == "" {
-		strategy = map[string]interface{}{
-			"type": "oauth2",
-		}
-		// For backward compatibility: flatten credentials into the root for OAuth2
-		for k, v := range credentials {
-			response[k] = v
-		}
-	} else {
-		// Generic Provider: Look for auth_strategy in params
-		foundStrategy := false
-		if connection.Params != nil {
-			var paramsMap map[string]interface{}
-			if err := json.Unmarshal(*connection.Params, &paramsMap); err == nil {
-				if s, ok := paramsMap["auth_strategy"].(map[string]interface{}); ok {
-					strategy = s
-					foundStrategy = true
-				}
-			}
-		}
-		// Fallback if not explicitly defined but we know the high-level type
-		if !foundStrategy {
-			// Map high-level broker auth_types to default bridge strategies if possible
-			// This is a "best effort" mapping if the explicit config is missing
-			switch connection.AuthType {
-			case "api_key":
-				strategy = map[string]interface{}{"type": "header", "config": map[string]string{"header_name": "X-API-Key", "credential_field": "api_key"}}
-			case "basic_auth":
-				strategy = map[string]interface{}{"type": "basic_auth"}
-			default:
-				strategy = map[string]interface{}{"type": connection.AuthType} // Hope for the best
-			}
-		}
-	}
-
-	response["strategy"] = strategy
-	response["credentials"] = credentials
-
-	// Log successful retrieval
-	h.logAuditEvent(&connectionID, "token_retrieved", map[string]string{}, r)
-
-	// Emit metric for token retrieval
 	hasID := "false"
-	if _, ok := credentials["id_token"]; ok {
-		hasID = "true"
+	if creds, ok := response["credentials"].(map[string]interface{}); ok {
+		if _, ok := creds["id_token"]; ok {
+			hasID = "true"
+		}
 	}
-	h.metricTokenGet.WithLabelValues(connection.ProviderID, hasID).Inc()
+	h.metricTokenGet.WithLabelValues("unknown", hasID).Inc()
 
+	h.logAuditEvent(&connectionID, "token_retrieved", map[string]string{}, r)
 	httputil.WriteJSON(w, http.StatusOK, response)
-}
-
-// exchangeCodeForTokens exchanges authorization code for access tokens
-func (h *CallbackHandler) exchangeCodeForTokens(tokenURL, clientID, clientSecret, code, codeVerifier, redirectURI string, scopes []string, authHeader string, skipScopeOnExchange bool) (map[string]interface{}, error) {
-	data := url.Values{}
-	data.Set("grant_type", "authorization_code")
-	data.Set("code", code)
-	if codeVerifier != "" {
-		data.Set("code_verifier", codeVerifier)
-	}
-	data.Set("redirect_uri", redirectURI)
-
-	// Determine auth method based on authHeader configuration
-	// Default to "client_secret_post" (sending in body) if not specified or explicitly set
-	useBasicAuth := false
-	if strings.EqualFold(authHeader, "client_secret_basic") || strings.EqualFold(authHeader, "Basic") {
-		useBasicAuth = true
-	} else {
-		// Default: Send credentials in body
-		if clientID != "" {
-			data.Set("client_id", clientID)
-		}
-		if clientSecret != "" {
-			data.Set("client_secret", clientSecret)
-		}
-	}
-
-	// Some providers (e.g., Microsoft identity platform v2) require scope on token exchange.
-	// Others (e.g., Salesforce) reject it. Use skip_scope_on_exchange to control this.
-	if len(scopes) > 0 && !skipScopeOnExchange {
-		data.Set("scope", strings.Join(scopes, " "))
-	}
-
-	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(data.Encode()))
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	// Essential for providers like GitHub that return XML by default
-	req.Header.Set("Accept", "application/json")
-
-	if useBasicAuth {
-		req.SetBasicAuth(clientID, clientSecret)
-	}
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("token exchange failed: %s", string(body))
-	}
-
-	var tokens map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
-		return nil, err
-	}
-
-	return tokens, nil
-}
-
-// refreshTokens refreshes using a refresh_token
-func (h *CallbackHandler) refreshTokens(tokenURL, clientID, clientSecret, refreshToken string) (map[string]interface{}, int, error) {
-	data := url.Values{}
-	data.Set("grant_type", "refresh_token")
-	data.Set("refresh_token", refreshToken)
-	data.Set("client_id", clientID)
-	data.Set("client_secret", clientSecret)
-
-	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(data.Encode()))
-	if err != nil {
-		return nil, 0, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json") // Ensure JSON response
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, resp.StatusCode, fmt.Errorf("token refresh failed: %s", string(body))
-	}
-
-	var tokens map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
-		return nil, resp.StatusCode, err
-	}
-	return tokens, resp.StatusCode, nil
 }
 
 // Refresh handles POST /connections/{connection_id}/refresh
 func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
-	// Extract connection ID
 	parts := strings.Split(r.URL.Path, "/")
 	if len(parts) < 3 {
 		httputil.WriteError(w, http.StatusBadRequest, "invalid_path", "Invalid path")
@@ -707,130 +216,21 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var conn struct {
-		ProviderID string `db:"provider_id"`
-		AuthType   string `db:"auth_type"`
-	}
-	err = h.db.QueryRow(`
-		SELECT c.provider_id, p.auth_type 
-		FROM connections c
-		JOIN provider_profiles p ON c.provider_id = p.id
-		WHERE c.id=$1 AND c.status='active'`, connectionID).Scan(&conn.ProviderID, &conn.AuthType)
-
+	res, err := h.svc.Refresh(r.Context(), connectionID)
 	if err != nil {
-		httputil.WriteError(w, http.StatusNotFound, "connection_not_found", "Connection not active or not found")
+		if res != nil && res.StatusCode >= 400 && res.StatusCode < 500 {
+			h.logAuditEvent(&connectionID, "token_refresh_fatal", map[string]string{"error": err.Error(), "status_code": fmt.Sprintf("%d", res.StatusCode)}, r)
+			httputil.WriteJSON(w, http.StatusConflict, map[string]string{
+				"error":  "attention_required",
+				"detail": "The connection credentials are invalid or expired and cannot be refreshed. User re-consent is required.",
+			})
+			return
+		}
+		httputil.WriteError(w, http.StatusBadGateway, "upstream_error", err.Error())
 		return
 	}
 
-	// Check the auth type right away
-	switch conn.AuthType {
-	case "api_key", "basic_auth":
-		// Static tokens cannot be refreshed.
-		httputil.WriteError(w, http.StatusBadRequest, "static_token", "This connection uses a static token and cannot be refreshed")
-		return // Stop execution here
-	case "oauth2", "":
-		// This is an OAuth2 provider, continue with the *existing* refresh logic
-		var provider struct {
-			TokenURL     sql.NullString `db:"token_url"`
-			ClientID     sql.NullString `db:"client_id"`
-			ClientSecret sql.NullString `db:"client_secret"`
-		}
-		err = h.db.QueryRow("SELECT token_url, client_id, client_secret FROM provider_profiles WHERE id=$1", conn.ProviderID).Scan(&provider.TokenURL, &provider.ClientID, &provider.ClientSecret)
-		if err != nil {
-			httputil.WriteError(w, http.StatusInternalServerError, "provider_not_found", "Provider not found")
-			return
-		}
-		var tokenRow struct {
-			EncryptedData string `db:"encrypted_data"`
-		}
-		err = h.db.QueryRow("SELECT encrypted_data FROM tokens WHERE connection_id=$1", connectionID).Scan(&tokenRow.EncryptedData)
-		if err != nil {
-			httputil.WriteError(w, http.StatusNotFound, "token_not_found", "Token not found")
-			return
-		}
-		plaintext, err := vault.Decrypt(h.encryptionKey, tokenRow.EncryptedData)
-		if err != nil {
-			httputil.WriteError(w, http.StatusInternalServerError, "decrypt_failed", "Decrypt failed")
-			return
-		}
-		var current map[string]interface{}
-		if err := json.Unmarshal(plaintext, &current); err != nil {
-			httputil.WriteError(w, http.StatusInternalServerError, "token_parse_failed", "Token parse failed")
-			return
-		}
-		refreshToken, _ := current["refresh_token"].(string)
-		if refreshToken == "" {
-			httputil.WriteError(w, http.StatusBadRequest, "no_refresh_token", "No refresh_token available")
-			return
-		}
-		// Refresh
-		newTokens, statusCode, err := h.refreshTokens(provider.TokenURL.String, provider.ClientID.String, provider.ClientSecret.String, refreshToken)
-		if err != nil {
-			// Check for unrecoverable errors (400-499 usually implies invalid_grant, revoked, or expired)
-			if statusCode >= 400 && statusCode < 500 {
-				h.logAuditEvent(&connectionID, "token_refresh_fatal", map[string]string{"error": err.Error(), "status_code": fmt.Sprintf("%d", statusCode)}, r)
-				h.updateConnectionStatus(connectionID, "attention")
-
-				httputil.WriteJSON(w, http.StatusConflict, map[string]string{
-					"error":  "attention_required",
-					"detail": "The connection credentials are invalid or expired and cannot be refreshed. User re-consent is required.",
-				})
-				return
-			}
-
-			// For 5xx or network errors, we don't change state, just fail the request (Agent will retry)
-			httputil.WriteError(w, http.StatusBadGateway, "upstream_error", err.Error())
-			return
-		}
-		// Store new tokens
-		if err := h.storeTokens(connectionID, newTokens); err != nil {
-			httputil.WriteError(w, http.StatusInternalServerError, "token_store_failed", "Store refreshed token failed")
-			return
-		}
-		httputil.WriteJSON(w, http.StatusOK, newTokens)
-	default:
-		httputil.WriteError(w, http.StatusInternalServerError, "unsupported_auth_type", "Unsupported provider auth_type")
-		return
-	}
-}
-
-// storeTokens encrypts and upserts a single token row per connection.
-// Uses INSERT ... ON CONFLICT to atomically replace any previous token,
-// preventing unbounded row accumulation (issue #25).
-func (h *CallbackHandler) storeTokens(connectionID uuid.UUID, tokens map[string]interface{}) error {
-	tokenJSON, err := json.Marshal(tokens)
-	if err != nil {
-		return err
-	}
-
-	encryptedData, err := vault.Encrypt(h.encryptionKey, tokenJSON)
-	if err != nil {
-		return err
-	}
-
-	var expiresAt *time.Time
-	if expiresIn, ok := tokens["expires_in"].(float64); ok {
-		expiry := time.Now().Add(time.Duration(expiresIn) * time.Second)
-		expiresAt = &expiry
-	}
-
-	_, err = h.db.Exec(`
-		INSERT INTO tokens (connection_id, encrypted_data, expires_at)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (connection_id)
-		DO UPDATE SET
-			encrypted_data = EXCLUDED.encrypted_data,
-			expires_at     = EXCLUDED.expires_at,
-			created_at     = NOW()`,
-		connectionID, encryptedData, expiresAt)
-
-	return err
-}
-
-// updateConnectionStatus updates the connection status
-func (h *CallbackHandler) updateConnectionStatus(connectionID uuid.UUID, status string) error {
-	_, err := h.db.Exec("UPDATE connections SET status = $1, updated_at = NOW() WHERE id = $2", status, connectionID)
-	return err
+	httputil.WriteJSON(w, http.StatusOK, res.Tokens)
 }
 
 // logAuditEvent logs an audit event
@@ -839,7 +239,6 @@ func (h *CallbackHandler) logAuditEvent(connectionID *uuid.UUID, eventType strin
 		return
 	}
 
-	// Convert map[string]string to map[string]interface{} for the audit service
 	auditData := make(map[string]interface{})
 	for k, v := range data {
 		auditData[k] = v
@@ -848,15 +247,4 @@ func (h *CallbackHandler) logAuditEvent(connectionID *uuid.UUID, eventType strin
 	if err := h.audit.Log(eventType, connectionID, auditData, r); err != nil {
 		log.Printf("audit: failed to log %s (connection_id=%v): %v", eventType, connectionID, err)
 	}
-}
-
-// handleError handles OAuth errors
-func (h *CallbackHandler) handleError(w http.ResponseWriter, r *http.Request, errorType, description string) {
-	// Log the error
-	h.logAuditEvent(nil, "oauth_error", map[string]string{
-		"error":       errorType,
-		"description": description,
-	}, r)
-
-	httputil.WriteError(w, http.StatusBadRequest, "oauth_error", fmt.Sprintf("OAuth error: %s - %s", errorType, description))
 }
