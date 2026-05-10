@@ -75,7 +75,10 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 		}
 	}
 
-	tokenJSON, _ := json.Marshal(credentials)
+	tokenJSON, err := json.Marshal(credentials)
+	if err != nil {
+		return "", ErrInternalWithErr(err, "credential_marshal_failed", "Failed to serialize credentials")
+	}
 	encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
 	if err != nil {
 		return "", ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt credentials")
@@ -95,7 +98,7 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 
 	returnURL, err := url.Parse(conn.ReturnURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid return_url")
+		return "", ErrInternalWithErr(err, "invalid_return_url", "Invalid return URL stored in connection")
 	}
 
 	query := returnURL.Query()
@@ -166,7 +169,10 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 			return &RefreshResponse{StatusCode: statusCode}, fmt.Errorf("refresh failed: %w", err)
 		}
 
-		tokenJSON, _ := json.Marshal(newTokens)
+		tokenJSON, err := json.Marshal(newTokens)
+		if err != nil {
+			return nil, ErrInternalWithErr(err, "token_marshal_failed", "Failed to serialize refreshed tokens")
+		}
 		encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
 		if err != nil {
 			return nil, ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt refreshed tokens")

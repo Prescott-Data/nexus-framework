@@ -288,7 +288,10 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 		}
 	}
 
-	tokenJSON, _ := json.Marshal(tokens)
+	tokenJSON, err := json.Marshal(tokens)
+	if err != nil {
+		return "", false, ErrInternalWithErr(err, "token_marshal_failed", "Failed to serialize token response")
+	}
 	encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
 	if err != nil {
 		return "", false, ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt tokens")

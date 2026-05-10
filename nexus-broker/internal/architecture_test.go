@@ -56,6 +56,22 @@ func TestSeparationOfConcerns(t *testing.T) {
 			},
 			Description: "HTTP Handlers must not bypass the Service layer to talk directly to Repositories.",
 		},
+		{
+			Package: "pkg/provider",
+			ShouldNot: []string{
+				modulePrefix + "/pkg/handlers",
+				modulePrefix + "/internal/service",
+			},
+			Description: "The Provider store infrastructure must not depend on HTTP handlers or business logic.",
+		},
+		{
+			Package: "pkg/telemetry",
+			ShouldNot: []string{
+				modulePrefix + "/pkg/handlers",
+				modulePrefix + "/internal/service",
+			},
+			Description: "Telemetry collectors must be independent of HTTP handlers and business logic.",
+		},
 	}
 
 	basePath := ".." // We are inside internal, so .. is the broker root
