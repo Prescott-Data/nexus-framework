@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus Broker API
-  version: 0.2.1
+  version: 0.3.0
   description: |
     Internal API for the Nexus Broker service. 
     This service handles OAuth 2.0 and OIDC flows, encrypts tokens, and manages provider configurations.
@@ -316,6 +316,60 @@ paths:
       responses:
         '302':
           description: Redirects to the stored return_url with connection_id
+
+  /auth/capture-schema:
+    get:
+      summary: Get credential capture schema for API-key providers
+      description: Returns a JSON Schema for the credential capture form. Used by frontends for api_key/basic_auth providers.
+      parameters:
+        - in: query
+          name: state
+          required: true
+          schema: { type: string }
+          description: Signed HMAC state token from the consent spec
+      responses:
+        '200':
+          description: Credential capture schema
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider_name: { type: string }
+                  schema:
+                    type: object
+                    description: JSON Schema for the credential form fields
+        '400':
+          description: Invalid or expired state
+        '404':
+          description: Provider not found or no schema configured
+
+  /auth/capture-credential:
+    post:
+      summary: Submit captured credentials for API-key providers
+      description: Encrypts and stores the submitted credentials, then redirects to the return_url.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state, credentials]
+              properties:
+                state:
+                  type: string
+                  description: Signed HMAC state token
+                credentials:
+                  type: object
+                  description: Key-value credential map (e.g. {"api_key": "..."})
+                  additionalProperties: true
+      responses:
+        '302':
+          description: Redirects to the return_url with status=success
+        '400':
+          description: Invalid state or credentials rejected by provider
+        '404':
+          description: Connection not found
 
   /connections/{connectionID}/token:
     get:
