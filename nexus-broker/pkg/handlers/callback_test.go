@@ -24,7 +24,7 @@ func TestHandleCallback_Success(t *testing.T) {
 	})
 
 	mockSvc.On("ExchangeCodeForTokens", mock.Anything, "test-state", "test-code", "", "").
-		Return("http://localhost/return?status=success", nil)
+		Return("http://localhost/return?status=success", true, nil)
 
 	req, _ := http.NewRequest("GET", "/auth/callback?state=test-state&code=test-code", nil)
 	rr := httptest.NewRecorder()
@@ -43,7 +43,7 @@ func TestHandleCallback_Error(t *testing.T) {
 	})
 
 	mockSvc.On("ExchangeCodeForTokens", mock.Anything, "test-state", "test-code", "", "").
-		Return("", errors.New("exchange failed"))
+		Return("", false, errors.New("exchange failed"))
 
 	req, _ := http.NewRequest("GET", "/auth/callback?state=test-state&code=test-code", nil)
 	rr := httptest.NewRecorder()

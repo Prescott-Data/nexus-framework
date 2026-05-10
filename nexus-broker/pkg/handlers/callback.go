@@ -118,7 +118,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	returnURL, err := h.svc.ExchangeCodeForTokens(r.Context(), state, code, errorParam, errorDesc)
+	returnURL, hasIDToken, err := h.svc.ExchangeCodeForTokens(r.Context(), state, code, errorParam, errorDesc)
 	h.histogramExchangeDur.Observe(time.Since(start).Seconds())
 
 	if err != nil {
@@ -126,6 +126,10 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		h.metricExchangeError.Inc()
 		writeServiceError(w, err)
 		return
+	}
+
+	if hasIDToken {
+		h.metricIDTokens.Inc()
 	}
 
 	h.metricExchangeSuccess.Inc()

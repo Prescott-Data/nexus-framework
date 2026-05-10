@@ -552,7 +552,7 @@ func TestConnectionService_Refresh_OAuth2_Success(t *testing.T) {
 func TestConnectionService_ExchangeCodeForTokens_InvalidState(t *testing.T) {
 	_, _, _, svc := setupTestService(t)
 
-	_, err := svc.ExchangeCodeForTokens(context.Background(), "bad-state", "some-code", "", "")
+	_, _, err := svc.ExchangeCodeForTokens(context.Background(), "bad-state", "some-code", "", "")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid state")
@@ -614,7 +614,7 @@ func TestConnectionService_ExchangeCodeForTokens_Success(t *testing.T) {
 	// Mock status update
 	connRepo.On("UpdateStatus", mock.Anything, connID, "active").Return(nil)
 
-	returnURL, err := svc.ExchangeCodeForTokens(context.Background(), signedState, "auth-code-xyz", "", "")
+	returnURL, _, err := svc.ExchangeCodeForTokens(context.Background(), signedState, "auth-code-xyz", "", "")
 
 	assert.NoError(t, err)
 	assert.Contains(t, returnURL, "http://app.example.com/done")

@@ -27,9 +27,9 @@ func (m *MockConnectionService) CreateConsentSpec(ctx context.Context, req servi
 	return nil, args.Error(1)
 }
 
-func (m *MockConnectionService) ExchangeCodeForTokens(ctx context.Context, state, code, errorParam, errorDesc string) (string, error) {
+func (m *MockConnectionService) ExchangeCodeForTokens(ctx context.Context, state, code, errorParam, errorDesc string) (string, bool, error) {
 	args := m.Called(ctx, state, code, errorParam, errorDesc)
-	return args.String(0), args.Error(1)
+	return args.String(0), args.Bool(1), args.Error(2)
 }
 
 func (m *MockConnectionService) GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, error) {
