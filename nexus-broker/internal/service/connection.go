@@ -271,7 +271,7 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 		clientSecret = *p.ClientSecret
 	}
 
-	tokens, err := s.executeExchange(useTokenURL, clientID, clientSecret, code, conn.CodeVerifier.String, redirectURI, conn.Scopes, p.AuthHeader, skipScopeOnExchange)
+	tokens, err := s.executeExchange(ctx, useTokenURL, clientID, clientSecret, code, conn.CodeVerifier.String, redirectURI, conn.Scopes, p.AuthHeader, skipScopeOnExchange)
 	if err != nil {
 		s.connRepo.UpdateStatus(ctx, connID, "failed")
 		return "", false, ErrInternalWithErr(err, "token_exchange_failed", "Token exchange failed")
@@ -465,7 +465,7 @@ func (s *connectionService) buildAuthURL(providerAuthURL, clientID, state, codeC
 	return u.String(), nil
 }
 
-func (s *connectionService) executeExchange(tokenURL, clientID, clientSecret, code, codeVerifier, redirectURI string, scopes []string, authHeader string, skipScopeOnExchange bool) (map[string]interface{}, error) {
+func (s *connectionService) executeExchange(ctx context.Context, tokenURL, clientID, clientSecret, code, codeVerifier, redirectURI string, scopes []string, authHeader string, skipScopeOnExchange bool) (map[string]interface{}, error) {
 	data := url.Values{}
 	data.Set("grant_type", "authorization_code")
 	data.Set("code", code)
@@ -490,7 +490,7 @@ func (s *connectionService) executeExchange(tokenURL, clientID, clientSecret, co
 		data.Set("scope", strings.Join(scopes, " "))
 	}
 
-	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(data.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, err
 	}

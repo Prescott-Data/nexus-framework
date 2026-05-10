@@ -70,7 +70,7 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 	}
 
 	if conn.UserInfoEndpoint != "" && conn.APIBaseURL != "" {
-		if err := s.validateCredentials(conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, credentials); err != nil {
+		if err := s.validateCredentials(ctx, conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, credentials); err != nil {
 			return "", ErrBadRequestWithErr(err, "invalid_credentials", "Invalid credentials")
 		}
 	}
@@ -161,7 +161,7 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 			clientSecret = *p.ClientSecret
 		}
 
-		newTokens, statusCode, err := s.refreshTokens(tokenURL, clientID, clientSecret, refreshToken)
+		newTokens, statusCode, err := s.refreshTokens(ctx, tokenURL, clientID, clientSecret, refreshToken)
 		if err != nil {
 			if statusCode >= 400 && statusCode < 500 {
 				s.connRepo.UpdateStatus(ctx, connectionID, "attention")
@@ -200,10 +200,10 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 	}
 }
 
-func (s *connectionService) validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint string, credentials map[string]interface{}) error {
+func (s *connectionService) validateCredentials(ctx context.Context, authType, authHeader, apiBaseURL, userInfoEndpoint string, credentials map[string]interface{}) error {
 	testURL := strings.TrimRight(apiBaseURL, "/") + "/" + strings.TrimLeft(userInfoEndpoint, "/")
 
-	req, err := http.NewRequest(http.MethodGet, testURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
 	if err != nil {
 		return fmt.Errorf("could not build validation request")
 	}
@@ -247,14 +247,14 @@ func (s *connectionService) validateCredentials(authType, authHeader, apiBaseURL
 	return nil
 }
 
-func (s *connectionService) refreshTokens(tokenURL, clientID, clientSecret, refreshToken string) (map[string]interface{}, int, error) {
+func (s *connectionService) refreshTokens(ctx context.Context, tokenURL, clientID, clientSecret, refreshToken string) (map[string]interface{}, int, error) {
 	data := url.Values{}
 	data.Set("grant_type", "refresh_token")
 	data.Set("refresh_token", refreshToken)
 	data.Set("client_id", clientID)
 	data.Set("client_secret", clientSecret)
 
-	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(data.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, 0, err
 	}
