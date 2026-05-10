@@ -23,6 +23,7 @@ type Connection struct {
 // ConnectionWithProvider joins connection and basic provider info
 type ConnectionWithProvider struct {
 	Connection
+	ProviderName     string
 	AuthType         string
 	AuthHeader       string
 	APIBaseURL       string

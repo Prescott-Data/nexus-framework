@@ -58,6 +58,14 @@ func (m *MockConnectionRepository) UpdateStatus(ctx context.Context, id uuid.UUI
 	return args.Error(0)
 }
 
+func (m *MockConnectionRepository) CountByStatus(ctx context.Context) (map[string]int64, error) {
+	args := m.Called(ctx)
+	if args.Get(0) != nil {
+		return args.Get(0).(map[string]int64), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 // MockTokenRepository is a mock of repository.TokenRepository
 type MockTokenRepository struct {
 	mock.Mock
@@ -272,7 +280,7 @@ func TestConnectionService_GetToken_Active(t *testing.T) {
 	connRepo.On("GetWithProvider", mock.Anything, connID).Return(connWithProv, nil)
 	tokenRepo.On("Get", mock.Anything, connID).Return(token, nil)
 
-	resp, err := svc.GetToken(context.Background(), connID)
+	resp, _, err := svc.GetToken(context.Background(), connID)
 
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
@@ -301,7 +309,7 @@ func TestConnectionService_GetToken_NotActive(t *testing.T) {
 
 	connRepo.On("GetWithProvider", mock.Anything, connID).Return(connWithProv, nil)
 
-	resp, err := svc.GetToken(context.Background(), connID)
+	resp, _, err := svc.GetToken(context.Background(), connID)
 
 	assert.Error(t, err)
 	assert.Nil(t, resp)

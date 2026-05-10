@@ -44,12 +44,12 @@ func (r *connectionRepository) GetWithProvider(ctx context.Context, id uuid.UUID
 	var conn domain.ConnectionWithProvider
 	err := r.db.QueryRowContext(ctx, `
 		SELECT c.id, c.provider_id, c.status, c.scopes, c.return_url,
-		       p.auth_type, COALESCE(p.auth_header, ''), COALESCE(p.api_base_url, ''), COALESCE(p.user_info_endpoint, ''), p.params
+		       p.name, p.auth_type, COALESCE(p.auth_header, ''), COALESCE(p.api_base_url, ''), COALESCE(p.user_info_endpoint, ''), p.params
 		FROM connections c
 		JOIN provider_profiles p ON p.id = c.provider_id
 		WHERE c.id = $1`, id).
 		Scan(&conn.ID, &conn.ProviderID, &conn.Status, pq.Array(&conn.Scopes), &conn.ReturnURL,
-			&conn.AuthType, &conn.AuthHeader, &conn.APIBaseURL, &conn.UserInfoEndpoint, &conn.ProviderParams)
+			&conn.ProviderName, &conn.AuthType, &conn.AuthHeader, &conn.APIBaseURL, &conn.UserInfoEndpoint, &conn.ProviderParams)
 	if err != nil {
 		return nil, err
 	}
@@ -65,4 +65,23 @@ func (r *connectionRepository) GetReturnURL(ctx context.Context, id uuid.UUID) (
 func (r *connectionRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
 	_, err := r.db.ExecContext(ctx, "UPDATE connections SET status = $1, updated_at = NOW() WHERE id = $2", status, id)
 	return err
+}
+
+func (r *connectionRepository) CountByStatus(ctx context.Context) (map[string]int64, error) {
+	rows, err := r.db.QueryContext(ctx, "SELECT status, COUNT(*) FROM connections GROUP BY status")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int64)
+	for rows.Next() {
+		var status string
+		var count int64
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, err
+		}
+		counts[status] = count
+	}
+	return counts, rows.Err()
 }

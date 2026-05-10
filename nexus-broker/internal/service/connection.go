@@ -26,7 +26,7 @@ import (
 type ConnectionService interface {
 	CreateConsentSpec(ctx context.Context, req CreateConsentRequest) (*ConsentSpecResponse, error)
 	ExchangeCodeForTokens(ctx context.Context, state, code, errorParam, errorDesc string) (string, bool, error)
-	GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, error)
+	GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, string, error)
 	GetCaptureSchema(ctx context.Context, state string) (string, json.RawMessage, error)
 	SaveCredential(ctx context.Context, state string, credentials map[string]interface{}) (string, error)
 	Refresh(ctx context.Context, connectionID uuid.UUID) (*RefreshResponse, error)
@@ -331,32 +331,32 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	return returnURL.String(), hasIDToken, nil
 }
 
-func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, error) {
+func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, string, error) {
 	conn, err := s.connRepo.GetWithProvider(ctx, connectionID)
 	if err != nil {
-		return nil, ErrNotFoundWithErr(err, "connection_not_found", "Connection not found")
+		return nil, "", ErrNotFoundWithErr(err, "connection_not_found", "Connection not found")
 	}
 
 	if conn.Status != "active" {
 		if conn.Status == "attention" {
-			return nil, ErrConflict("attention_required", "Connection requires attention. The user must re-authenticate.")
+			return nil, "", ErrConflict("attention_required", "Connection requires attention. The user must re-authenticate.")
 		}
-		return nil, ErrBadRequest("connection_not_active", "Connection not active")
+		return nil, "", ErrBadRequest("connection_not_active", "Connection not active")
 	}
 
 	token, err := s.tokenRepo.Get(ctx, connectionID)
 	if err != nil {
-		return nil, ErrNotFoundWithErr(err, "token_not_found", "Token not found")
+		return nil, "", ErrNotFoundWithErr(err, "token_not_found", "Token not found")
 	}
 
 	decryptedData, err := vault.Decrypt(s.encryptionKey, token.EncryptedData)
 	if err != nil {
-		return nil, ErrInternalWithErr(err, "decrypt_failed", "Failed to decrypt token")
+		return nil, "", ErrInternalWithErr(err, "decrypt_failed", "Failed to decrypt token")
 	}
 
 	var credentials map[string]interface{}
 	if err := json.Unmarshal(decryptedData, &credentials); err != nil {
-		return nil, ErrInternalWithErr(err, "invalid_token_format", "Invalid token format")
+		return nil, "", ErrInternalWithErr(err, "invalid_token_format", "Invalid token format")
 	}
 
 	if token.ExpiresAt != nil {
@@ -400,7 +400,7 @@ func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID
 	response["strategy"] = strategy
 	response["credentials"] = credentials
 
-	return response, nil
+	return response, conn.ProviderName, nil
 }
 
 // Helpers

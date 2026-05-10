@@ -85,8 +85,8 @@ func TestSOC2_CC61_EncryptionAtRest(t *testing.T) {
 	// Mock connection validation query
 	mock.ExpectQuery("SELECT c.id, c.provider_id").
 		WithArgs(connID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "provider_id", "status", "scopes", "return_url", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params"}).
-			AddRow(connID.String(), providerID.String(), "active", "{}", "http://localhost/return", "api_key", "", "", "", nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "provider_id", "status", "scopes", "return_url", "name", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params"}).
+			AddRow(connID.String(), providerID.String(), "active", "{}", "http://localhost/return", "TestProvider", "api_key", "", "", "", nil))
 
 	// EXPLICIT SOC2 PROOF: We capture the exact value being inserted into the database.
 	// We assert that the plain text credential "super-secret-api-key" NEVER appears in the SQL statement.

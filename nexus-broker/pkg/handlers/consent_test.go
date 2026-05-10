@@ -32,12 +32,12 @@ func (m *MockConnectionService) ExchangeCodeForTokens(ctx context.Context, state
 	return args.String(0), args.Bool(1), args.Error(2)
 }
 
-func (m *MockConnectionService) GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, error) {
+func (m *MockConnectionService) GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, string, error) {
 	args := m.Called(ctx, connectionID)
 	if args.Get(0) != nil {
-		return args.Get(0).(map[string]interface{}), args.Error(1)
+		return args.Get(0).(map[string]interface{}), args.String(1), args.Error(2)
 	}
-	return nil, args.Error(1)
+	return nil, args.String(1), args.Error(2)
 }
 
 func (m *MockConnectionService) GetCaptureSchema(ctx context.Context, state string) (string, json.RawMessage, error) {

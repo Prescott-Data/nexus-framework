@@ -66,7 +66,7 @@ func TestGetToken_Success(t *testing.T) {
 		"strategy":    map[string]interface{}{"type": "oauth2"},
 	}
 
-	mockSvc.On("GetToken", mock.Anything, connID).Return(expectedToken, nil)
+	mockSvc.On("GetToken", mock.Anything, connID).Return(expectedToken, "TestProvider", nil)
 
 	req, _ := http.NewRequest("GET", "/connections/"+connID.String()+"/token", nil)
 	
