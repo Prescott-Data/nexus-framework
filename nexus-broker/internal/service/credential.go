@@ -25,29 +25,29 @@ type RefreshResponse struct {
 func (s *connectionService) GetCaptureSchema(ctx context.Context, state string) (string, json.RawMessage, error) {
 	stateData, err := auth.VerifyState(s.stateKey, state)
 	if err != nil {
-		return "", nil, fmt.Errorf("invalid state: %w", err)
+		return "", nil, ErrBadRequestWithErr(err, "invalid_state", "Invalid state")
 	}
 
 	providerID, err := uuid.Parse(stateData.ProviderID)
 	if err != nil {
-		return "", nil, fmt.Errorf("invalid provider ID in state: %w", err)
+		return "", nil, ErrBadRequestWithErr(err, "invalid_provider_id", "Invalid provider ID in state")
 	}
 
 	p, err := s.providerStore.GetProfile(providerID)
 	if err != nil {
-		return "", nil, fmt.Errorf("provider not found: %w", err)
+		return "", nil, ErrNotFoundWithErr(err, "provider_not_found", "Provider not found")
 	}
 
 	var params map[string]json.RawMessage
 	if p.Params != nil {
 		if err := json.Unmarshal(*p.Params, &params); err != nil {
-			return "", nil, fmt.Errorf("failed to parse provider params: %w", err)
+			return "", nil, ErrInternalWithErr(err, "invalid_params", "Failed to parse provider params")
 		}
 	}
 
 	schema, ok := params["credential_schema"]
 	if !ok {
-		return "", nil, fmt.Errorf("credential schema not found for this provider")
+		return "", nil, ErrNotFound("schema_not_found", "Credential schema not found for this provider")
 	}
 
 	return p.Name, schema, nil
@@ -56,29 +56,32 @@ func (s *connectionService) GetCaptureSchema(ctx context.Context, state string) 
 func (s *connectionService) SaveCredential(ctx context.Context, state string, credentials map[string]interface{}) (string, error) {
 	stateData, err := auth.VerifyState(s.stateKey, state)
 	if err != nil {
-		return "", fmt.Errorf("invalid state: %w", err)
+		return "", ErrBadRequestWithErr(err, "invalid_state", "Invalid state")
 	}
 
 	connID, err := uuid.Parse(stateData.Nonce)
 	if err != nil {
-		return "", fmt.Errorf("invalid connection ID in state: %w", err)
+		return "", ErrBadRequestWithErr(err, "invalid_connection_id", "Invalid connection ID in state")
 	}
 
 	conn, err := s.connRepo.GetWithProvider(ctx, connID)
 	if err != nil {
-		return "", fmt.Errorf("connection not found: %w", err)
+		return "", ErrNotFoundWithErr(err, "connection_not_found", "Connection not found")
 	}
 
 	if conn.UserInfoEndpoint != "" && conn.APIBaseURL != "" {
-		if err := validateCredentials(conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, credentials); err != nil {
-			return "", fmt.Errorf("invalid credentials: %w", err)
+		if err := s.validateCredentials(ctx, conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, credentials); err != nil {
+			return "", ErrBadRequestWithErr(err, "invalid_credentials", "Invalid credentials")
 		}
 	}
 
-	tokenJSON, _ := json.Marshal(credentials)
+	tokenJSON, err := json.Marshal(credentials)
+	if err != nil {
+		return "", ErrInternalWithErr(err, "credential_marshal_failed", "Failed to serialize credentials")
+	}
 	encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
 	if err != nil {
-		return "", fmt.Errorf("failed to encrypt credentials: %w", err)
+		return "", ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt credentials")
 	}
 
 	err = s.tokenRepo.Upsert(ctx, &domain.Token{
@@ -86,16 +89,16 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 		EncryptedData: encryptedData,
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to store credentials: %w", err)
+		return "", ErrInternalWithErr(err, "credential_store_failed", "Failed to store credentials")
 	}
 
 	if err := s.connRepo.UpdateStatus(ctx, connID, "active"); err != nil {
-		return "", fmt.Errorf("failed to update status: %w", err)
+		return "", ErrInternalWithErr(err, "status_update_failed", "Failed to update status")
 	}
 
 	returnURL, err := url.Parse(conn.ReturnURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid return_url")
+		return "", ErrInternalWithErr(err, "invalid_return_url", "Invalid return URL stored in connection")
 	}
 
 	query := returnURL.Query()
@@ -109,40 +112,40 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID) (*RefreshResponse, error) {
 	conn, err := s.connRepo.GetWithProvider(ctx, connectionID)
 	if err != nil {
-		return nil, fmt.Errorf("connection not active or not found: %w", err)
+		return nil, ErrNotFoundWithErr(err, "connection_not_found", "Connection not active or not found")
 	}
 
 	if conn.Status != "active" {
-		return nil, fmt.Errorf("connection not active")
+		return nil, ErrBadRequest("connection_not_active", "Connection not active")
 	}
 
 	switch conn.AuthType {
 	case "api_key", "basic_auth":
-		return nil, fmt.Errorf("static_token")
+		return nil, ErrBadRequest("static_token", "Static credentials cannot be refreshed")
 	case "oauth2", "":
 		p, err := s.providerStore.GetProfile(conn.ProviderID)
 		if err != nil {
-			return nil, fmt.Errorf("provider not found: %w", err)
+			return nil, ErrNotFoundWithErr(err, "provider_not_found", "Provider not found")
 		}
 
 		token, err := s.tokenRepo.Get(ctx, connectionID)
 		if err != nil {
-			return nil, fmt.Errorf("token not found: %w", err)
+			return nil, ErrNotFoundWithErr(err, "token_not_found", "Token not found")
 		}
 
 		plaintext, err := vault.Decrypt(s.encryptionKey, token.EncryptedData)
 		if err != nil {
-			return nil, fmt.Errorf("decrypt failed: %w", err)
+			return nil, ErrInternalWithErr(err, "decrypt_failed", "Failed to decrypt token")
 		}
 
 		var current map[string]interface{}
 		if err := json.Unmarshal(plaintext, &current); err != nil {
-			return nil, fmt.Errorf("token parse failed: %w", err)
+			return nil, ErrInternalWithErr(err, "token_parse_failed", "Failed to parse token")
 		}
 
 		refreshToken, _ := current["refresh_token"].(string)
 		if refreshToken == "" {
-			return nil, fmt.Errorf("no_refresh_token")
+			return nil, ErrBadRequest("no_refresh_token", "No refresh token available")
 		}
 
 		tokenURL := ""
@@ -158,7 +161,7 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 			clientSecret = *p.ClientSecret
 		}
 
-		newTokens, statusCode, err := refreshTokens(tokenURL, clientID, clientSecret, refreshToken)
+		newTokens, statusCode, err := s.refreshTokens(ctx, tokenURL, clientID, clientSecret, refreshToken)
 		if err != nil {
 			if statusCode >= 400 && statusCode < 500 {
 				s.connRepo.UpdateStatus(ctx, connectionID, "attention")
@@ -166,10 +169,13 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 			return &RefreshResponse{StatusCode: statusCode}, fmt.Errorf("refresh failed: %w", err)
 		}
 
-		tokenJSON, _ := json.Marshal(newTokens)
+		tokenJSON, err := json.Marshal(newTokens)
+		if err != nil {
+			return nil, ErrInternalWithErr(err, "token_marshal_failed", "Failed to serialize refreshed tokens")
+		}
 		encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
 		if err != nil {
-			return nil, fmt.Errorf("failed to encrypt refreshed tokens: %w", err)
+			return nil, ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt refreshed tokens")
 		}
 
 		var expiresAt *time.Time
@@ -184,20 +190,20 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 			ExpiresAt:     expiresAt,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("store refreshed token failed: %w", err)
+			return nil, ErrInternalWithErr(err, "token_store_failed", "Failed to store refreshed token")
 		}
 
 		return &RefreshResponse{Tokens: newTokens, StatusCode: http.StatusOK}, nil
 
 	default:
-		return nil, fmt.Errorf("unsupported_auth_type")
+		return nil, ErrBadRequest("unsupported_auth_type", "Unsupported auth type")
 	}
 }
 
-func validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint string, credentials map[string]interface{}) error {
+func (s *connectionService) validateCredentials(ctx context.Context, authType, authHeader, apiBaseURL, userInfoEndpoint string, credentials map[string]interface{}) error {
 	testURL := strings.TrimRight(apiBaseURL, "/") + "/" + strings.TrimLeft(userInfoEndpoint, "/")
 
-	req, err := http.NewRequest(http.MethodGet, testURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
 	if err != nil {
 		return fmt.Errorf("could not build validation request")
 	}
@@ -228,8 +234,7 @@ func validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint stri
 		return nil
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("could not reach provider to validate credentials")
 	}
@@ -242,22 +247,21 @@ func validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint stri
 	return nil
 }
 
-func refreshTokens(tokenURL, clientID, clientSecret, refreshToken string) (map[string]interface{}, int, error) {
+func (s *connectionService) refreshTokens(ctx context.Context, tokenURL, clientID, clientSecret, refreshToken string) (map[string]interface{}, int, error) {
 	data := url.Values{}
 	data.Set("grant_type", "refresh_token")
 	data.Set("refresh_token", refreshToken)
 	data.Set("client_id", clientID)
 	data.Set("client_secret", clientSecret)
 
-	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(data.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}

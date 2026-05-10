@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository/instrumented"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository/postgres"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/service"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/caching"
@@ -14,6 +15,7 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/handlers"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/server"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/telemetry"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-redis/redis/v8"
 	"github.com/jmoiron/sqlx"
@@ -65,8 +67,8 @@ func main() {
 
 	providersHandler := handlers.NewProvidersHandler(store, auditSvc)
 
-	connRepo := postgres.NewConnectionRepository(db)
-	tokenRepo := postgres.NewTokenRepository(db)
+	connRepo := instrumented.NewConnectionRepository(postgres.NewConnectionRepository(db))
+	tokenRepo := instrumented.NewTokenRepository(postgres.NewTokenRepository(db))
 
 	connSvc := service.NewConnectionService(
 		connRepo,
@@ -122,6 +124,9 @@ func main() {
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	defer cleanupCancel()
 	go handlers.StartOrphanTokenCleanup(cleanupCtx, db, 1*time.Hour)
+
+	// Start connection health gauge (polls every 30s)
+	telemetry.NewConnectionGaugeCollector(connRepo, 30*time.Second)
 
 	log.Printf("Starting OAuth Broker server on port %s", cfg.Port)
 	log.Printf("Version: %s", Version)

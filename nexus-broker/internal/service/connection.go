@@ -25,8 +25,8 @@ import (
 
 type ConnectionService interface {
 	CreateConsentSpec(ctx context.Context, req CreateConsentRequest) (*ConsentSpecResponse, error)
-	ExchangeCodeForTokens(ctx context.Context, state, code, errorParam, errorDesc string) (string, error)
-	GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, error)
+	ExchangeCodeForTokens(ctx context.Context, state, code, errorParam, errorDesc string) (string, bool, error)
+	GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, string, error)
 	GetCaptureSchema(ctx context.Context, state string) (string, json.RawMessage, error)
 	SaveCredential(ctx context.Context, state string, credentials map[string]interface{}) (string, error)
 	Refresh(ctx context.Context, connectionID uuid.UUID) (*RefreshResponse, error)
@@ -36,7 +36,7 @@ type connectionService struct {
 	connRepo             repository.ConnectionRepository
 	tokenRepo            repository.TokenRepository
 	providerStore        provider.ProfileStorer
-	audit                *audit.Service
+	audit                audit.Logger
 	baseURL              string
 	redirectPath         string
 	encryptionKey        []byte
@@ -64,7 +64,7 @@ func NewConnectionService(
 	connRepo repository.ConnectionRepository,
 	tokenRepo repository.TokenRepository,
 	providerStore provider.ProfileStorer,
-	auditService *audit.Service,
+	auditService audit.Logger,
 	baseURL, redirectPath string,
 	encryptionKey, stateKey []byte,
 	httpClient *http.Client,
@@ -88,28 +88,28 @@ func NewConnectionService(
 
 func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateConsentRequest) (*ConsentSpecResponse, error) {
 	if req.WorkspaceID == "" || req.ProviderID == "" || req.ReturnURL == "" {
-		return nil, fmt.Errorf("missing required fields")
+		return nil, ErrBadRequest("missing_fields", "Missing required fields")
 	}
 
 	if !server.IsReturnURLAllowed(req.ReturnURL, s.enforceReturnURL, s.allowedReturnDomains) {
-		return nil, fmt.Errorf("return_url not allowed")
+		return nil, ErrBadRequest("return_url_not_allowed", "return_url not allowed")
 	}
 
 	providerID, err := uuid.Parse(req.ProviderID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid provider ID")
+		return nil, ErrBadRequest("invalid_provider_id", "Invalid provider ID")
 	}
 
 	p, err := s.providerStore.GetProfile(providerID)
 	if err != nil {
-		return nil, fmt.Errorf("provider not found: %w", err)
+		return nil, ErrNotFoundWithErr(err, "provider_not_found", "Provider not found")
 	}
 
 	switch p.AuthType {
 	case "oauth2", "":
 		codeVerifier, codeChallenge, err := auth.GeneratePKCE()
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate PKCE: %w", err)
+			return nil, ErrInternalWithErr(err, "pkce_failed", "Failed to generate PKCE")
 		}
 
 		connID := uuid.New()
@@ -124,7 +124,7 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 		}
 
 		if err := s.connRepo.Create(ctx, conn); err != nil {
-			return nil, fmt.Errorf("failed to create connection: %w", err)
+			return nil, ErrInternalWithErr(err, "connection_create_failed", "Failed to create connection")
 		}
 
 		stateData := auth.StateData{
@@ -135,7 +135,7 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 		}
 		signedState, err := auth.SignState(s.stateKey, stateData)
 		if err != nil {
-			return nil, fmt.Errorf("failed to sign state: %w", err)
+			return nil, ErrInternalWithErr(err, "state_sign_failed", "Failed to sign state")
 		}
 
 		useAuthURL := ""
@@ -163,7 +163,7 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 
 		authURL, err := s.buildAuthURL(useAuthURL, clientID, signedState, codeChallenge, req.Scopes, p.Params)
 		if err != nil {
-			return nil, fmt.Errorf("failed to build auth URL: %w", err)
+			return nil, ErrInternalWithErr(err, "auth_url_failed", "Failed to build auth URL")
 		}
 
 		return &ConsentSpecResponse{
@@ -185,7 +185,7 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 		}
 
 		if err := s.connRepo.Create(ctx, conn); err != nil {
-			return nil, fmt.Errorf("failed to create connection: %w", err)
+			return nil, ErrInternalWithErr(err, "connection_create_failed", "Failed to create connection")
 		}
 
 		stateData := auth.StateData{
@@ -196,12 +196,11 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 		}
 		signedState, err := auth.SignState(s.stateKey, stateData)
 		if err != nil {
-			return nil, fmt.Errorf("failed to sign state: %w", err)
+			return nil, ErrInternalWithErr(err, "state_sign_failed", "Failed to sign state")
 		}
 
-		brokerBaseURL := strings.TrimSuffix(s.baseURL, "")
-		capturePath := "/auth/capture-schema"
-		u, _ := url.Parse(brokerBaseURL + capturePath)
+		captureURL, _ := url.JoinPath(s.baseURL, "/auth/capture-schema")
+		u, _ := url.Parse(captureURL)
 		q := u.Query()
 		q.Set("state", signedState)
 		u.RawQuery = q.Encode()
@@ -214,37 +213,36 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 		}, nil
 
 	default:
-		return nil, fmt.Errorf("unsupported provider auth_type")
+		return nil, ErrBadRequest("unsupported_auth_type", "Unsupported provider auth_type")
 	}
 }
 
-func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, code, errorParam, errorDesc string) (string, error) {
+func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, code, errorParam, errorDesc string) (string, bool, error) {
 	if errorParam != "" {
-		return "", fmt.Errorf("oauth error: %s - %s", errorParam, errorDesc)
+		return "", false, fmt.Errorf("oauth error: %s - %s", errorParam, errorDesc)
 	}
 
 	stateData, err := auth.VerifyState(s.stateKey, state)
 	if err != nil {
-		return "", fmt.Errorf("invalid state: %w", err)
+		return "", false, ErrBadRequestWithErr(err, "invalid_state", "Invalid state")
 	}
 
 	connID, err := uuid.Parse(stateData.Nonce)
 	if err != nil {
-		return "", fmt.Errorf("invalid connection ID in state")
+		return "", false, ErrBadRequest("invalid_connection_id", "Invalid connection ID in state")
 	}
 
 	conn, err := s.connRepo.GetPending(ctx, connID)
 	if err != nil {
-		return "", fmt.Errorf("connection not found or expired")
+		return "", false, ErrNotFoundWithErr(err, "connection_not_found", "Connection not found or expired")
 	}
 
 	p, err := s.providerStore.GetProfile(conn.ProviderID)
 	if err != nil {
-		return "", fmt.Errorf("provider not found")
+		return "", false, ErrInternalWithErr(err, "provider_not_found", "Provider not found")
 	}
 
-	base := strings.TrimSuffix(s.baseURL, "/")
-	redirectURI := base + s.redirectPath
+	redirectURI, _ := url.JoinPath(s.baseURL, s.redirectPath)
 
 	skipScopeOnExchange := false
 	if p.Params != nil {
@@ -260,7 +258,7 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	if p.TokenURL != nil {
 		useTokenURL = *p.TokenURL
 	}
-	if md, errD := discovery.Discover(ctx, s.httpClient, discovery.Hint{AuthURL: useTokenURL}); errD == nil && strings.TrimSpace(md.AuthorizationEndpoint) != "" {
+	if md, errD := discovery.Discover(ctx, s.httpClient, discovery.Hint{AuthURL: useTokenURL}); errD == nil && strings.TrimSpace(md.TokenEndpoint) != "" {
 		useTokenURL = md.TokenEndpoint
 	}
 
@@ -273,25 +271,30 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 		clientSecret = *p.ClientSecret
 	}
 
-	tokens, err := s.executeExchange(useTokenURL, clientID, clientSecret, code, conn.CodeVerifier.String, redirectURI, conn.Scopes, p.AuthHeader, skipScopeOnExchange)
+	tokens, err := s.executeExchange(ctx, useTokenURL, clientID, clientSecret, code, conn.CodeVerifier.String, redirectURI, conn.Scopes, p.AuthHeader, skipScopeOnExchange)
 	if err != nil {
 		s.connRepo.UpdateStatus(ctx, connID, "failed")
-		return "", fmt.Errorf("token exchange failed: %w", err)
+		return "", false, ErrInternalWithErr(err, "token_exchange_failed", "Token exchange failed")
 	}
 
+	hasIDToken := false
 	if raw, ok := tokens["id_token"].(string); ok && raw != "" {
+		hasIDToken = true
 		if containsScope(conn.Scopes, "openid") {
 			if _, err := oidcutil.VerifyIDToken(ctx, s.httpClient, raw, clientID, state); err != nil {
 				s.connRepo.UpdateStatus(ctx, connID, "failed")
-				return "", fmt.Errorf("invalid id_token")
+				return "", false, ErrBadRequest("invalid_id_token", "Invalid id_token")
 			}
 		}
 	}
 
-	tokenJSON, _ := json.Marshal(tokens)
+	tokenJSON, err := json.Marshal(tokens)
+	if err != nil {
+		return "", false, ErrInternalWithErr(err, "token_marshal_failed", "Failed to serialize token response")
+	}
 	encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
 	if err != nil {
-		return "", fmt.Errorf("failed to encrypt tokens: %w", err)
+		return "", false, ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt tokens")
 	}
 
 	var expiresAt *time.Time
@@ -306,18 +309,18 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 		ExpiresAt:     expiresAt,
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to store tokens: %w", err)
+		return "", false, ErrInternalWithErr(err, "token_store_failed", "Failed to store tokens")
 	}
 
 	s.connRepo.UpdateStatus(ctx, connID, "active")
 
 	if !server.IsReturnURLAllowed(conn.ReturnURL, s.enforceReturnURL, s.allowedReturnDomains) {
-		return "", fmt.Errorf("return_url not allowed")
+		return "", false, ErrBadRequest("return_url_not_allowed", "return_url not allowed")
 	}
 
 	returnURL, err := url.Parse(conn.ReturnURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid return_url")
+		return "", false, fmt.Errorf("invalid return_url")
 	}
 
 	query := returnURL.Query()
@@ -326,35 +329,35 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	query.Set("provider", p.Name)
 	returnURL.RawQuery = query.Encode()
 
-	return returnURL.String(), nil
+	return returnURL.String(), hasIDToken, nil
 }
 
-func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, error) {
+func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, string, error) {
 	conn, err := s.connRepo.GetWithProvider(ctx, connectionID)
 	if err != nil {
-		return nil, fmt.Errorf("connection not found")
+		return nil, "", ErrNotFoundWithErr(err, "connection_not_found", "Connection not found")
 	}
 
 	if conn.Status != "active" {
 		if conn.Status == "attention" {
-			return nil, fmt.Errorf("attention_required")
+			return nil, "", ErrConflict("attention_required", "Connection requires attention. The user must re-authenticate.")
 		}
-		return nil, fmt.Errorf("connection not active")
+		return nil, "", ErrBadRequest("connection_not_active", "Connection not active")
 	}
 
 	token, err := s.tokenRepo.Get(ctx, connectionID)
 	if err != nil {
-		return nil, fmt.Errorf("token not found")
+		return nil, "", ErrNotFoundWithErr(err, "token_not_found", "Token not found")
 	}
 
 	decryptedData, err := vault.Decrypt(s.encryptionKey, token.EncryptedData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt token")
+		return nil, "", ErrInternalWithErr(err, "decrypt_failed", "Failed to decrypt token")
 	}
 
 	var credentials map[string]interface{}
 	if err := json.Unmarshal(decryptedData, &credentials); err != nil {
-		return nil, fmt.Errorf("invalid token format")
+		return nil, "", ErrInternalWithErr(err, "invalid_token_format", "Invalid token format")
 	}
 
 	if token.ExpiresAt != nil {
@@ -398,14 +401,13 @@ func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID
 	response["strategy"] = strategy
 	response["credentials"] = credentials
 
-	return response, nil
+	return response, conn.ProviderName, nil
 }
 
 // Helpers
 
 func (s *connectionService) buildAuthURL(providerAuthURL, clientID, state, codeChallenge string, scopes []string, providerParams *json.RawMessage) (string, error) {
-	baseURL := strings.TrimSuffix(s.baseURL, "/")
-	redirectPath := s.redirectPath
+	redirectURI, _ := url.JoinPath(s.baseURL, s.redirectPath)
 
 	if providerAuthURL == "" {
 		return "", fmt.Errorf("provider auth_url is required for OAuth2")
@@ -428,7 +430,7 @@ func (s *connectionService) buildAuthURL(providerAuthURL, clientID, state, codeC
 
 	q := u.Query()
 	q.Set("client_id", clientID)
-	q.Set("redirect_uri", baseURL+redirectPath)
+	q.Set("redirect_uri", redirectURI)
 	q.Set("response_type", "code")
 
 	if !skipScopeOnAuth {
@@ -463,7 +465,7 @@ func (s *connectionService) buildAuthURL(providerAuthURL, clientID, state, codeC
 	return u.String(), nil
 }
 
-func (s *connectionService) executeExchange(tokenURL, clientID, clientSecret, code, codeVerifier, redirectURI string, scopes []string, authHeader string, skipScopeOnExchange bool) (map[string]interface{}, error) {
+func (s *connectionService) executeExchange(ctx context.Context, tokenURL, clientID, clientSecret, code, codeVerifier, redirectURI string, scopes []string, authHeader string, skipScopeOnExchange bool) (map[string]interface{}, error) {
 	data := url.Values{}
 	data.Set("grant_type", "authorization_code")
 	data.Set("code", code)
@@ -488,7 +490,7 @@ func (s *connectionService) executeExchange(tokenURL, clientID, clientSecret, co
 		data.Set("scope", strings.Join(scopes, " "))
 	}
 
-	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(data.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, err
 	}
@@ -500,8 +502,7 @@ func (s *connectionService) executeExchange(tokenURL, clientID, clientSecret, co
 		req.SetBasicAuth(clientID, clientSecret)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

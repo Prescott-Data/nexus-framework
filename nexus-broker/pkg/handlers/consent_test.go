@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -28,17 +27,17 @@ func (m *MockConnectionService) CreateConsentSpec(ctx context.Context, req servi
 	return nil, args.Error(1)
 }
 
-func (m *MockConnectionService) ExchangeCodeForTokens(ctx context.Context, state, code, errorParam, errorDesc string) (string, error) {
+func (m *MockConnectionService) ExchangeCodeForTokens(ctx context.Context, state, code, errorParam, errorDesc string) (string, bool, error) {
 	args := m.Called(ctx, state, code, errorParam, errorDesc)
-	return args.String(0), args.Error(1)
+	return args.String(0), args.Bool(1), args.Error(2)
 }
 
-func (m *MockConnectionService) GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, error) {
+func (m *MockConnectionService) GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, string, error) {
 	args := m.Called(ctx, connectionID)
 	if args.Get(0) != nil {
-		return args.Get(0).(map[string]interface{}), args.Error(1)
+		return args.Get(0).(map[string]interface{}), args.String(1), args.Error(2)
 	}
-	return nil, args.Error(1)
+	return nil, args.String(1), args.Error(2)
 }
 
 func (m *MockConnectionService) GetCaptureSchema(ctx context.Context, state string) (string, json.RawMessage, error) {
@@ -107,7 +106,7 @@ func TestGetSpec_ServiceError(t *testing.T) {
 		ReturnURL:   "http://localhost/return",
 	}
 
-	mockSvc.On("CreateConsentSpec", mock.Anything, reqBody).Return((*service.ConsentSpecResponse)(nil), errors.New("provider not found"))
+	mockSvc.On("CreateConsentSpec", mock.Anything, reqBody).Return((*service.ConsentSpecResponse)(nil), service.ErrNotFound("provider_not_found", "Provider not found"))
 
 	jsonBody, _ := json.Marshal(reqBody)
 	req, _ := http.NewRequest("POST", "/auth/consent-spec", bytes.NewReader(jsonBody))
@@ -115,6 +114,6 @@ func TestGetSpec_ServiceError(t *testing.T) {
 
 	handler.GetSpec(rr, req)
 
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Equal(t, http.StatusNotFound, rr.Code)
 	mockSvc.AssertExpectations(t)
 }

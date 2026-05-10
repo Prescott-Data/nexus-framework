@@ -14,6 +14,7 @@ type ConnectionRepository interface {
 	GetWithProvider(ctx context.Context, id uuid.UUID) (*domain.ConnectionWithProvider, error)
 	GetReturnURL(ctx context.Context, id uuid.UUID) (string, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	CountByStatus(ctx context.Context) (map[string]int64, error)
 }
 
 // TokenRepository handles database operations for tokens

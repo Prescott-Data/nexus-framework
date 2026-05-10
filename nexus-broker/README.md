@@ -208,13 +208,38 @@ curl -X POST -H "X-API-Key: $API_KEY" \
 
 ## Metrics and Logging
 
-Prometheus at `/metrics`:
-- `oauth_consents_created_total`
-- `oauth_consents_with_openid_total`
-- `oauth_token_exchanges_total{status=success|error}`
-- `oauth_exchange_duration_seconds`
-- `oauth_id_tokens_returned_total`
-- `oauth_token_get_total{provider,has_id_token}`
+Prometheus at `/metrics`. All metrics are registered on startup.
+
+#### Token Flows
+| Metric | Type | Labels | Description |
+|:---|:---|:---|:---|
+| `oauth_consents_created_total` | Counter | — | Consent specs issued |
+| `oauth_consents_with_openid_total` | Counter | — | Consents requesting OpenID scope |
+| `oauth_token_exchanges_total` | Counter | `status={success,error}` | Code-for-token exchanges |
+| `oauth_exchange_duration_seconds` | Histogram | — | Duration of token exchange |
+| `oauth_id_tokens_returned_total` | Counter | — | Exchanges that returned an `id_token` |
+| `oauth_token_refreshes_total` | Counter | `status={success,error}` | On-demand refresh attempts |
+| `oauth_refresh_duration_seconds` | Histogram | — | Duration of token refresh |
+| `oauth_credential_captures_total` | Counter | `status={success,error}` | API-key credential captures (SaveCredential) |
+
+#### Token Retrieval
+| Metric | Type | Labels | Description |
+|:---|:---|:---|:---|
+| `oauth_token_get_total` | Counter | `provider`, `has_id_token` | Token retrievals by provider |
+
+#### OIDC Infrastructure
+| Metric | Type | Labels | Description |
+|:---|:---|:---|:---|
+| `oidc_verifications_total` | Counter | `result={success,error}` | ID token verifications |
+| `oidc_verification_duration_seconds` | Histogram | — | ID token verification latency |
+| `oidc_discovery_total` | Counter | `result={success,error}` | OIDC discovery attempts |
+| `oidc_discovery_duration_seconds` | Histogram | — | OIDC discovery latency |
+
+#### System Health
+| Metric | Type | Labels | Description |
+|:---|:---|:---|:---|
+| `nexus_connections_total` | Gauge | `status` | Live count of connections by status (polled every 30s) |
+| `nexus_db_operation_duration_seconds` | Histogram | `operation` | Repository-level DB operation latency |
 
 Access logs are structured; audit events are recorded in `audit_events`.
 
@@ -231,7 +256,7 @@ Access logs are structured; audit events are recorded in `audit_events`.
 
 See `docs/SECURITY.md` for detailed guardrails and operations.
 
-OIDC hardening (id_token verification via JWKS, nonce, discovery) is deferred. See `docs/TECH_DEBT.md`.
+OIDC hardening (id_token verification via JWKS, nonce, discovery) is fully implemented. See `pkg/oidc` for the validator and `pkg/discovery` for provider discovery.
 
 ---
 
@@ -270,11 +295,4 @@ go build -o nexus-broker ./cmd/nexus-broker
 ## See also
 - `docs/PROVIDERS.md` – registry and templates for supported providers
 - `docs/TECH_DEBT.md` – OIDC hardening plan and acceptance criteria
-
-Touching to test pipeline
-
-<!-- trigger build Mon Jan 26 11:07:00 EAT 2026 -->
-<!-- trigger build Tue Jan 27 12:39:45 EAT 2026 env update -->
-
-Triggering broker build
 

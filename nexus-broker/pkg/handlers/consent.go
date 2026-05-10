@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -60,13 +61,13 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 
 	response, err := h.svc.CreateConsentSpec(r.Context(), request)
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "consent_spec_failed", err.Error())
+		writeServiceError(w, err)
 		return
 	}
 
 	h.consentsMetric.Inc()
 	for _, s := range request.Scopes {
-		if s == "openid" {
+		if strings.EqualFold(s, "openid") {
 			h.consentsOpenID.Inc()
 			break
 		}

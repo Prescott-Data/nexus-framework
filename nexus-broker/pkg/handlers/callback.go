@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -25,6 +26,11 @@ type CallbackHandler struct {
 	histogramExchangeDur  prometheus.Histogram
 	metricIDTokens        prometheus.Counter
 	metricTokenGet        *prometheus.CounterVec
+	metricRefreshSuccess  prometheus.Counter
+	metricRefreshError    prometheus.Counter
+	histogramRefreshDur   prometheus.Histogram
+	metricCaptureSuccess  prometheus.Counter
+	metricCaptureError    prometheus.Counter
 }
 
 // CallbackHandlerConfig holds the dependencies for CallbackHandler
@@ -59,7 +65,38 @@ func NewCallbackHandler(cfg CallbackHandlerConfig) *CallbackHandler {
 		Help: "Token retrievals by provider and whether id_token present",
 	}, []string{"provider", "has_id_token"})
 
-	collectors := []prometheus.Collector{success, failure, hist, idTokens, tokenGet}
+	refreshSuccess := prometheus.NewCounter(prometheus.CounterOpts{
+		Name:        "oauth_token_refreshes_total",
+		Help:        "Total OAuth token refreshes",
+		ConstLabels: prometheus.Labels{"status": "success"},
+	})
+	refreshFailure := prometheus.NewCounter(prometheus.CounterOpts{
+		Name:        "oauth_token_refreshes_total",
+		Help:        "Total OAuth token refreshes",
+		ConstLabels: prometheus.Labels{"status": "error"},
+	})
+	refreshHist := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "oauth_refresh_duration_seconds",
+		Help:    "Duration of token refresh requests",
+		Buckets: prometheus.DefBuckets,
+	})
+
+	captureSuccess := prometheus.NewCounter(prometheus.CounterOpts{
+		Name:        "oauth_credential_captures_total",
+		Help:        "Total credential captures (API key / static token)",
+		ConstLabels: prometheus.Labels{"status": "success"},
+	})
+	captureFailure := prometheus.NewCounter(prometheus.CounterOpts{
+		Name:        "oauth_credential_captures_total",
+		Help:        "Total credential captures (API key / static token)",
+		ConstLabels: prometheus.Labels{"status": "error"},
+	})
+
+	collectors := []prometheus.Collector{
+		success, failure, hist, idTokens, tokenGet,
+		refreshSuccess, refreshFailure, refreshHist,
+		captureSuccess, captureFailure,
+	}
 	for _, c := range collectors {
 		if err := prometheus.Register(c); err != nil {
 			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
@@ -76,6 +113,27 @@ func NewCallbackHandler(cfg CallbackHandlerConfig) *CallbackHandler {
 		histogramExchangeDur:  hist,
 		metricIDTokens:        idTokens,
 		metricTokenGet:        tokenGet,
+		metricRefreshSuccess:  refreshSuccess,
+		metricRefreshError:    refreshFailure,
+		histogramRefreshDur:   refreshHist,
+		metricCaptureSuccess:  captureSuccess,
+		metricCaptureError:    captureFailure,
+	}
+}
+
+// writeServiceError unwraps a ServiceError from the service layer and writes
+// the correct HTTP status code and machine-readable error code. Falls back
+// to 500 for unexpected error types.
+func writeServiceError(w http.ResponseWriter, err error) {
+	var svcErr *service.ServiceError
+	if errors.As(err, &svcErr) {
+		if svcErr.HTTPStatus >= 500 {
+			log.Printf("[ERROR] %d %s: %v (cause: %v)", svcErr.HTTPStatus, svcErr.Code, svcErr.Message, svcErr.Err)
+		}
+		httputil.WriteError(w, svcErr.HTTPStatus, svcErr.Code, svcErr.Message)
+	} else {
+		log.Printf("[ERROR] 500 internal_error: unexpected error: %v", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
 	}
 }
 
@@ -101,14 +159,18 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	returnURL, err := h.svc.ExchangeCodeForTokens(r.Context(), state, code, errorParam, errorDesc)
+	returnURL, hasIDToken, err := h.svc.ExchangeCodeForTokens(r.Context(), state, code, errorParam, errorDesc)
 	h.histogramExchangeDur.Observe(time.Since(start).Seconds())
 
 	if err != nil {
 		h.logAuditEvent(nil, "token_exchange_failed", map[string]string{"error": err.Error()}, r)
 		h.metricExchangeError.Inc()
-		httputil.WriteError(w, http.StatusInternalServerError, "token_exchange_failed", err.Error())
+		writeServiceError(w, err)
 		return
+	}
+
+	if hasIDToken {
+		h.metricIDTokens.Inc()
 	}
 
 	h.metricExchangeSuccess.Inc()
@@ -123,7 +185,7 @@ func (h *CallbackHandler) GetCaptureSchema(w http.ResponseWriter, r *http.Reques
 
 	providerName, schema, err := h.svc.GetCaptureSchema(r.Context(), state)
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "schema_error", err.Error())
+		writeServiceError(w, err)
 		return
 	}
 
@@ -153,10 +215,12 @@ func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 
 	returnURL, err := h.svc.SaveCredential(r.Context(), reqBody.State, reqBody.Credentials)
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "credential_save_failed", err.Error())
+		h.metricCaptureError.Inc()
+		writeServiceError(w, err)
 		return
 	}
 
+	h.metricCaptureSuccess.Inc()
 	http.Redirect(w, r, returnURL, http.StatusFound)
 }
 
@@ -176,17 +240,18 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := h.svc.GetToken(r.Context(), connectionID)
+	response, providerName, err := h.svc.GetToken(r.Context(), connectionID)
 	if err != nil {
-		if err.Error() == "attention_required" {
+		var svcErr *service.ServiceError
+		if errors.As(err, &svcErr) && svcErr.Code == "attention_required" {
 			httputil.WriteJSON(w, http.StatusConflict, map[string]string{
 				"error":  "attention_required",
-				"detail": "Connection requires attention. The user must re-authenticate.",
+				"detail": svcErr.Message,
 			})
 			return
 		}
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": err.Error()}, r)
-		httputil.WriteError(w, http.StatusInternalServerError, "token_error", err.Error())
+		writeServiceError(w, err)
 		return
 	}
 
@@ -196,7 +261,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 			hasID = "true"
 		}
 	}
-	h.metricTokenGet.WithLabelValues("unknown", hasID).Inc()
+	h.metricTokenGet.WithLabelValues(providerName, hasID).Inc()
 
 	h.logAuditEvent(&connectionID, "token_retrieved", map[string]string{}, r)
 	httputil.WriteJSON(w, http.StatusOK, response)
@@ -216,8 +281,12 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	start := time.Now()
 	res, err := h.svc.Refresh(r.Context(), connectionID)
+	h.histogramRefreshDur.Observe(time.Since(start).Seconds())
+
 	if err != nil {
+		h.metricRefreshError.Inc()
 		if res != nil && res.StatusCode >= 400 && res.StatusCode < 500 {
 			h.logAuditEvent(&connectionID, "token_refresh_fatal", map[string]string{"error": err.Error(), "status_code": fmt.Sprintf("%d", res.StatusCode)}, r)
 			httputil.WriteJSON(w, http.StatusConflict, map[string]string{
@@ -230,6 +299,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.metricRefreshSuccess.Inc()
 	httputil.WriteJSON(w, http.StatusOK, res.Tokens)
 }
 
