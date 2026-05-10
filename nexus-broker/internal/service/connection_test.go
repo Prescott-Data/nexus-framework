@@ -2,8 +2,11 @@ package service_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/service"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
 )
@@ -303,4 +307,312 @@ func TestConnectionService_GetToken_NotActive(t *testing.T) {
 	assert.Equal(t, "connection not active", err.Error())
 
 	connRepo.AssertExpectations(t)
+}
+
+// --- setupTestServiceWithHTTPClient creates a service with a custom HTTP client (for mock servers) ---
+
+func setupTestServiceWithHTTPClient(t *testing.T, httpClient *http.Client) (*MockConnectionRepository, *MockTokenRepository, *MockProfileStorer, service.ConnectionService, []byte) {
+	connRepo := new(MockConnectionRepository)
+	tokenRepo := new(MockTokenRepository)
+	providerStore := new(MockProfileStorer)
+
+	encryptionKey := []byte("12345678901234567890123456789012")
+	stateKey := []byte("12345678901234567890123456789012")
+
+	svc := service.NewConnectionService(
+		connRepo,
+		tokenRepo,
+		providerStore,
+		nil,
+		"http://localhost:8080",
+		"/auth/callback",
+		encryptionKey,
+		stateKey,
+		httpClient,
+		false,
+		[]string{},
+	)
+
+	return connRepo, tokenRepo, providerStore, svc, stateKey
+}
+
+// =============================================================================
+// SaveCredential Tests
+// =============================================================================
+
+func TestConnectionService_SaveCredential(t *testing.T) {
+	connRepo, tokenRepo, _, svc, stateKey := setupTestServiceWithHTTPClient(t, http.DefaultClient)
+
+	connID := uuid.New()
+	providerID := uuid.New()
+
+	// Sign a valid state
+	stateData := auth.StateData{
+		WorkspaceID: "ws-test",
+		ProviderID:  providerID.String(),
+		Nonce:       connID.String(),
+		IAT:         time.Now(),
+	}
+	signedState, err := auth.SignState(stateKey, stateData)
+	assert.NoError(t, err)
+
+	// Mock: GetWithProvider returns a connection with NO userInfoEndpoint (skip validation)
+	connWithProv := &domain.ConnectionWithProvider{
+		Connection: domain.Connection{
+			ID:         connID,
+			ProviderID: providerID,
+			Status:     "pending",
+			ReturnURL:  "http://app.example.com/callback",
+		},
+		AuthType:         "api_key",
+		APIBaseURL:       "",
+		UserInfoEndpoint: "",
+	}
+	connRepo.On("GetWithProvider", mock.Anything, connID).Return(connWithProv, nil)
+	tokenRepo.On("Upsert", mock.Anything, mock.MatchedBy(func(t *domain.Token) bool {
+		return t.ConnectionID == connID && t.EncryptedData != ""
+	})).Return(nil)
+	connRepo.On("UpdateStatus", mock.Anything, connID, "active").Return(nil)
+
+	credentials := map[string]interface{}{"api_key": "my-secret-key"}
+	returnURL, err := svc.SaveCredential(context.Background(), signedState, credentials)
+
+	assert.NoError(t, err)
+	assert.Contains(t, returnURL, "http://app.example.com/callback")
+	assert.Contains(t, returnURL, "status=success")
+	assert.Contains(t, returnURL, "connection_id="+connID.String())
+
+	connRepo.AssertExpectations(t)
+	tokenRepo.AssertExpectations(t)
+}
+
+func TestConnectionService_SaveCredential_InvalidState(t *testing.T) {
+	_, _, _, svc := setupTestService(t)
+
+	_, err := svc.SaveCredential(context.Background(), "garbage-state", map[string]interface{}{"api_key": "test"})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid state")
+}
+
+// =============================================================================
+// Refresh Tests
+// =============================================================================
+
+func TestConnectionService_Refresh_StaticToken(t *testing.T) {
+	connRepo, _, _, svc := setupTestService(t)
+
+	connID := uuid.New()
+	connWithProv := &domain.ConnectionWithProvider{
+		Connection: domain.Connection{
+			ID:     connID,
+			Status: "active",
+		},
+		AuthType: "api_key",
+	}
+	connRepo.On("GetWithProvider", mock.Anything, connID).Return(connWithProv, nil)
+
+	resp, err := svc.Refresh(context.Background(), connID)
+
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "static_token")
+
+	connRepo.AssertExpectations(t)
+}
+
+func TestConnectionService_Refresh_NoRefreshToken(t *testing.T) {
+	connRepo, tokenRepo, providerStore, svc := setupTestService(t)
+
+	connID := uuid.New()
+	providerID := uuid.New()
+	encryptionKey := []byte("12345678901234567890123456789012")
+
+	connWithProv := &domain.ConnectionWithProvider{
+		Connection: domain.Connection{
+			ID:         connID,
+			ProviderID: providerID,
+			Status:     "active",
+		},
+		AuthType: "oauth2",
+	}
+
+	prof := &provider.Profile{
+		ID:           providerID,
+		TokenURL:     ptr("https://provider.com/token"),
+		ClientID:     ptr("client-id"),
+		ClientSecret: ptr("client-secret"),
+	}
+
+	// Stored token has no refresh_token
+	tokenData := map[string]interface{}{"access_token": "at-12345"}
+	tokenBytes, _ := json.Marshal(tokenData)
+	encryptedData, _ := vault.Encrypt(encryptionKey, tokenBytes)
+
+	token := &domain.Token{
+		ConnectionID:  connID,
+		EncryptedData: encryptedData,
+	}
+
+	connRepo.On("GetWithProvider", mock.Anything, connID).Return(connWithProv, nil)
+	providerStore.On("GetProfile", providerID).Return(prof, nil)
+	tokenRepo.On("Get", mock.Anything, connID).Return(token, nil)
+
+	resp, err := svc.Refresh(context.Background(), connID)
+
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "no_refresh_token")
+
+	connRepo.AssertExpectations(t)
+	providerStore.AssertExpectations(t)
+	tokenRepo.AssertExpectations(t)
+}
+
+func TestConnectionService_Refresh_OAuth2_Success(t *testing.T) {
+	// Mock token endpoint that returns fresh tokens
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"access_token":  "new-at-99999",
+			"refresh_token": "new-rt-88888",
+			"expires_in":    3600,
+		})
+	}))
+	defer mockServer.Close()
+
+	connRepo, tokenRepo, providerStore, svc, _ := setupTestServiceWithHTTPClient(t, mockServer.Client())
+
+	connID := uuid.New()
+	providerID := uuid.New()
+	encryptionKey := []byte("12345678901234567890123456789012")
+
+	connWithProv := &domain.ConnectionWithProvider{
+		Connection: domain.Connection{
+			ID:         connID,
+			ProviderID: providerID,
+			Status:     "active",
+		},
+		AuthType: "oauth2",
+	}
+
+	prof := &provider.Profile{
+		ID:           providerID,
+		TokenURL:     ptr(mockServer.URL),
+		ClientID:     ptr("client-id"),
+		ClientSecret: ptr("client-secret"),
+	}
+
+	// Stored token has a refresh_token
+	tokenData := map[string]interface{}{
+		"access_token":  "old-at-11111",
+		"refresh_token": "old-rt-22222",
+	}
+	tokenBytes, _ := json.Marshal(tokenData)
+	encryptedData, _ := vault.Encrypt(encryptionKey, tokenBytes)
+	token := &domain.Token{
+		ConnectionID:  connID,
+		EncryptedData: encryptedData,
+	}
+
+	connRepo.On("GetWithProvider", mock.Anything, connID).Return(connWithProv, nil)
+	providerStore.On("GetProfile", providerID).Return(prof, nil)
+	tokenRepo.On("Get", mock.Anything, connID).Return(token, nil)
+	tokenRepo.On("Upsert", mock.Anything, mock.MatchedBy(func(t *domain.Token) bool {
+		return t.ConnectionID == connID && t.EncryptedData != ""
+	})).Return(nil)
+
+	resp, err := svc.Refresh(context.Background(), connID)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "new-at-99999", resp.Tokens["access_token"])
+	assert.Equal(t, "new-rt-88888", resp.Tokens["refresh_token"])
+
+	connRepo.AssertExpectations(t)
+	providerStore.AssertExpectations(t)
+	tokenRepo.AssertExpectations(t)
+}
+
+// =============================================================================
+// ExchangeCodeForTokens Tests
+// =============================================================================
+
+func TestConnectionService_ExchangeCodeForTokens_InvalidState(t *testing.T) {
+	_, _, _, svc := setupTestService(t)
+
+	_, err := svc.ExchangeCodeForTokens(context.Background(), "bad-state", "some-code", "", "")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid state")
+}
+
+func TestConnectionService_ExchangeCodeForTokens_Success(t *testing.T) {
+	// Mock token endpoint
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"access_token":  "at-exchanged",
+			"refresh_token": "rt-exchanged",
+			"expires_in":    7200,
+		})
+	}))
+	defer mockServer.Close()
+
+	connRepo, tokenRepo, providerStore, svc, stateKey := setupTestServiceWithHTTPClient(t, mockServer.Client())
+
+	connID := uuid.New()
+	providerID := uuid.New()
+
+	// Sign a valid state
+	stateData := auth.StateData{
+		WorkspaceID: "ws-exchange",
+		ProviderID:  providerID.String(),
+		Nonce:       connID.String(),
+		IAT:         time.Now(),
+	}
+	signedState, err := auth.SignState(stateKey, stateData)
+	assert.NoError(t, err)
+
+	// Mock GetPending
+	conn := &domain.Connection{
+		ID:           connID,
+		ProviderID:   providerID,
+		CodeVerifier: sql.NullString{String: "test-verifier", Valid: true},
+		Scopes:       []string{"read"},
+		ReturnURL:    "http://app.example.com/done",
+	}
+	connRepo.On("GetPending", mock.Anything, connID).Return(conn, nil)
+
+	// Mock GetProfile
+	prof := &provider.Profile{
+		ID:           providerID,
+		Name:         "test-provider",
+		AuthType:     "oauth2",
+		TokenURL:     ptr(mockServer.URL),
+		ClientID:     ptr("client-123"),
+		ClientSecret: ptr("secret-456"),
+	}
+	providerStore.On("GetProfile", providerID).Return(prof, nil)
+
+	// Mock token storage
+	tokenRepo.On("Upsert", mock.Anything, mock.MatchedBy(func(t *domain.Token) bool {
+		return t.ConnectionID == connID && t.EncryptedData != ""
+	})).Return(nil)
+
+	// Mock status update
+	connRepo.On("UpdateStatus", mock.Anything, connID, "active").Return(nil)
+
+	returnURL, err := svc.ExchangeCodeForTokens(context.Background(), signedState, "auth-code-xyz", "", "")
+
+	assert.NoError(t, err)
+	assert.Contains(t, returnURL, "http://app.example.com/done")
+	assert.Contains(t, returnURL, "status=success")
+	assert.Contains(t, returnURL, fmt.Sprintf("connection_id=%s", connID))
+	assert.Contains(t, returnURL, "provider=test-provider")
+
+	connRepo.AssertExpectations(t)
+	providerStore.AssertExpectations(t)
+	tokenRepo.AssertExpectations(t)
 }

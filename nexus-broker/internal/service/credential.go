@@ -70,7 +70,7 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 	}
 
 	if conn.UserInfoEndpoint != "" && conn.APIBaseURL != "" {
-		if err := validateCredentials(conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, credentials); err != nil {
+		if err := s.validateCredentials(conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, credentials); err != nil {
 			return "", fmt.Errorf("invalid credentials: %w", err)
 		}
 	}
@@ -158,7 +158,7 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 			clientSecret = *p.ClientSecret
 		}
 
-		newTokens, statusCode, err := refreshTokens(tokenURL, clientID, clientSecret, refreshToken)
+		newTokens, statusCode, err := s.refreshTokens(tokenURL, clientID, clientSecret, refreshToken)
 		if err != nil {
 			if statusCode >= 400 && statusCode < 500 {
 				s.connRepo.UpdateStatus(ctx, connectionID, "attention")
@@ -194,7 +194,7 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 	}
 }
 
-func validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint string, credentials map[string]interface{}) error {
+func (s *connectionService) validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint string, credentials map[string]interface{}) error {
 	testURL := strings.TrimRight(apiBaseURL, "/") + "/" + strings.TrimLeft(userInfoEndpoint, "/")
 
 	req, err := http.NewRequest(http.MethodGet, testURL, nil)
@@ -228,8 +228,7 @@ func validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint stri
 		return nil
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("could not reach provider to validate credentials")
 	}
@@ -242,7 +241,7 @@ func validateCredentials(authType, authHeader, apiBaseURL, userInfoEndpoint stri
 	return nil
 }
 
-func refreshTokens(tokenURL, clientID, clientSecret, refreshToken string) (map[string]interface{}, int, error) {
+func (s *connectionService) refreshTokens(tokenURL, clientID, clientSecret, refreshToken string) (map[string]interface{}, int, error) {
 	data := url.Values{}
 	data.Set("grant_type", "refresh_token")
 	data.Set("refresh_token", refreshToken)
@@ -256,8 +255,7 @@ func refreshTokens(tokenURL, clientID, clientSecret, refreshToken string) (map[s
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}

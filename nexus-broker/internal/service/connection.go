@@ -36,7 +36,7 @@ type connectionService struct {
 	connRepo             repository.ConnectionRepository
 	tokenRepo            repository.TokenRepository
 	providerStore        provider.ProfileStorer
-	audit                *audit.Service
+	audit                audit.Logger
 	baseURL              string
 	redirectPath         string
 	encryptionKey        []byte
@@ -64,7 +64,7 @@ func NewConnectionService(
 	connRepo repository.ConnectionRepository,
 	tokenRepo repository.TokenRepository,
 	providerStore provider.ProfileStorer,
-	auditService *audit.Service,
+	auditService audit.Logger,
 	baseURL, redirectPath string,
 	encryptionKey, stateKey []byte,
 	httpClient *http.Client,
@@ -500,8 +500,7 @@ func (s *connectionService) executeExchange(tokenURL, clientID, clientSecret, co
 		req.SetBasicAuth(clientID, clientSecret)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
