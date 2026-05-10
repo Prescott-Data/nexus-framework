@@ -61,7 +61,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 
 	response, err := h.svc.CreateConsentSpec(r.Context(), request)
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "consent_spec_failed", err.Error())
+		writeServiceError(w, err)
 		return
 	}
 

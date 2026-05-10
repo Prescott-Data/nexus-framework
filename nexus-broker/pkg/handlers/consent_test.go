@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -107,7 +106,7 @@ func TestGetSpec_ServiceError(t *testing.T) {
 		ReturnURL:   "http://localhost/return",
 	}
 
-	mockSvc.On("CreateConsentSpec", mock.Anything, reqBody).Return((*service.ConsentSpecResponse)(nil), errors.New("provider not found"))
+	mockSvc.On("CreateConsentSpec", mock.Anything, reqBody).Return((*service.ConsentSpecResponse)(nil), service.ErrNotFound("provider_not_found", "Provider not found"))
 
 	jsonBody, _ := json.Marshal(reqBody)
 	req, _ := http.NewRequest("POST", "/auth/consent-spec", bytes.NewReader(jsonBody))
@@ -115,6 +114,6 @@ func TestGetSpec_ServiceError(t *testing.T) {
 
 	handler.GetSpec(rr, req)
 
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Equal(t, http.StatusNotFound, rr.Code)
 	mockSvc.AssertExpectations(t)
 }

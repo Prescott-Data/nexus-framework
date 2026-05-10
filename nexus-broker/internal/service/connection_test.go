@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -304,7 +305,10 @@ func TestConnectionService_GetToken_NotActive(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, resp)
-	assert.Equal(t, "connection not active", err.Error())
+
+	var svcErr *service.ServiceError
+	assert.True(t, errors.As(err, &svcErr))
+	assert.Equal(t, "connection_not_active", svcErr.Code)
 
 	connRepo.AssertExpectations(t)
 }
@@ -416,7 +420,10 @@ func TestConnectionService_Refresh_StaticToken(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, resp)
-	assert.Contains(t, err.Error(), "static_token")
+
+	var svcErr *service.ServiceError
+	assert.True(t, errors.As(err, &svcErr))
+	assert.Equal(t, "static_token", svcErr.Code)
 
 	connRepo.AssertExpectations(t)
 }
@@ -462,7 +469,10 @@ func TestConnectionService_Refresh_NoRefreshToken(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, resp)
-	assert.Contains(t, err.Error(), "no_refresh_token")
+
+	var svcErr *service.ServiceError
+	assert.True(t, errors.As(err, &svcErr))
+	assert.Equal(t, "no_refresh_token", svcErr.Code)
 
 	connRepo.AssertExpectations(t)
 	providerStore.AssertExpectations(t)

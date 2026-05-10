@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -79,6 +80,18 @@ func NewCallbackHandler(cfg CallbackHandlerConfig) *CallbackHandler {
 	}
 }
 
+// writeServiceError unwraps a ServiceError from the service layer and writes
+// the correct HTTP status code and machine-readable error code. Falls back
+// to 500 for unexpected error types.
+func writeServiceError(w http.ResponseWriter, err error) {
+	var svcErr *service.ServiceError
+	if errors.As(err, &svcErr) {
+		httputil.WriteError(w, svcErr.HTTPStatus, svcErr.Code, svcErr.Message)
+	} else {
+		httputil.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+	}
+}
+
 // Handle handles GET /auth/callback
 func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
@@ -107,7 +120,7 @@ func (h *CallbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logAuditEvent(nil, "token_exchange_failed", map[string]string{"error": err.Error()}, r)
 		h.metricExchangeError.Inc()
-		httputil.WriteError(w, http.StatusInternalServerError, "token_exchange_failed", err.Error())
+		writeServiceError(w, err)
 		return
 	}
 
@@ -123,7 +136,7 @@ func (h *CallbackHandler) GetCaptureSchema(w http.ResponseWriter, r *http.Reques
 
 	providerName, schema, err := h.svc.GetCaptureSchema(r.Context(), state)
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "schema_error", err.Error())
+		writeServiceError(w, err)
 		return
 	}
 
@@ -153,7 +166,7 @@ func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 
 	returnURL, err := h.svc.SaveCredential(r.Context(), reqBody.State, reqBody.Credentials)
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "credential_save_failed", err.Error())
+		writeServiceError(w, err)
 		return
 	}
 
@@ -178,15 +191,16 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 
 	response, err := h.svc.GetToken(r.Context(), connectionID)
 	if err != nil {
-		if err.Error() == "attention_required" {
+		var svcErr *service.ServiceError
+		if errors.As(err, &svcErr) && svcErr.Code == "attention_required" {
 			httputil.WriteJSON(w, http.StatusConflict, map[string]string{
 				"error":  "attention_required",
-				"detail": "Connection requires attention. The user must re-authenticate.",
+				"detail": svcErr.Message,
 			})
 			return
 		}
 		h.logAuditEvent(&connectionID, "token_retrieval_failed", map[string]string{"error": err.Error()}, r)
-		httputil.WriteError(w, http.StatusInternalServerError, "token_error", err.Error())
+		writeServiceError(w, err)
 		return
 	}
 
