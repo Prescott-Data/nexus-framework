@@ -102,14 +102,14 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 
 	p, err := s.providerStore.GetProfile(providerID)
 	if err != nil {
-		return nil, ErrNotFound("provider_not_found", "Provider not found")
+		return nil, ErrNotFoundWithErr(err, "provider_not_found", "Provider not found")
 	}
 
 	switch p.AuthType {
 	case "oauth2", "":
 		codeVerifier, codeChallenge, err := auth.GeneratePKCE()
 		if err != nil {
-			return nil, ErrInternal("pkce_failed", "Failed to generate PKCE")
+			return nil, ErrInternalWithErr(err, "pkce_failed", "Failed to generate PKCE")
 		}
 
 		connID := uuid.New()
@@ -124,7 +124,7 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 		}
 
 		if err := s.connRepo.Create(ctx, conn); err != nil {
-			return nil, ErrInternal("connection_create_failed", "Failed to create connection")
+			return nil, ErrInternalWithErr(err, "connection_create_failed", "Failed to create connection")
 		}
 
 		stateData := auth.StateData{
@@ -135,7 +135,7 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 		}
 		signedState, err := auth.SignState(s.stateKey, stateData)
 		if err != nil {
-			return nil, ErrInternal("state_sign_failed", "Failed to sign state")
+			return nil, ErrInternalWithErr(err, "state_sign_failed", "Failed to sign state")
 		}
 
 		useAuthURL := ""
@@ -163,7 +163,7 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 
 		authURL, err := s.buildAuthURL(useAuthURL, clientID, signedState, codeChallenge, req.Scopes, p.Params)
 		if err != nil {
-			return nil, ErrInternal("auth_url_failed", "Failed to build auth URL")
+			return nil, ErrInternalWithErr(err, "auth_url_failed", "Failed to build auth URL")
 		}
 
 		return &ConsentSpecResponse{
@@ -185,7 +185,7 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 		}
 
 		if err := s.connRepo.Create(ctx, conn); err != nil {
-			return nil, ErrInternal("connection_create_failed", "Failed to create connection")
+			return nil, ErrInternalWithErr(err, "connection_create_failed", "Failed to create connection")
 		}
 
 		stateData := auth.StateData{
@@ -196,7 +196,7 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 		}
 		signedState, err := auth.SignState(s.stateKey, stateData)
 		if err != nil {
-			return nil, ErrInternal("state_sign_failed", "Failed to sign state")
+			return nil, ErrInternalWithErr(err, "state_sign_failed", "Failed to sign state")
 		}
 
 		brokerBaseURL := strings.TrimSuffix(s.baseURL, "")
@@ -225,7 +225,7 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 
 	stateData, err := auth.VerifyState(s.stateKey, state)
 	if err != nil {
-		return "", ErrBadRequest("invalid_state", fmt.Sprintf("invalid state: %v", err))
+		return "", ErrBadRequestWithErr(err, "invalid_state", "Invalid state")
 	}
 
 	connID, err := uuid.Parse(stateData.Nonce)
@@ -235,12 +235,12 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 
 	conn, err := s.connRepo.GetPending(ctx, connID)
 	if err != nil {
-		return "", ErrNotFound("connection_not_found", "Connection not found or expired")
+		return "", ErrNotFoundWithErr(err, "connection_not_found", "Connection not found or expired")
 	}
 
 	p, err := s.providerStore.GetProfile(conn.ProviderID)
 	if err != nil {
-		return "", ErrInternal("provider_not_found", "Provider not found")
+		return "", ErrInternalWithErr(err, "provider_not_found", "Provider not found")
 	}
 
 	base := strings.TrimSuffix(s.baseURL, "/")
@@ -276,7 +276,7 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	tokens, err := s.executeExchange(useTokenURL, clientID, clientSecret, code, conn.CodeVerifier.String, redirectURI, conn.Scopes, p.AuthHeader, skipScopeOnExchange)
 	if err != nil {
 		s.connRepo.UpdateStatus(ctx, connID, "failed")
-		return "", ErrInternal("token_exchange_failed", fmt.Sprintf("Token exchange failed: %v", err))
+		return "", ErrInternalWithErr(err, "token_exchange_failed", "Token exchange failed")
 	}
 
 	if raw, ok := tokens["id_token"].(string); ok && raw != "" {
@@ -291,7 +291,7 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	tokenJSON, _ := json.Marshal(tokens)
 	encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
 	if err != nil {
-		return "", ErrInternal("encryption_failed", "Failed to encrypt tokens")
+		return "", ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt tokens")
 	}
 
 	var expiresAt *time.Time
@@ -306,7 +306,7 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 		ExpiresAt:     expiresAt,
 	})
 	if err != nil {
-		return "", ErrInternal("token_store_failed", "Failed to store tokens")
+		return "", ErrInternalWithErr(err, "token_store_failed", "Failed to store tokens")
 	}
 
 	s.connRepo.UpdateStatus(ctx, connID, "active")
@@ -332,7 +332,7 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, error) {
 	conn, err := s.connRepo.GetWithProvider(ctx, connectionID)
 	if err != nil {
-		return nil, ErrNotFound("connection_not_found", "Connection not found")
+		return nil, ErrNotFoundWithErr(err, "connection_not_found", "Connection not found")
 	}
 
 	if conn.Status != "active" {
@@ -344,17 +344,17 @@ func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID
 
 	token, err := s.tokenRepo.Get(ctx, connectionID)
 	if err != nil {
-		return nil, ErrNotFound("token_not_found", "Token not found")
+		return nil, ErrNotFoundWithErr(err, "token_not_found", "Token not found")
 	}
 
 	decryptedData, err := vault.Decrypt(s.encryptionKey, token.EncryptedData)
 	if err != nil {
-		return nil, ErrInternal("decrypt_failed", "Failed to decrypt token")
+		return nil, ErrInternalWithErr(err, "decrypt_failed", "Failed to decrypt token")
 	}
 
 	var credentials map[string]interface{}
 	if err := json.Unmarshal(decryptedData, &credentials); err != nil {
-		return nil, ErrInternal("invalid_token_format", "Invalid token format")
+		return nil, ErrInternalWithErr(err, "invalid_token_format", "Invalid token format")
 	}
 
 	if token.ExpiresAt != nil {

@@ -86,8 +86,12 @@ func NewCallbackHandler(cfg CallbackHandlerConfig) *CallbackHandler {
 func writeServiceError(w http.ResponseWriter, err error) {
 	var svcErr *service.ServiceError
 	if errors.As(err, &svcErr) {
+		if svcErr.HTTPStatus >= 500 {
+			log.Printf("[ERROR] %d %s: %v (cause: %v)", svcErr.HTTPStatus, svcErr.Code, svcErr.Message, svcErr.Err)
+		}
 		httputil.WriteError(w, svcErr.HTTPStatus, svcErr.Code, svcErr.Message)
 	} else {
+		log.Printf("[ERROR] 500 internal_error: unexpected error: %v", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
 	}
 }

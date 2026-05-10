@@ -25,23 +25,23 @@ type RefreshResponse struct {
 func (s *connectionService) GetCaptureSchema(ctx context.Context, state string) (string, json.RawMessage, error) {
 	stateData, err := auth.VerifyState(s.stateKey, state)
 	if err != nil {
-		return "", nil, ErrBadRequest("invalid_state", fmt.Sprintf("invalid state: %v", err))
+		return "", nil, ErrBadRequestWithErr(err, "invalid_state", "Invalid state")
 	}
 
 	providerID, err := uuid.Parse(stateData.ProviderID)
 	if err != nil {
-		return "", nil, ErrBadRequest("invalid_provider_id", fmt.Sprintf("invalid provider ID in state: %v", err))
+		return "", nil, ErrBadRequestWithErr(err, "invalid_provider_id", "Invalid provider ID in state")
 	}
 
 	p, err := s.providerStore.GetProfile(providerID)
 	if err != nil {
-		return "", nil, ErrNotFound("provider_not_found", "Provider not found")
+		return "", nil, ErrNotFoundWithErr(err, "provider_not_found", "Provider not found")
 	}
 
 	var params map[string]json.RawMessage
 	if p.Params != nil {
 		if err := json.Unmarshal(*p.Params, &params); err != nil {
-			return "", nil, ErrInternal("invalid_params", "Failed to parse provider params")
+			return "", nil, ErrInternalWithErr(err, "invalid_params", "Failed to parse provider params")
 		}
 	}
 
@@ -56,29 +56,29 @@ func (s *connectionService) GetCaptureSchema(ctx context.Context, state string) 
 func (s *connectionService) SaveCredential(ctx context.Context, state string, credentials map[string]interface{}) (string, error) {
 	stateData, err := auth.VerifyState(s.stateKey, state)
 	if err != nil {
-		return "", ErrBadRequest("invalid_state", fmt.Sprintf("invalid state: %v", err))
+		return "", ErrBadRequestWithErr(err, "invalid_state", "Invalid state")
 	}
 
 	connID, err := uuid.Parse(stateData.Nonce)
 	if err != nil {
-		return "", ErrBadRequest("invalid_connection_id", fmt.Sprintf("invalid connection ID in state: %v", err))
+		return "", ErrBadRequestWithErr(err, "invalid_connection_id", "Invalid connection ID in state")
 	}
 
 	conn, err := s.connRepo.GetWithProvider(ctx, connID)
 	if err != nil {
-		return "", ErrNotFound("connection_not_found", "Connection not found")
+		return "", ErrNotFoundWithErr(err, "connection_not_found", "Connection not found")
 	}
 
 	if conn.UserInfoEndpoint != "" && conn.APIBaseURL != "" {
 		if err := s.validateCredentials(conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, credentials); err != nil {
-			return "", ErrBadRequest("invalid_credentials", fmt.Sprintf("invalid credentials: %v", err))
+			return "", ErrBadRequestWithErr(err, "invalid_credentials", "Invalid credentials")
 		}
 	}
 
 	tokenJSON, _ := json.Marshal(credentials)
 	encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
 	if err != nil {
-		return "", ErrInternal("encryption_failed", "Failed to encrypt credentials")
+		return "", ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt credentials")
 	}
 
 	err = s.tokenRepo.Upsert(ctx, &domain.Token{
@@ -86,11 +86,11 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 		EncryptedData: encryptedData,
 	})
 	if err != nil {
-		return "", ErrInternal("credential_store_failed", "Failed to store credentials")
+		return "", ErrInternalWithErr(err, "credential_store_failed", "Failed to store credentials")
 	}
 
 	if err := s.connRepo.UpdateStatus(ctx, connID, "active"); err != nil {
-		return "", ErrInternal("status_update_failed", "Failed to update status")
+		return "", ErrInternalWithErr(err, "status_update_failed", "Failed to update status")
 	}
 
 	returnURL, err := url.Parse(conn.ReturnURL)
@@ -109,7 +109,7 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID) (*RefreshResponse, error) {
 	conn, err := s.connRepo.GetWithProvider(ctx, connectionID)
 	if err != nil {
-		return nil, ErrNotFound("connection_not_found", fmt.Sprintf("Connection not active or not found: %v", err))
+		return nil, ErrNotFoundWithErr(err, "connection_not_found", "Connection not active or not found")
 	}
 
 	if conn.Status != "active" {
@@ -122,22 +122,22 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 	case "oauth2", "":
 		p, err := s.providerStore.GetProfile(conn.ProviderID)
 		if err != nil {
-			return nil, ErrNotFound("provider_not_found", "Provider not found")
+			return nil, ErrNotFoundWithErr(err, "provider_not_found", "Provider not found")
 		}
 
 		token, err := s.tokenRepo.Get(ctx, connectionID)
 		if err != nil {
-			return nil, ErrNotFound("token_not_found", "Token not found")
+			return nil, ErrNotFoundWithErr(err, "token_not_found", "Token not found")
 		}
 
 		plaintext, err := vault.Decrypt(s.encryptionKey, token.EncryptedData)
 		if err != nil {
-			return nil, ErrInternal("decrypt_failed", "Failed to decrypt token")
+			return nil, ErrInternalWithErr(err, "decrypt_failed", "Failed to decrypt token")
 		}
 
 		var current map[string]interface{}
 		if err := json.Unmarshal(plaintext, &current); err != nil {
-			return nil, ErrInternal("token_parse_failed", "Failed to parse token")
+			return nil, ErrInternalWithErr(err, "token_parse_failed", "Failed to parse token")
 		}
 
 		refreshToken, _ := current["refresh_token"].(string)
@@ -169,7 +169,7 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 		tokenJSON, _ := json.Marshal(newTokens)
 		encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
 		if err != nil {
-			return nil, ErrInternal("encryption_failed", "Failed to encrypt refreshed tokens")
+			return nil, ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt refreshed tokens")
 		}
 
 		var expiresAt *time.Time
@@ -184,7 +184,7 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 			ExpiresAt:     expiresAt,
 		})
 		if err != nil {
-			return nil, ErrInternal("token_store_failed", "Failed to store refreshed token")
+			return nil, ErrInternalWithErr(err, "token_store_failed", "Failed to store refreshed token")
 		}
 
 		return &RefreshResponse{Tokens: newTokens, StatusCode: http.StatusOK}, nil
