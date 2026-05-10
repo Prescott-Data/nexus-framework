@@ -199,9 +199,8 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 			return nil, ErrInternalWithErr(err, "state_sign_failed", "Failed to sign state")
 		}
 
-		brokerBaseURL := strings.TrimSuffix(s.baseURL, "")
-		capturePath := "/auth/capture-schema"
-		u, _ := url.Parse(brokerBaseURL + capturePath)
+		captureURL, _ := url.JoinPath(s.baseURL, "/auth/capture-schema")
+		u, _ := url.Parse(captureURL)
 		q := u.Query()
 		q.Set("state", signedState)
 		u.RawQuery = q.Encode()
@@ -243,8 +242,7 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 		return "", false, ErrInternalWithErr(err, "provider_not_found", "Provider not found")
 	}
 
-	base := strings.TrimSuffix(s.baseURL, "/")
-	redirectURI := base + s.redirectPath
+	redirectURI, _ := url.JoinPath(s.baseURL, s.redirectPath)
 
 	skipScopeOnExchange := false
 	if p.Params != nil {
@@ -406,8 +404,7 @@ func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID
 // Helpers
 
 func (s *connectionService) buildAuthURL(providerAuthURL, clientID, state, codeChallenge string, scopes []string, providerParams *json.RawMessage) (string, error) {
-	baseURL := strings.TrimSuffix(s.baseURL, "/")
-	redirectPath := s.redirectPath
+	redirectURI, _ := url.JoinPath(s.baseURL, s.redirectPath)
 
 	if providerAuthURL == "" {
 		return "", fmt.Errorf("provider auth_url is required for OAuth2")
@@ -430,7 +427,7 @@ func (s *connectionService) buildAuthURL(providerAuthURL, clientID, state, codeC
 
 	q := u.Query()
 	q.Set("client_id", clientID)
-	q.Set("redirect_uri", baseURL+redirectPath)
+	q.Set("redirect_uri", redirectURI)
 	q.Set("response_type", "code")
 
 	if !skipScopeOnAuth {
