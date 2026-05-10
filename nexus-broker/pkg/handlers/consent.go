@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -66,7 +67,7 @@ func (h *ConsentHandler) GetSpec(w http.ResponseWriter, r *http.Request) {
 
 	h.consentsMetric.Inc()
 	for _, s := range request.Scopes {
-		if s == "openid" {
+		if strings.EqualFold(s, "openid") {
 			h.consentsOpenID.Inc()
 			break
 		}
