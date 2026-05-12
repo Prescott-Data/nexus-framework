@@ -1,152 +1,141 @@
-# Agent Integrations Guide
+# Integrating Agents
 
-This guide explains how agents and services integrate with the OAuth framework.
-
-## Recommended Integration: The Bridge Client (for Go)
-
-For Go-based agents and services, the **`bridge` client library** is the recommended integration path. It is a universal connector that handles the entire connection lifecycle, including authentication, polling, refreshing, and reconnection for both **WebSocket** and **gRPC** transports.
-
-Using the Bridge abstracts away the manual HTTP calls detailed below and provides production-ready observability out of the box.
-
-### Example: Persistent WebSocket Connection
-
-```go
-import (
-	"context"
-	"net/http"
-
-	"nexus.io/nexus-bridge"
-	"nexus.io/nexus-bridge/telemetry"
-	"github.com/Prescott-Data/nexus-framework/nexus-sdk"
-)
-
-func main() {
-	// 1. Create a client for the Nexus Gateway
-	authClient := oauthsdk.New("http://nexus-gateway.example.com")
-
-	// 2. Instantiate the Bridge with standard logging and metrics
-	// agentLabels are applied as const_labels to all Prometheus metrics
-	agentLabels := map[string]string{"agent_id": "my-stable-id"}
-	b := bridge.NewStandard(authClient, agentLabels)
-	
-	// 3. Expose the /metrics endpoint
-	http.Handle("/metrics", telemetry.Handler())
-	go http.ListenAndServe(":9090", nil)
-
-	// 4. Run the connection loop
-	// The Bridge will fetch the correct credentials (OAuth2, Basic, API Key, etc.)
-	// and keep the connection alive indefinitely.
-	connectionID := "your-persistent-connection-id"
-	endpointURL := "wss://external.service.com/stream"
-	
-	b.MaintainWebSocket(context.Background(), connectionID, endpointURL, &myAppHandler{})
-}
-```
-See the [`bridge/README.md`](../../bridge/README.md) for full documentation.
+This guide covers the two ways an agent retrieves credentials from Nexus at runtime: the Bridge library for Go agents, and the manual HTTP flow for agents written in other languages or for cases where you want direct control over credential retrieval.
 
 ---
 
-## Manual HTTP Integration Flow
+## The Bridge library (Go)
 
-This flow is for non-Go clients or for understanding the low-level mechanics of the Gateway API. Go clients should prefer the `bridge` library.
+The Bridge is the recommended integration path for Go agents. It handles everything after the OAuth handshake: authenticating requests, maintaining persistent connections through token rotations, and retrying on transient failures.
 
-### Concepts
-- `connection_id`: Opaque handle representing a user-approved connection. Agents store this; do not store tokens.
-- Gateway: Front door API for agent access.
-- Broker: Handles provider OAuth flows, token storage, and refresh; keep private.
-
-### Typical Flow
-1) **Initiate connection (for user-interactive OAuth2):**
-   - `POST /v1/request-connection`
-   - Body: `{"user_id":"...", "provider_name":"Google", "scopes":[...], "return_url":"..."}`
-   - Response: `{"authUrl":"...", "connection_id":"..."}`
-   - Redirect the user to `authUrl` to consent.
-
-2) **User completes consent:**
-   - The provider redirects to the Broker, which stores tokens and redirects the user to your `return_url` with `status=success&connection_id=...`.
-
-3) **Poll connection status (optional):**
-   - `GET /v1/check-connection/{connection_id}` → `{ "status": "active|pending|failed" }`
-
-4) **Use the connection:**
-   - `GET /v1/token/{connection_id}`
-   - The response is a **generic credential payload**, not just a simple token. You must inspect the `strategy` field to determine how to authenticate.
-     ```json
-     {
-       "strategy": { "type": "oauth2" },
-       "credentials": { "access_token": "...", "expires_at": 123456 },
-       "expires_at": 123456
-     }
-     // OR
-     {
-       "strategy": { "type": "basic_auth" },
-       "credentials": { "username": "...", "password": "..." }
-     }
-     ```
-
-5) **Refresh (until gateway proxy is added):**
-   - `POST Broker /connections/{connection_id}/refresh` with header `X-API-Key: <broker_api_key>`.
-
-### Frontend Integration (browser flow)
-The browser initiates consent; server(s) hold secrets and call the gateway.
-
-1) **Agent/server asks gateway to create a connection:**
-   - Your backend calls `POST /v1/request-connection` with a `return_url` hosted by your frontend (e.g., `https://app.example.com/oauth/return`).
-
-2) **Redirect the user:**
-   - From your frontend, redirect the browser to the `authUrl` in the response.
-
-3) **Provider → Broker → Frontend:**
-   - After consent, the Broker redirects the user back to your `return_url` with `status=success&connection_id=...`.
-
-4) **Frontend → Backend to consume connection:**
-   - Your frontend extracts `connection_id` and sends it to your backend. Your backend stores only the `connection_id`.
-
-5) **Backend fetches credentials on-demand:**
-   - Your backend calls Gateway `GET /v1/token/{connection_id}` to retrieve the generic credential payload.
-
-### Using the Go SDK (server-side)
-The `nexus-sdk` is a thin client for the Gateway API.
+Import the library and instantiate it with a Gateway client:
 
 ```go
 import (
-  "context"
-  oauthsdk "github.com/Prescott-Data/nexus-framework/nexus-sdk"
+    "context"
+    "net/http"
+
+    bridge "nexus.io/nexus-bridge"
+    "nexus.io/nexus-bridge/telemetry"
+    oauthsdk "github.com/Prescott-Data/nexus-framework/nexus-sdk"
 )
 
-client := oauthsdk.New("https://<gateway-base-url>")
+func main() {
+    authClient := oauthsdk.New("http://nexus-gateway.example.com")
 
-// Fetch the credential payload:
-payload, _ := client.GetToken(context.Background(), "your-connection-id")
+    agentLabels := map[string]string{"agent_id": "my-agent"}
+    b := bridge.NewStandard(authClient, agentLabels)
 
-// Inspect the strategy to decide how to authenticate
+    http.Handle("/metrics", telemetry.Handler())
+    go http.ListenAndServe(":9090", nil)
+
+    connectionID := "conn_01HXYZ..."
+    endpointURL := "wss://external.service.com/stream"
+
+    b.MaintainWebSocket(context.Background(), connectionID, endpointURL, &myHandler{})
+}
+```
+
+`MaintainWebSocket` runs a loop. When the current access token approaches expiry, the Bridge fetches a new one from the Gateway and seamlessly re-authenticates the connection without interrupting your handler. Exponential backoff handles transient network failures.
+
+The `agentLabels` map is applied as constant labels to all Prometheus metrics the Bridge emits. This allows you to filter Bridge metrics by agent in your observability stack.
+
+### gRPC connections
+
+For gRPC, use `MaintainGRPC` instead of `MaintainWebSocket`. The API is the same: you provide a `connection_id`, a target endpoint, and a handler. The Bridge injects the strategy-appropriate credentials as gRPC metadata headers on the initial connection and on each re-authentication.
+
+---
+
+## Manual HTTP integration
+
+Use this approach if your agent is not written in Go, or if you want explicit control over when credentials are fetched rather than having the Bridge manage them.
+
+### Fetching credentials
+
+Call `GET /v1/token/{connection_id}` on the Gateway:
+
+```bash
+curl -s http://nexus-gateway.example.com/v1/token/conn_01HXYZ...
+```
+
+The response includes a `strategy` field and a `credentials` object. The strategy tells you how to use the credentials:
+
+```json
+{
+  "strategy": { "type": "oauth2" },
+  "credentials": {
+    "access_token": "ya29.A0AfH...",
+    "expires_at": 1715000000
+  },
+  "expires_at": 1715000000
+}
+```
+
+For `oauth2`, set `Authorization: Bearer <access_token>` on your outgoing request.
+
+For `basic_auth`, the credentials object contains `username` and `password`. Encode them as Base64 and set `Authorization: Basic <encoded>`.
+
+For `api_key`, the credentials object contains the key fields defined by the provider's schema. The schema tells you the field name and where to inject it (header, query parameter, or request body).
+
+### When to re-fetch
+
+The `expires_at` field is a Unix timestamp. Fetch a new token before this time. A safe strategy is to re-fetch when the remaining lifetime drops below five minutes. Do not cache a token beyond its expiry. The Broker runs the background refresh loop, so a fresh fetch is always cheap and always returns a valid token.
+
+### Using the Go SDK directly
+
+If your agent is Go but you want explicit fetches rather than automatic management, use the SDK:
+
+```go
+import (
+    "context"
+    oauthsdk "github.com/Prescott-Data/nexus-framework/nexus-sdk"
+)
+
+client := oauthsdk.New("https://nexus-gateway.example.com")
+
+payload, err := client.GetToken(context.Background(), "conn_01HXYZ...")
+if err != nil {
+    return err
+}
+
 strategyType := payload.Strategy["type"]
 ```
-See the [Go SDK Reference](../sdks/go.md) for full documentation.
 
-### Using the TypeScript SDK (server-side)
+Inspect `strategyType` and use the `payload.Credentials` map to extract the values you need. See [The SDK](../concepts/sdk.md) for the full method reference.
+
+### Using the TypeScript SDK
 
 ```typescript
-import { NexusClient } from '@dromos/nexus-sdk';
+import { NexusClient } from '@prescott/nexus-sdk';
 
-const client = new NexusClient({ gatewayUrl: 'https://<gateway-base-url>' });
+const client = new NexusClient({ gatewayUrl: 'https://nexus-gateway.example.com' });
 
-const token = await client.getTokenByConnectionId('your-connection-id');
-console.log(token.accessToken);
+const token = await client.getTokenByConnectionId('conn_01HXYZ...');
+// Apply based on strategy type
+if (token.strategy.type === 'oauth2') {
+    headers['Authorization'] = `Bearer ${token.credentials.access_token}`;
+}
 ```
-See the [TypeScript SDK Reference](../sdks/typescript.md) for full documentation.
 
-### Using the Python SDK (server-side)
+### Using the Python SDK
 
 ```python
 from nexus_sdk import NexusClient, NexusClientOptions
 
-client = NexusClient(NexusClientOptions(gateway_url='https://<gateway-base-url>'))
+client = NexusClient(NexusClientOptions(gateway_url='https://nexus-gateway.example.com'))
 
-token = client.get_token_by_connection_id('your-connection-id')
-print(token.access_token)
+token = client.get_token_by_connection_id('conn_01HXYZ...')
+if token.strategy['type'] == 'oauth2':
+    headers['Authorization'] = f"Bearer {token.credentials['access_token']}"
 ```
-See the [Python SDK Reference](../sdks/python.md) for full documentation.
+
+---
+
+## Connection IDs in agent deployments
+
+Your application stores connection IDs and passes them to agents at task dispatch time. A well-designed agent integration keeps connection ID management out of agent code. The agent receives the connection ID as task input, uses it to fetch credentials, and does not store it beyond the current task.
+
+If your agent system uses a task queue or orchestrator, inject the relevant connection IDs into the task payload when the task is enqueued. The agent retrieves them from the payload, fetches credentials at the start of execution, and proceeds.
 
 ---
 
