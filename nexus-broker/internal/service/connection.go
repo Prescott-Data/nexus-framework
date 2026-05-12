@@ -27,6 +27,7 @@ type ConnectionService interface {
 	CreateConsentSpec(ctx context.Context, req CreateConsentRequest) (*ConsentSpecResponse, error)
 	ExchangeCodeForTokens(ctx context.Context, state, code, errorParam, errorDesc string) (string, bool, error)
 	GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, string, error)
+	GetTokenByWorkspaceAndProvider(ctx context.Context, workspaceID, providerName string) (map[string]interface{}, string, error)
 	GetCaptureSchema(ctx context.Context, state string) (string, json.RawMessage, error)
 	SaveCredential(ctx context.Context, state string, credentials map[string]interface{}) (string, error)
 	Refresh(ctx context.Context, connectionID uuid.UUID) (*RefreshResponse, error)
@@ -330,6 +331,15 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	returnURL.RawQuery = query.Encode()
 
 	return returnURL.String(), hasIDToken, nil
+}
+
+func (s *connectionService) GetTokenByWorkspaceAndProvider(ctx context.Context, workspaceID, providerName string) (map[string]interface{}, string, error) {
+	conn, err := s.connRepo.GetActiveByWorkspaceAndProvider(ctx, workspaceID, providerName)
+	if err != nil {
+		return nil, "", ErrNotFoundWithErr(err, "connection_not_found", "Active connection not found for workspace and provider")
+	}
+
+	return s.GetToken(ctx, conn.ID)
 }
 
 func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, string, error) {

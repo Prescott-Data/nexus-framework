@@ -224,6 +224,44 @@ func (h *CallbackHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 	http.Redirect(w, r, returnURL, http.StatusFound)
 }
 
+// ResolveToken handles GET /connections/resolve?workspace_id=X&provider_name=Y
+func (h *CallbackHandler) ResolveToken(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.URL.Query().Get("workspace_id")
+	providerName := r.URL.Query().Get("provider_name")
+
+	if workspaceID == "" || providerName == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "missing_params", "Missing workspace_id or provider_name parameter")
+		return
+	}
+
+	response, provName, err := h.svc.GetTokenByWorkspaceAndProvider(r.Context(), workspaceID, providerName)
+	if err != nil {
+		var svcErr *service.ServiceError
+		if errors.As(err, &svcErr) && svcErr.Code == "attention_required" {
+			httputil.WriteJSON(w, http.StatusConflict, map[string]string{
+				"error":  "attention_required",
+				"detail": svcErr.Message,
+			})
+			return
+		}
+		// Try not to log error if it's just not found yet to avoid spam, but log it for now
+		h.logAuditEvent(nil, "token_resolve_failed", map[string]string{"error": err.Error(), "workspace_id": workspaceID, "provider": providerName}, r)
+		writeServiceError(w, err)
+		return
+	}
+
+	hasID := "false"
+	if creds, ok := response["credentials"].(map[string]interface{}); ok {
+		if _, ok := creds["id_token"]; ok {
+			hasID = "true"
+		}
+	}
+	h.metricTokenGet.WithLabelValues(provName, hasID).Inc()
+
+	h.logAuditEvent(nil, "token_resolved", map[string]string{"workspace_id": workspaceID, "provider": providerName}, r)
+	httputil.WriteJSON(w, http.StatusOK, response)
+}
+
 // GetToken handles GET /connections/{connection_id}/token
 func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	pathParts := strings.Split(r.URL.Path, "/")
