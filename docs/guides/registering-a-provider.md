@@ -110,6 +110,106 @@ curl -s -X POST https://your-gateway.example.com/v1/providers \
   }' | jq .
 ```
 
+### Basic auth provider
+
+Username and password credentials. The Bridge encodes them as Base64 and sets the `Authorization: Basic` header automatically.
+
+```bash
+curl -s -X POST https://your-gateway.example.com/v1/providers \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-gateway-api-key" \
+  -d '{
+    "name": "jira-basic",
+    "auth_type": "basic_auth",
+    "params": {
+      "credential_schema": {
+        "type": "object",
+        "required": ["username", "password"],
+        "properties": {
+          "username": { "type": "string", "title": "Username" },
+          "password": { "type": "string", "title": "Password", "format": "password" }
+        }
+      }
+    }
+  }' | jq .
+```
+
+### AWS SigV4 provider
+
+For services that use AWS Signature Version 4 request signing. The `params.service` and `params.region` fields configure the signing scope.
+
+```bash
+curl -s -X POST https://your-gateway.example.com/v1/providers \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-gateway-api-key" \
+  -d '{
+    "name": "bedrock-us-east",
+    "auth_type": "aws_sigv4",
+    "params": {
+      "service": "bedrock",
+      "region": "us-east-1",
+      "credential_schema": {
+        "type": "object",
+        "required": ["access_key", "secret_key"],
+        "properties": {
+          "access_key": { "type": "string", "title": "AWS Access Key ID" },
+          "secret_key": { "type": "string", "title": "AWS Secret Access Key" }
+        }
+      }
+    }
+  }' | jq .
+```
+
+### Query param provider
+
+Injects the API key into the URL query string instead of a header. The `params.param_name` field sets the query parameter name.
+
+```bash
+curl -s -X POST https://your-gateway.example.com/v1/providers \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-gateway-api-key" \
+  -d '{
+    "name": "weatherapi",
+    "auth_type": "query_param",
+    "params": {
+      "param_name": "api_token",
+      "credential_schema": {
+        "type": "object",
+        "required": ["api_key"],
+        "properties": {
+          "api_key": { "type": "string", "title": "API Token" }
+        }
+      }
+    }
+  }' | jq .
+```
+
+### HMAC signature provider
+
+For APIs that require request signing with a shared secret. The `params.header_name`, `params.algo`, and `params.encoding` fields configure the signature format.
+
+```bash
+curl -s -X POST https://your-gateway.example.com/v1/providers \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-gateway-api-key" \
+  -d '{
+    "name": "webhook-hmac",
+    "auth_type": "hmac_payload",
+    "params": {
+      "header_name": "X-Signature",
+      "algo": "sha256",
+      "encoding": "hex",
+      "credential_schema": {
+        "type": "object",
+        "required": ["api_secret"],
+        "properties": {
+          "api_secret": { "type": "string", "title": "Signing Secret" }
+        }
+      }
+    }
+  }' | jq .
+```
+
 ### Provider-specific quirks
 
 Some providers deviate from the OAuth2 spec in ways that require additional params:

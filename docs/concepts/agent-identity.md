@@ -1,8 +1,8 @@
 # Agent Identity
 
-Nexus today has a connection model: a user authorizes a connection, and any agent that has the `connection_id` can retrieve tokens from it. The agent is anonymous. There is no record in the system of which agent is which, what it is allowed to do, or how long its authorization should last.
+The base Nexus connection model is anonymous: any process that holds a `connection_id` can retrieve tokens from it. There is no record of which agent is which, what it is allowed to do, or how long its authorization should last.
 
-The agent identity model, currently in development, adds agents as first-class principals in Nexus. An agent has a registered identity, a declared set of allowed scopes, and requests short-lived scoped sessions rather than holding a connection token directly.
+The agent identity model adds agents as first-class principals. An agent has a registered identity, a declared set of allowed scopes, and requests short-lived scoped sessions rather than holding a connection token directly. This model is currently in development.
 
 ## The agent registry
 

@@ -27,6 +27,8 @@ Both the Broker and the Gateway must receive the same value for `STATE_KEY`. If 
 | `REDIRECT_PATH` | No | The path appended to `BASE_URL` for the OAuth callback. Default: `/auth/callback` |
 | `ALLOWED_CIDRS` | No | Comma-separated list of IP ranges allowed to reach the Broker. In production, restrict this to the Gateway's IP. Example: `10.0.0.0/8` |
 | `ALLOWED_RETURN_DOMAINS` | No | Comma-separated list of allowed domains for the `return_url` parameter in connection requests. Prevents open redirect abuse. |
+| `REQUIRE_API_KEY` | No | When `true`, the Broker rejects requests without a valid `X-API-Key` header. Default: `true` |
+| `REQUIRE_ALLOWLIST` | No | When `true`, the Broker enforces `ALLOWED_CIDRS` for all requests. Default: `false` |
 | `PORT` | No | Port the Broker listens on. Default: `8080` |
 
 ---
@@ -54,14 +56,6 @@ Run this command twice, once for each key. Do not reuse the same value for both.
 
 ---
 
-## Production deployment on Azure Container Apps
+## Next steps
 
-Build Docker images for `nexus-broker` and `nexus-gateway` and push them to Azure Container Registry.
-
-The Broker must be reachable from the public internet for OAuth callbacks (the provider redirects the user's browser to your `BASE_URL`). The Gateway can be internal-only if your agents run inside the same virtual network, or public-facing if they run externally.
-
-Set all environment variables in the Container App configuration. For `ENCRYPTION_KEY` and `STATE_KEY`, inject them from Azure Key Vault using managed identity references rather than storing them as plain environment variable values.
-
-Ensure the Broker can reach the PostgreSQL instance. Azure Database for PostgreSQL with managed identity authentication is the recommended approach. Set `DATABASE_URL` to the connection string for your managed instance.
-
-Set `ALLOWED_CIDRS` on the Broker to the outbound IP range of the Gateway Container App environment. This prevents the Broker from being reachable from any host other than the Gateway.
+For production deployment configuration including Docker, Kubernetes, and Azure Container Apps, see [Deploying Nexus](../infrastructure/deploying-nexus.md).

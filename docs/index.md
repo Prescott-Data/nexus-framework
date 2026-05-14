@@ -1,14 +1,12 @@
 <div class="nx-hero" markdown>
 
-<img src="../assets/monogram-brand.svg" alt="Nexus" class="nx-hero-logo">
-
 # Nexus
 
 Credential brokering for autonomous agents. Nexus sits between your agents and every third-party service they reach, managing the full credential lifecycle so your agents never hold OAuth tokens, API keys, or refresh tokens directly.
 
 <div class="nx-cta-text" markdown>
 
-[Deploy in five minutes](getting-started/quickstart.md) · [How Nexus works](concepts/how-nexus-works.md) · [GitHub](https://github.com/Prescott-Data/nexus-framework)
+[Deploy in five minutes](getting-started/quickstart.md) · [Architecture](concepts/architecture.md) · [GitHub](https://github.com/Prescott-Data/nexus-framework)
 
 </div>
 
@@ -23,7 +21,7 @@ Credential brokering for autonomous agents. Nexus sits between your agents and e
 <div class="nx-stat"><span class="nx-stat-value">AES-256</span><span class="nx-stat-label">Token encryption</span></div>
 <div class="nx-stat"><span class="nx-stat-value">4</span><span class="nx-stat-label">Core components</span></div>
 <div class="nx-stat"><span class="nx-stat-value">v0.4</span><span class="nx-stat-label">Current release</span></div>
-<div class="nx-stat"><span class="nx-stat-value">Go</span><span class="nx-stat-label">Runtime</span></div>
+<div class="nx-stat"><span class="nx-stat-value">3 SDKs</span><span class="nx-stat-label">Go · TypeScript · Python</span></div>
 </div>
 
 </div>
@@ -57,9 +55,9 @@ Nexus handles token storage, refresh scheduling, OAuth handshakes, and audit log
 </div>
 
 <div class="nx-card" markdown>
-<span class="nx-card-label">SDK</span>
+<span class="nx-card-label">SDKs</span>
 
-**The thin client.** Direct Gateway access for explicit credential fetches. Use when you want control rather than automation.
+**Three first-class clients.** Go, TypeScript, and Python. Direct Gateway access for explicit credential fetches and MCP server integration.
 </div>
 
 </div>
@@ -80,7 +78,7 @@ Broker runs on `localhost:8080`. Gateway runs on `localhost:8090`.
 
 ## Documentation map
 
-Read [How Nexus Works](concepts/how-nexus-works.md) first. It establishes the control plane / data plane split, the OAuth handshake, and the credential retrieval model. Every other page assumes that mental model.
+Read [Architecture](concepts/architecture.md) first. It establishes the control plane and data plane split, the OAuth handshake, and the credential retrieval model. Every other page assumes that mental model.
 
 Then follow [Deploy in Five Minutes](getting-started/quickstart.md) to run a stack and make your first connection. After that, the [Guides](guides/integrating-agents.md) cover the operational tasks you return to repeatedly.
 
