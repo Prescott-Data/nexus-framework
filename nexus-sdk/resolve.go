@@ -105,6 +105,10 @@ func (c *Client) ResolveToken(ctx context.Context, workspaceID, providerName str
 // GetCachedToken resolves a token from the cache or fetches a fresh one from the gateway.
 // This is the high-level method that MCP servers should use.
 func (c *Client) GetCachedToken(ctx context.Context, cache *TokenCache, workspaceID, providerName string) (*CachedToken, error) {
+	if cache == nil {
+		return nil, fmt.Errorf("token cache is nil")
+	}
+
 	// Check cache first
 	if cached := cache.Get(workspaceID, providerName); cached != nil {
 		if c.Logger != nil {
