@@ -23,7 +23,7 @@ Three SDKs ship with Nexus, all with the same method surface:
 | Language | Package | Install |
 |---|---|---|
 | Go | `nexus-sdk` | `go get github.com/Prescott-Data/nexus-framework/nexus-sdk` |
-| TypeScript | `nexus-sdk` | `npm install nexus-sdk` |
+| TypeScript | `@dromos/nexus-sdk` | `npm install @dromos/nexus-sdk` |
 | Python | `nexus-sdk` | `pip install nexus-sdk` |
 
 Use an SDK when your agent makes discrete HTTP calls rather than holding a persistent connection, when you are building an MCP server, or when your agent is written in TypeScript or Python.
