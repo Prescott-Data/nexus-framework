@@ -17,7 +17,7 @@ export class NexusClient {
    * Currently mocks the response.
    */
   private async fetchTokenFromGateway(workspaceId: string, provider: string): Promise<NexusTokenInfo> {
-    console.log(`[NexusClient] Fetching fresh token from Gateway for workspace: ${workspaceId}, provider: ${provider}`);
+    console.error(`[NexusClient] Fetching fresh token from Gateway for workspace: ${workspaceId}, provider: ${provider}`);
     
     const url = new URL(`${this.gatewayUrl}/v1/resolve`);
     url.searchParams.append('workspace_id', workspaceId);
@@ -63,11 +63,15 @@ export class NexusClient {
     }
 
     // Handle expiration parsing
-    let expiresAt = Date.now() + (1000 * 60 * 60); // Default 1 hour fallback
+    // Conservative 5-minute default — avoids serving stale tokens if the
+    // upstream provider issued a short-lived token (some are 5–15 min).
+    let expiresAt = Date.now() + (1000 * 60 * 5);
     if (data.credentials.expires_at) {
         expiresAt = new Date(data.credentials.expires_at).getTime();
     } else if (data.expires_at) {
-         expiresAt = new Date(data.expires_at).getTime();
+        expiresAt = new Date(data.expires_at).getTime();
+    } else {
+        console.warn(`[NexusClient] No expires_at in token response for workspace: ${workspaceId}, provider: ${provider}. Using conservative 5-minute TTL.`);
     }
 
     return {
@@ -87,7 +91,7 @@ export class NexusClient {
       tokenInfo = await this.fetchTokenFromGateway(workspaceId, provider);
       this.tokenManager.setToken(workspaceId, provider, tokenInfo);
     } else {
-      console.log(`[NexusClient] Using cached token for workspace: ${workspaceId}, provider: ${provider}`);
+      console.error(`[NexusClient] Using cached token for workspace: ${workspaceId}, provider: ${provider}`);
     }
 
     return tokenInfo;
@@ -120,7 +124,7 @@ export class NexusClient {
       };
 
       // 4. Execute the actual fetch request
-      console.log(`[NexusClient Fetcher] Executing proxy fetch to ${input.toString()}`);
+      console.error(`[NexusClient Fetcher] Executing proxy fetch to ${input.toString()}`);
       return globalThis.fetch(input, updatedInit);
     };
   }

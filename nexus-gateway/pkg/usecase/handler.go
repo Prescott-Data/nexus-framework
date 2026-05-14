@@ -447,7 +447,8 @@ func (h *Handler) ResolveToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(resp.StatusCode())
+	writeError(w, http.StatusBadGateway, "broker_unexpected_status",
+		fmt.Sprintf("broker returned unexpected status %d", resp.StatusCode()), nil)
 }
 
 func (h *Handler) GetToken(w http.ResponseWriter, r *http.Request) {
