@@ -1,5 +1,5 @@
-import { TokenManager } from './TokenManager';
-import { FetcherOptions, NexusClientOptions, NexusTokenInfo } from './types';
+import { TokenManager } from './TokenManager.js';
+import type { FetcherOptions, NexusClientOptions, NexusTokenInfo } from './types.js';
 
 export class NexusClient {
   private gatewayUrl: string;

@@ -439,7 +439,11 @@ func (h *Handler) ResolveToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if resp.StatusCode() >= 400 {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode())
+		if resp.Body != nil {
+			_, _ = w.Write(resp.Body)
+		}
 		return
 	}
 

@@ -1,3 +1,3 @@
-export * from './types';
-export { NexusClient } from './NexusClient';
-export { TokenManager } from './TokenManager';
+export type { NexusClientOptions, NexusTokenInfo, FetcherOptions } from './types.js';
+export { NexusClient } from './NexusClient.js';
+export { TokenManager } from './TokenManager.js';

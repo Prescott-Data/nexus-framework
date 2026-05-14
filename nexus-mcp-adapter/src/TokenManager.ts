@@ -1,5 +1,5 @@
 import { LRUCache } from 'lru-cache';
-import { NexusTokenInfo } from './types';
+import type { NexusTokenInfo } from './types.js';
 
 export class TokenManager {
   private cache: LRUCache<string, NexusTokenInfo>;
