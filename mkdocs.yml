@@ -30,17 +30,23 @@ theme:
     text: Inter
     code: JetBrains Mono
   features:
+    - navigation.instant
+    - navigation.instant.progress
     - navigation.tabs
     - navigation.tabs.sticky
     - navigation.sections
     - navigation.expand
     - navigation.top
     - navigation.indexes
+    - navigation.path
+    - navigation.footer
+    - toc.follow
     - search.highlight
     - search.share
+    - search.suggest
     - content.code.copy
     - content.code.annotate
-    - toc.integrate
+    - content.tooltips
 
 extra_css:
   - stylesheets/extra.css
@@ -82,11 +88,6 @@ nav:
       - Deploy in Five Minutes: getting-started/quickstart.md
       - Environment Variables: getting-started/configuration.md
       - Your First Connection: getting-started/first-connection.md
-  - SDKs:
-      - Overview: sdks/index.md
-      - Go SDK: sdks/go.md
-      - TypeScript SDK: sdks/typescript.md
-      - Python SDK: sdks/python.md
   - Guides:
       - Registering a Provider: guides/registering-a-provider.md
       - Integrating Agents: guides/integrating-agents.md
@@ -97,11 +98,17 @@ nav:
       - OBO Delegation: guides/obo-delegation.md
       - Managing Providers: guides/managing-providers.md
       - Security-as-Code: guides/security-as-code.md
-      - Audit Log: reference/audit-log.md
       - Deploying Nexus: infrastructure/deploying-nexus.md
   - Reference:
       - API Reference: reference/api.md
       - CLI Reference: reference/cli.md
+      - Audit Log: reference/audit-log.md
+      - SDKs:
+          - Overview: sdks/index.md
+          - Go SDK: sdks/go.md
+          - TypeScript SDK: sdks/typescript.md
+          - Python SDK: sdks/python.md
+
 
 extra:
   version: "0.4.0"
