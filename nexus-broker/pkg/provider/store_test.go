@@ -47,6 +47,7 @@ func TestRegisterProfile_OAuth2(t *testing.T) {
 			"",                          // user_info_endpoint (empty string)
 			sqlmock.AnyArg(),            // params
 			"",                          // description
+			"",                          // category
 		).
 		WillReturnRows(rows)
 
@@ -105,6 +106,7 @@ func TestRegisterProfile_StaticKey(t *testing.T) {
 			"",                      // user_info_endpoint
 			sqlmock.AnyArg(),        // params
 			"",                      // description
+			"",                      // category
 		).
 		WillReturnRows(rows)
 
@@ -189,10 +191,10 @@ func TestGetProfile_NullValues(t *testing.T) {
 	providerID := uuid.New()
 	rows := sqlmock.NewRows([]string{
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
-		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description",
+		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category",
 	}).AddRow(
 		providerID.String(), "null-provider", nil, nil, nil, nil, nil,
-		false, []byte("{}"), "api_key", "", "", "", nil, "",
+		false, []byte("{}"), "api_key", "", "", "", nil, "", "",
 	)
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles WHERE id = \$1`).

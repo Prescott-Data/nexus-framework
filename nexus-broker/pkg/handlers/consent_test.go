@@ -40,6 +40,14 @@ func (m *MockConnectionService) GetToken(ctx context.Context, connectionID uuid.
 	return nil, args.String(1), args.Error(2)
 }
 
+func (m *MockConnectionService) GetTokenByWorkspaceAndProvider(ctx context.Context, workspaceID, providerName string) (map[string]interface{}, string, error) {
+	args := m.Called(ctx, workspaceID, providerName)
+	if args.Get(0) != nil {
+		return args.Get(0).(map[string]interface{}), args.String(1), args.Error(2)
+	}
+	return nil, args.String(1), args.Error(2)
+}
+
 func (m *MockConnectionService) GetCaptureSchema(ctx context.Context, state string) (string, json.RawMessage, error) {
 	args := m.Called(ctx, state)
 	if args.Get(1) != nil {

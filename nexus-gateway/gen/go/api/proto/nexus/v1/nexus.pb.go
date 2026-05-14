@@ -447,6 +447,102 @@ func (x *RefreshConnectionResponse) GetToken() *structpb.Struct {
 	return nil
 }
 
+type ResolveTokenRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	WorkspaceId   string                 `protobuf:"bytes,1,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	ProviderName  string                 `protobuf:"bytes,2,opt,name=provider_name,json=providerName,proto3" json:"provider_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveTokenRequest) Reset() {
+	*x = ResolveTokenRequest{}
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveTokenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveTokenRequest) ProtoMessage() {}
+
+func (x *ResolveTokenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveTokenRequest.ProtoReflect.Descriptor instead.
+func (*ResolveTokenRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_nexus_v1_nexus_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ResolveTokenRequest) GetWorkspaceId() string {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return ""
+}
+
+func (x *ResolveTokenRequest) GetProviderName() string {
+	if x != nil {
+		return x.ProviderName
+	}
+	return ""
+}
+
+type ResolveTokenResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Token         *structpb.Struct       `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveTokenResponse) Reset() {
+	*x = ResolveTokenResponse{}
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveTokenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveTokenResponse) ProtoMessage() {}
+
+func (x *ResolveTokenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_nexus_v1_nexus_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveTokenResponse.ProtoReflect.Descriptor instead.
+func (*ResolveTokenResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_nexus_v1_nexus_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ResolveTokenResponse) GetToken() *structpb.Struct {
+	if x != nil {
+		return x.Token
+	}
+	return nil
+}
+
 var File_api_proto_nexus_v1_nexus_proto protoreflect.FileDescriptor
 
 const file_api_proto_nexus_v1_nexus_proto_rawDesc = "" +
@@ -479,6 +575,11 @@ const file_api_proto_nexus_v1_nexus_proto_rawDesc = "" +
 	"\x18RefreshConnectionRequest\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\"J\n" +
 	"\x19RefreshConnectionResponse\x12-\n" +
+	"\x05token\x18\x01 \x01(\v2\x17.google.protobuf.StructR\x05token\"]\n" +
+	"\x13ResolveTokenRequest\x12!\n" +
+	"\fworkspace_id\x18\x01 \x01(\tR\vworkspaceId\x12#\n" +
+	"\rprovider_name\x18\x02 \x01(\tR\fproviderName\"E\n" +
+	"\x14ResolveTokenResponse\x12-\n" +
 	"\x05token\x18\x01 \x01(\v2\x17.google.protobuf.StructR\x05token2\x80\x04\n" +
 	"\fNexusService\x12\x7f\n" +
 	"\x11RequestConnection\x12\".nexus.v1.RequestConnectionRequest\x1a#.nexus.v1.RequestConnectionResponse\"!\x82\xd3\xe4\x93\x02\x1b:\x01*\"\x16/v1/request-connection\x12\x84\x01\n" +
@@ -500,7 +601,7 @@ func file_api_proto_nexus_v1_nexus_proto_rawDescGZIP() []byte {
 	return file_api_proto_nexus_v1_nexus_proto_rawDescData
 }
 
-var file_api_proto_nexus_v1_nexus_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_api_proto_nexus_v1_nexus_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_api_proto_nexus_v1_nexus_proto_goTypes = []any{
 	(*RequestConnectionRequest)(nil),  // 0: nexus.v1.RequestConnectionRequest
 	(*RequestConnectionResponse)(nil), // 1: nexus.v1.RequestConnectionResponse
@@ -510,24 +611,27 @@ var file_api_proto_nexus_v1_nexus_proto_goTypes = []any{
 	(*GetTokenResponse)(nil),          // 5: nexus.v1.GetTokenResponse
 	(*RefreshConnectionRequest)(nil),  // 6: nexus.v1.RefreshConnectionRequest
 	(*RefreshConnectionResponse)(nil), // 7: nexus.v1.RefreshConnectionResponse
-	(*structpb.Struct)(nil),           // 8: google.protobuf.Struct
+	(*ResolveTokenRequest)(nil),       // 8: nexus.v1.ResolveTokenRequest
+	(*ResolveTokenResponse)(nil),      // 9: nexus.v1.ResolveTokenResponse
+	(*structpb.Struct)(nil),           // 10: google.protobuf.Struct
 }
 var file_api_proto_nexus_v1_nexus_proto_depIdxs = []int32{
-	8, // 0: nexus.v1.GetTokenResponse.token:type_name -> google.protobuf.Struct
-	8, // 1: nexus.v1.RefreshConnectionResponse.token:type_name -> google.protobuf.Struct
-	0, // 2: nexus.v1.NexusService.RequestConnection:input_type -> nexus.v1.RequestConnectionRequest
-	2, // 3: nexus.v1.NexusService.CheckConnection:input_type -> nexus.v1.CheckConnectionRequest
-	4, // 4: nexus.v1.NexusService.GetToken:input_type -> nexus.v1.GetTokenRequest
-	6, // 5: nexus.v1.NexusService.RefreshConnection:input_type -> nexus.v1.RefreshConnectionRequest
-	1, // 6: nexus.v1.NexusService.RequestConnection:output_type -> nexus.v1.RequestConnectionResponse
-	3, // 7: nexus.v1.NexusService.CheckConnection:output_type -> nexus.v1.CheckConnectionResponse
-	5, // 8: nexus.v1.NexusService.GetToken:output_type -> nexus.v1.GetTokenResponse
-	7, // 9: nexus.v1.NexusService.RefreshConnection:output_type -> nexus.v1.RefreshConnectionResponse
-	6, // [6:10] is the sub-list for method output_type
-	2, // [2:6] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	10, // 0: nexus.v1.GetTokenResponse.token:type_name -> google.protobuf.Struct
+	10, // 1: nexus.v1.RefreshConnectionResponse.token:type_name -> google.protobuf.Struct
+	10, // 2: nexus.v1.ResolveTokenResponse.token:type_name -> google.protobuf.Struct
+	0,  // 3: nexus.v1.NexusService.RequestConnection:input_type -> nexus.v1.RequestConnectionRequest
+	2,  // 4: nexus.v1.NexusService.CheckConnection:input_type -> nexus.v1.CheckConnectionRequest
+	4,  // 5: nexus.v1.NexusService.GetToken:input_type -> nexus.v1.GetTokenRequest
+	6,  // 6: nexus.v1.NexusService.RefreshConnection:input_type -> nexus.v1.RefreshConnectionRequest
+	1,  // 7: nexus.v1.NexusService.RequestConnection:output_type -> nexus.v1.RequestConnectionResponse
+	3,  // 8: nexus.v1.NexusService.CheckConnection:output_type -> nexus.v1.CheckConnectionResponse
+	5,  // 9: nexus.v1.NexusService.GetToken:output_type -> nexus.v1.GetTokenResponse
+	7,  // 10: nexus.v1.NexusService.RefreshConnection:output_type -> nexus.v1.RefreshConnectionResponse
+	7,  // [7:11] is the sub-list for method output_type
+	3,  // [3:7] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_nexus_v1_nexus_proto_init() }
@@ -541,7 +645,7 @@ func file_api_proto_nexus_v1_nexus_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_nexus_v1_nexus_proto_rawDesc), len(file_api_proto_nexus_v1_nexus_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -410,6 +410,47 @@ func (h *Handler) CheckConnection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": status})
 }
 
+func (h *Handler) ResolveToken(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.URL.Query().Get("workspace_id")
+	providerName := r.URL.Query().Get("provider_name")
+
+	if workspaceID == "" || providerName == "" {
+		writeError(w, http.StatusBadRequest, "missing_fields", "missing workspace_id or provider_name", nil)
+		return
+	}
+
+	logging.Info(r.Context(), "resolve_token.start", map[string]any{"workspace_id": workspaceID, "provider_name": providerName})
+
+	params := &broker.GetConnectionsResolveParams{
+		WorkspaceId:  workspaceID,
+		ProviderName: providerName,
+	}
+	resp, err := h.brokerClient.GetConnectionsResolveWithResponse(r.Context(), params)
+	if err != nil {
+		logging.Error(r.Context(), "resolve_token.broker_error", map[string]any{"error": err.Error()})
+		writeError(w, http.StatusBadGateway, "broker_unavailable", "broker request failed", nil)
+		return
+	}
+
+	if resp.StatusCode() == http.StatusOK && resp.JSON200 != nil {
+		logging.Info(r.Context(), "resolve_token.success", map[string]any{"workspace_id": workspaceID, "provider_name": providerName})
+		writeJSON(w, http.StatusOK, resp.JSON200)
+		return
+	}
+
+	if resp.StatusCode() >= 400 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode())
+		if resp.Body != nil {
+			_, _ = w.Write(resp.Body)
+		}
+		return
+	}
+
+	writeError(w, http.StatusBadGateway, "broker_unexpected_status",
+		fmt.Sprintf("broker returned unexpected status %d", resp.StatusCode()), nil)
+}
+
 func (h *Handler) GetToken(w http.ResponseWriter, r *http.Request) {
 	connectionID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/v1/token/"))
 	if connectionID == "" {

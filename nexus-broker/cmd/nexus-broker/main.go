@@ -116,6 +116,7 @@ func main() {
 		r.Delete("/{id}", providersHandler.Delete)
 	})
 	protected.Post("/auth/consent-spec", consentHandler.GetSpec)
+	protected.Get("/connections/resolve", callbackHandler.ResolveToken)
 	protected.Get("/connections/{connectionID}/token", callbackHandler.GetToken)
 	protected.Post("/connections/{connectionID}/refresh", callbackHandler.Refresh)
 

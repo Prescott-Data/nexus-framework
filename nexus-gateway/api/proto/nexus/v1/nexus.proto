@@ -74,3 +74,12 @@ message RefreshConnectionRequest {
 message RefreshConnectionResponse {
   google.protobuf.Struct token = 1;
 }
+
+message ResolveTokenRequest {
+  string workspace_id = 1;
+  string provider_name = 2;
+}
+
+message ResolveTokenResponse {
+  google.protobuf.Struct token = 1;
+}

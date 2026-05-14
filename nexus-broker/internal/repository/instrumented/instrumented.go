@@ -65,10 +65,14 @@ func (r *ConnectionRepository) UpdateStatus(ctx context.Context, id uuid.UUID, s
 }
 
 func (r *ConnectionRepository) CountByStatus(ctx context.Context) (map[string]int64, error) {
-	defer observe("connection", "CountByStatus", time.Now())
-	return r.inner.CountByStatus(ctx)
+        defer observe("connection", "CountByStatus", time.Now())
+        return r.inner.CountByStatus(ctx)
 }
 
+func (r *ConnectionRepository) GetActiveByWorkspaceAndProvider(ctx context.Context, workspaceID, providerName string) (*domain.ConnectionWithProvider, error) {
+        defer observe("connection", "GetActiveByWorkspaceAndProvider", time.Now())
+        return r.inner.GetActiveByWorkspaceAndProvider(ctx, workspaceID, providerName)
+}
 // --- TokenRepository decorator ---
 
 // TokenRepository wraps repository.TokenRepository with latency instrumentation.

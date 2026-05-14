@@ -66,6 +66,14 @@ func (m *MockConnectionRepository) CountByStatus(ctx context.Context) (map[strin
 	return nil, args.Error(1)
 }
 
+func (m *MockConnectionRepository) GetActiveByWorkspaceAndProvider(ctx context.Context, workspaceID, providerName string) (*domain.ConnectionWithProvider, error) {
+	args := m.Called(ctx, workspaceID, providerName)
+	if args.Get(0) != nil {
+		return args.Get(0).(*domain.ConnectionWithProvider), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 // MockTokenRepository is a mock of repository.TokenRepository
 type MockTokenRepository struct {
 	mock.Mock

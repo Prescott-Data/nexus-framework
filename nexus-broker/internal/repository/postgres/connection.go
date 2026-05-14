@@ -56,6 +56,24 @@ func (r *connectionRepository) GetWithProvider(ctx context.Context, id uuid.UUID
 	return &conn, nil
 }
 
+func (r *connectionRepository) GetActiveByWorkspaceAndProvider(ctx context.Context, workspaceID, providerName string) (*domain.ConnectionWithProvider, error) {
+	var conn domain.ConnectionWithProvider
+	err := r.db.QueryRowContext(ctx, `
+		SELECT c.id, c.provider_id, c.status, c.scopes, c.return_url,
+		       p.name, p.auth_type, COALESCE(p.auth_header, ''), COALESCE(p.api_base_url, ''), COALESCE(p.user_info_endpoint, ''), p.params
+		FROM connections c
+		JOIN provider_profiles p ON p.id = c.provider_id
+		WHERE c.workspace_id = $1 AND p.name = $2 AND c.status = 'active'
+		ORDER BY c.updated_at DESC
+		LIMIT 1`, workspaceID, providerName).
+		Scan(&conn.ID, &conn.ProviderID, &conn.Status, pq.Array(&conn.Scopes), &conn.ReturnURL,
+			&conn.ProviderName, &conn.AuthType, &conn.AuthHeader, &conn.APIBaseURL, &conn.UserInfoEndpoint, &conn.ProviderParams)
+	if err != nil {
+		return nil, err
+	}
+	return &conn, nil
+}
+
 func (r *connectionRepository) GetReturnURL(ctx context.Context, id uuid.UUID) (string, error) {
 	var returnURL string
 	err := r.db.QueryRowContext(ctx, "SELECT return_url FROM connections WHERE id = $1", id).Scan(&returnURL)
