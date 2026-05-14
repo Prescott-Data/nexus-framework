@@ -110,10 +110,11 @@ export class NexusClient {
       const headers = new Headers(init?.headers);
       
       // Inject the authorization header
-      if (tokenInfo.tokenType === 'Bearer') {
+      // Normalize token type — providers return 'bearer'/'Bearer' inconsistently
+      // but RFC 6750 specifies 'Bearer' (capitalized) in the header.
+      if (tokenInfo.tokenType.toLowerCase() === 'bearer') {
         headers.set('Authorization', `Bearer ${tokenInfo.accessToken}`);
       } else {
-        // Handle other token types or custom signing strategies (like AWS SigV4) here in the future
         headers.set('Authorization', `${tokenInfo.tokenType} ${tokenInfo.accessToken}`);
       }
 
