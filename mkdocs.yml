@@ -75,7 +75,6 @@ nav:
       - Auth Strategies: concepts/auth-strategies.md
       - Provider Types: concepts/provider-types.md
       - Security Model: concepts/security-model.md
-      - The SDK: concepts/sdk.md
       - The Bridge: concepts/bridge.md
       - The Broker: concepts/broker.md
       - The Gateway: concepts/gateway.md
@@ -83,6 +82,11 @@ nav:
       - Deploy in Five Minutes: getting-started/quickstart.md
       - Environment Variables: getting-started/configuration.md
       - Your First Connection: getting-started/first-connection.md
+  - SDKs:
+      - Overview: sdks/index.md
+      - Go SDK: sdks/go.md
+      - TypeScript SDK: sdks/typescript.md
+      - Python SDK: sdks/python.md
   - Guides:
       - Registering a Provider: guides/registering-a-provider.md
       - Integrating Agents: guides/integrating-agents.md
