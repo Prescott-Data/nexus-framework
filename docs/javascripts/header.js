@@ -4,12 +4,14 @@
    - Moves theme palette toggle to far-right
    - Opens external tabs in new window
 */
-document.addEventListener('DOMContentLoaded', function () {
+function initHeader() {
 
   /* ── 1. Version chip — live from GitHub API ─────────── */
   var title = document.querySelector('.md-header__title');
-  var chip;
-  if (title) {
+  var chip = document.querySelector('.nx-version-chip');
+  
+  // Skip if already injected (instant navigation guard)
+  if (!chip && title) {
     chip = document.createElement('span');
     chip.className = 'nx-version-chip';
     chip.textContent = '…';
@@ -17,29 +19,34 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   /* Fetch the LATEST tag from GitHub — single source of truth */
-  fetch('https://api.github.com/repos/Prescott-Data/nexus-framework/tags')
-    .then(function (r) { return r.json(); })
-    .then(function (tags) {
-      if (Array.isArray(tags) && tags.length > 0) {
-        var latestVersion = tags[0].name;
-        if (chip) chip.textContent = latestVersion;
+  if (chip) {
+    fetch('https://api.github.com/repos/Prescott-Data/nexus-framework/tags')
+      .then(function (r) { return r.json(); })
+      .then(function (tags) {
+        if (Array.isArray(tags) && tags.length > 0) {
+          var latestVersion = tags[0].name;
+          if (chip) chip.textContent = latestVersion;
 
-        /* Also update hero badge if present */
-        var heroBadge = document.getElementById('nx-hero-version-badge');
-        if (heroBadge) {
-          heroBadge.innerHTML = latestVersion + ' &middot; Apache 2.0 &middot; Production Ready';
+          /* Also update hero badge if present */
+          var heroBadge = document.getElementById('nx-hero-version-badge');
+          if (heroBadge) {
+            heroBadge.innerHTML = latestVersion + ' &middot; Apache 2.0 &middot; Production Ready';
+          }
         }
-      }
-    })
-    .catch(function () {
-      /* On network failure, hide chip entirely rather than showing stale data */
-      if (chip) chip.style.display = 'none';
-    });
+      })
+      .catch(function () {
+        /* On network failure, hide chip entirely rather than showing stale data */
+        if (chip) chip.style.display = 'none';
+      });
+  }
 
   /* ── 2. GitHub stars widget ─────────────────────────── */
   var inner = document.querySelector('.md-header__inner');
   var palette = document.querySelector('form[data-md-component="palette"]');
-  if (inner && palette) {
+  var existingGhBtn = document.querySelector('.nx-gh-btn');
+  
+  // Skip if already injected (instant navigation guard)
+  if (inner && palette && !existingGhBtn) {
     var ghBtn = document.createElement('a');
     ghBtn.href = 'https://github.com/Prescott-Data/nexus-framework';
     ghBtn.target = '_blank';
@@ -77,4 +84,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
-});
+}
+
+// Run on first load
+document.addEventListener('DOMContentLoaded', initHeader);
+
+// Re-run on every instant navigation (Material for MkDocs SPA mode)
+if (typeof document$ !== 'undefined') {
+  document$.subscribe(initHeader);
+}
