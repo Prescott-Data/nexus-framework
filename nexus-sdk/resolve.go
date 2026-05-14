@@ -164,7 +164,7 @@ func (c *Client) GetCachedToken(ctx context.Context, cache *TokenCache, workspac
 //	cache := oauthsdk.NewTokenCache(30 * time.Second)
 //
 //	httpClient := &http.Client{
-//	    Transport: client.AuthenticatedTransport(cache, "ws-001", "github"),
+//	    Transport: client.NewAuthenticatedTransport(cache, "ws-001", "github", nil),
 //	}
 //
 //	// All requests through this httpClient will have Authorization headers injected.
