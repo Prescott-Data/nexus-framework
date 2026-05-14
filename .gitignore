@@ -58,3 +58,4 @@ tmp/
 # Documentation/Artifacts
 docs/site/
 node_modules/
+__pycache__/
