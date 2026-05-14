@@ -515,7 +515,7 @@ export class NexusClient {
 
 export class NexusError extends Error {
   public readonly code: string;
-  public readonly statusCode?: number;
+  public readonly statusCode?: number | undefined;
 
   constructor(code: string, message: string, statusCode?: number) {
     super(`${code}: ${message}`);

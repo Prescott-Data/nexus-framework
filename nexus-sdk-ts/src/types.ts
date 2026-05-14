@@ -109,17 +109,17 @@ export interface RequestConnectionResponse {
   /**
    * The OAuth state parameter.
    */
-  state?: string;
+  state?: string | undefined;
 
   /**
    * Scopes granted by the connection.
    */
-  scopes?: string[];
+  scopes?: string[] | undefined;
 
   /**
    * The internal Nexus provider ID.
    */
-  providerId?: string;
+  providerId?: string | undefined;
 }
 
 // ─── Token Response ──────────────────────────
@@ -133,52 +133,52 @@ export interface TokenResponse {
   /**
    * The token type (e.g., "Bearer", "bearer").
    */
-  tokenType?: string;
+  tokenType?: string | undefined;
 
   /**
    * Number of seconds until the token expires (from the time of issuance).
    */
-  expiresIn?: number;
+  expiresIn?: number | undefined;
 
   /**
    * ISO 8601 timestamp or epoch when the token expires.
    */
-  expiresAt?: string | number;
+  expiresAt?: string | number | undefined;
 
   /**
    * Scopes granted by the token (space-separated string).
    */
-  scope?: string;
+  scope?: string | undefined;
 
   /**
    * OIDC ID token, if present.
    */
-  idToken?: string;
+  idToken?: string | undefined;
 
   /**
    * Refresh token, if present.
    */
-  refreshToken?: string;
+  refreshToken?: string | undefined;
 
   /**
    * Provider name.
    */
-  provider?: string;
+  provider?: string | undefined;
 
   /**
    * Authentication strategy metadata from the broker.
    */
-  strategy?: Record<string, unknown>;
+  strategy?: Record<string, unknown> | undefined;
 
   /**
    * Full credentials payload from the broker (provider-specific fields).
    */
-  credentials?: Record<string, unknown>;
+  credentials?: Record<string, unknown> | undefined;
 
   /**
    * Raw JSON response — contains all fields, including unlisted ones.
    */
-  raw?: Record<string, unknown>;
+  raw?: Record<string, unknown> | undefined;
 }
 
 // ─── Cached Token Info (for TokenManager) ────
