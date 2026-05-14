@@ -33,13 +33,13 @@
   "author": "Prescott Data",
   "license": "ISC",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "lru-cache": "^11.3.6",
-    "zod": "^4.4.3"
+    "lru-cache": "^11.3.6"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^25.7.0",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "zod": "^4.4.3"
   }
 }

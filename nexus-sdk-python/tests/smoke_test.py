@@ -14,10 +14,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from nexus_sdk import NexusClient, NexusClientOptions, TokenCache, RequestConnectionInput
 
-GATEWAY_URL = os.environ.get(
-    "NEXUS_GATEWAY_URL",
-    "https://dromos-oauth-gateway.bravesea-3f5f7e75.eastus.azurecontainerapps.io",
-)
+GATEWAY_URL = os.environ.get("NEXUS_GATEWAY_URL", "")
+if not GATEWAY_URL:
+    print("error: NEXUS_GATEWAY_URL environment variable is required", file=sys.stderr)
+    print("usage: NEXUS_GATEWAY_URL=https://your-gateway.example.com python3 smoke_test.py", file=sys.stderr)
+    sys.exit(1)
 WORKSPACE = "test-workspace-001"
 
 

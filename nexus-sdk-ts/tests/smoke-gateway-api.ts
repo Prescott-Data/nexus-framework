@@ -1,10 +1,18 @@
 /**
  * Smoke test for the new Gateway API methods in NexusClient.
  * Tests: requestConnection, checkConnection, getTokenByConnectionId
+ *
+ * Usage:
+ *   NEXUS_GATEWAY_URL=https://your-gateway.example.com npx tsx tests/smoke-gateway-api.ts
  */
 import { NexusClient } from '../src/index.js';
 
-const GATEWAY_URL = process.env.NEXUS_GATEWAY_URL || 'https://dromos-oauth-gateway.bravesea-3f5f7e75.eastus.azurecontainerapps.io';
+const GATEWAY_URL = process.env.NEXUS_GATEWAY_URL;
+if (!GATEWAY_URL) {
+  console.error('error: NEXUS_GATEWAY_URL environment variable is required');
+  console.error('usage: NEXUS_GATEWAY_URL=https://your-gateway.example.com npx tsx tests/smoke-gateway-api.ts');
+  process.exit(1);
+}
 
 async function main() {
   const client = new NexusClient({
@@ -30,14 +38,19 @@ async function main() {
   const status = await client.checkConnection(conn.connectionId);
   console.error(`   ✅ Status: ${status}`);
 
-  // 3. getTokenByConnectionId (using an existing active GitHub connection)
-  console.error('\n3. Testing getTokenByConnectionId (existing GitHub connection)...');
-  try {
-    const token = await client.getTokenByConnectionId('d10f8c19-c468-445f-9fa8-f491e6f6071e');
-    console.error(`   ✅ Got token: ${token.accessToken.substring(0, 10)}...`);
-    console.error(`   ✅ Token type: ${token.tokenType}`);
-  } catch (err: any) {
-    console.error(`   ❌ ${err.message}`);
+  // 3. getTokenByConnectionId (using an existing active connection)
+  const testConnectionId = process.env.NEXUS_TEST_CONNECTION_ID;
+  if (testConnectionId) {
+    console.error('\n3. Testing getTokenByConnectionId...');
+    try {
+      const token = await client.getTokenByConnectionId(testConnectionId);
+      console.error(`   ✅ Got token: ${token.accessToken.substring(0, 10)}...`);
+      console.error(`   ✅ Token type: ${token.tokenType}`);
+    } catch (err: any) {
+      console.error(`   ❌ ${err.message}`);
+    }
+  } else {
+    console.error('\n3. Skipping getTokenByConnectionId (NEXUS_TEST_CONNECTION_ID not set)');
   }
 
   console.error('\n=== All Gateway API tests passed! ===');

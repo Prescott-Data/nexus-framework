@@ -17,10 +17,20 @@ import (
 	oauthsdk "github.com/Prescott-Data/nexus-framework/nexus-sdk"
 )
 
+// safePrefix returns at most n characters from s, avoiding out-of-bounds panics.
+func safePrefix(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
 func main() {
 	gatewayURL := os.Getenv("NEXUS_GATEWAY_URL")
 	if gatewayURL == "" {
-		gatewayURL = "https://dromos-oauth-gateway.bravesea-3f5f7e75.eastus.azurecontainerapps.io"
+		fmt.Fprintln(os.Stderr, "error: NEXUS_GATEWAY_URL environment variable is required")
+		fmt.Fprintln(os.Stderr, "usage: NEXUS_GATEWAY_URL=https://your-gateway.example.com go run .")
+		os.Exit(1)
 	}
 	workspace := "test-workspace-001"
 
@@ -43,7 +53,7 @@ func main() {
 		fmt.Printf("❌ %v\n", err)
 		failed++
 	} else {
-		fmt.Printf("✅ token=%s... type=%s\n", tok.AccessToken[:10], tok.TokenType)
+		fmt.Printf("✅ token=%s... type=%s\n", safePrefix(tok.AccessToken, 10), tok.TokenType)
 		passed++
 	}
 
@@ -54,7 +64,7 @@ func main() {
 		fmt.Printf("❌ %v\n", err)
 		failed++
 	} else {
-		fmt.Printf("✅ token=%s... type=%s\n", tok2.AccessToken[:10], tok2.TokenType)
+		fmt.Printf("✅ token=%s... type=%s\n", safePrefix(tok2.AccessToken, 10), tok2.TokenType)
 		passed++
 	}
 
@@ -91,7 +101,7 @@ func main() {
 			fmt.Printf("✅ user: %s\n", login)
 			passed++
 		} else {
-			fmt.Printf("❌ unexpected response: %s\n", string(body[:80]))
+			fmt.Printf("❌ unexpected response: %s\n", safePrefix(string(body), 80))
 			failed++
 		}
 	}
@@ -112,7 +122,7 @@ func main() {
 			fmt.Printf("✅ user: %s\n", email)
 			passed++
 		} else {
-			fmt.Printf("❌ unexpected response: %s\n", string(body2[:80]))
+			fmt.Printf("❌ unexpected response: %s\n", safePrefix(string(body2), 80))
 			failed++
 		}
 	}
