@@ -1,7 +1,9 @@
 """
 Nexus SDK for Python — unified client for Nexus OAuth Gateway.
 
-Supports both synchronous and MCP server (async) workflows.
+Provides a synchronous client for both standard app workflows
+(connection management, token retrieval) and MCP server workflows
+(workspace-scoped token resolution, caching, and authenticated HTTP requests).
 """
 
 from nexus_sdk.client import NexusClient

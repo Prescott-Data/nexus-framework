@@ -340,18 +340,32 @@ export class NexusClient {
       );
     }
 
-    // Determine token type
+    // Determine auth injection strategy from broker response
+    let headerName = 'Authorization';
+    let valuePrefix = 'Bearer ';
     let tokenType = 'Bearer';
     const strategy = data.strategy as Record<string, unknown> | undefined;
-    if (
-      strategy?.type === 'header' &&
-      (strategy.config as Record<string, unknown>)?.value_prefix
-    ) {
-      tokenType = String(
-        (strategy.config as Record<string, unknown>).value_prefix,
-      ).trim();
+    const strategyConfig = strategy?.config as Record<string, unknown> | undefined;
+
+    if (strategy?.type === 'header' && strategyConfig) {
+      // Non-OAuth strategy: the broker specifies which header and prefix to use
+      if (strategyConfig.header_name) {
+        headerName = String(strategyConfig.header_name);
+      }
+      const prefix = strategyConfig.value_prefix;
+      if (prefix !== undefined) {
+        // Explicit prefix from broker — may be empty string for raw API keys
+        valuePrefix = String(prefix);
+        tokenType = valuePrefix.trim() || headerName;
+      }
     } else if (credentials.token_type) {
       tokenType = String(credentials.token_type);
+      // Normalize Bearer casing per RFC 6750
+      if (tokenType.toLowerCase() === 'bearer') {
+        valuePrefix = 'Bearer ';
+      } else {
+        valuePrefix = tokenType + ' ';
+      }
     }
 
     // Extract access token
@@ -359,10 +373,10 @@ export class NexusClient {
     if (
       !accessToken &&
       strategy &&
-      (strategy.config as Record<string, unknown>)?.credential_field
+      strategyConfig?.credential_field
     ) {
       accessToken = credentials[
-        String((strategy.config as Record<string, unknown>).credential_field)
+        String(strategyConfig.credential_field)
       ] as string | undefined;
     }
 
@@ -385,7 +399,7 @@ export class NexusClient {
       );
     }
 
-    return { accessToken, tokenType, expiresAt };
+    return { accessToken, tokenType, expiresAt, headerName, valuePrefix };
   }
 
   /**
@@ -449,15 +463,14 @@ export class NexusClient {
 
       const headers = new Headers(init?.headers);
 
-      // Normalize token type per RFC 6750
-      if (tokenInfo.tokenType.toLowerCase() === 'bearer') {
-        headers.set('Authorization', `Bearer ${tokenInfo.accessToken}`);
-      } else {
-        headers.set(
-          'Authorization',
-          `${tokenInfo.tokenType} ${tokenInfo.accessToken}`,
-        );
-      }
+      // Use the header name and prefix from the resolved strategy.
+      // For OAuth2: Authorization: Bearer <token>
+      // For API key: X-API-Key: <token>  (valuePrefix is empty)
+      // For custom:  X-Custom: prefix <token>
+      headers.set(
+        tokenInfo.headerName,
+        `${tokenInfo.valuePrefix}${tokenInfo.accessToken}`,
+      );
 
       const updatedInit: RequestInit = { ...init, headers };
 

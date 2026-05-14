@@ -10,6 +10,14 @@ type CachedToken struct {
 	AccessToken string
 	TokenType   string
 	ExpiresAt   time.Time
+
+	// HeaderName is the HTTP header to set (e.g., "Authorization", "X-API-Key").
+	// Defaults to "Authorization" for OAuth2 strategies.
+	HeaderName string
+
+	// ValuePrefix is prepended to the token value (e.g., "Bearer ").
+	// Empty string for raw API-key strategies.
+	ValuePrefix string
 }
 
 // TokenCache is a thread-safe, TTL-aware in-memory cache for resolved tokens.

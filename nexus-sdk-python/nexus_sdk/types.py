@@ -123,13 +123,19 @@ class CachedToken:
     """A resolved token with its expiration metadata."""
 
     access_token: str
-    """The raw access token."""
+    """The raw access token / credential value."""
 
     token_type: str
-    """Token type (e.g., 'Bearer')."""
+    """Token type (e.g., 'Bearer'). May be empty for non-OAuth strategies."""
 
     expires_at: float
     """Epoch timestamp (seconds) when the token expires."""
+
+    header_name: str = "Authorization"
+    """HTTP header name to use (e.g., 'Authorization', 'X-API-Key')."""
+
+    value_prefix: str = "Bearer "
+    """Value prefix before the token (e.g., 'Bearer '). Empty for raw API keys."""
 
 
 class NexusError(Exception):

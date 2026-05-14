@@ -185,12 +185,13 @@ export interface TokenResponse {
 
 export interface NexusTokenInfo {
   /**
-   * The raw access token to be used in the Authorization header.
+   * The raw access token / credential value.
    */
   accessToken: string;
 
   /**
    * The type of token, typically "Bearer".
+   * For non-OAuth strategies this may be empty.
    */
   tokenType: string;
 
@@ -198,6 +199,20 @@ export interface NexusTokenInfo {
    * Epoch timestamp (in milliseconds) when the token expires.
    */
   expiresAt: number;
+
+  /**
+   * The HTTP header name to use for authentication.
+   * Defaults to "Authorization". For API-key strategies the broker
+   * may specify a different header (e.g., "X-API-Key").
+   */
+  headerName: string;
+
+  /**
+   * The value prefix to prepend before the token.
+   * For OAuth2 this is typically "Bearer ". For API-key strategies
+   * with no prefix this will be an empty string.
+   */
+  valuePrefix: string;
 }
 
 // ─── Fetcher (MCP-specific) ──────────────────

@@ -139,10 +139,32 @@ func (c *Client) GetCachedToken(ctx context.Context, cache *TokenCache, workspac
 		c.Logger.Infof("no expires_at in response for workspace=%s provider=%s, using 5-minute fallback", workspaceID, providerName)
 	}
 
+	// Determine auth injection strategy from broker response
+	headerName := "Authorization"
+	valuePrefix := "Bearer "
+
+	if stratType, _ := resolved.Strategy["type"].(string); stratType == "header" {
+		if cfg, ok := resolved.Strategy["config"].(map[string]interface{}); ok {
+			if hn, ok := cfg["header_name"].(string); ok && hn != "" {
+				headerName = hn
+			}
+			if vp, ok := cfg["value_prefix"].(string); ok {
+				// Explicit prefix from broker — may be empty for raw API keys
+				valuePrefix = vp
+			}
+		}
+	} else if strings.EqualFold(resolved.TokenType, "bearer") {
+		valuePrefix = "Bearer "
+	} else if resolved.TokenType != "" {
+		valuePrefix = resolved.TokenType + " "
+	}
+
 	token := CachedToken{
 		AccessToken: resolved.AccessToken,
 		TokenType:   resolved.TokenType,
 		ExpiresAt:   expiresAt,
+		HeaderName:  headerName,
+		ValuePrefix: valuePrefix,
 	}
 
 	cache.Set(workspaceID, providerName, token)
@@ -193,7 +215,8 @@ func (c *Client) NewAuthenticatedTransport(cache *TokenCache, workspaceID, provi
 }
 
 // RoundTrip implements the http.RoundTripper interface.
-// It resolves a valid token and injects the Authorization header before delegating to the base transport.
+// It resolves a valid token and injects the correct auth header based on the
+// broker's strategy (OAuth2 → Authorization: Bearer, API key → X-API-Key, etc.).
 func (t *AuthenticatedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	token, err := t.client.GetCachedToken(req.Context(), t.cache, t.workspaceID, t.provider)
 	if err != nil {
@@ -203,13 +226,8 @@ func (t *AuthenticatedTransport) RoundTrip(req *http.Request) (*http.Response, e
 	// Clone the request to avoid mutating the original
 	clone := req.Clone(req.Context())
 
-	// Normalize token type per RFC 6750
-	tokenType := token.TokenType
-	if strings.EqualFold(tokenType, "bearer") {
-		tokenType = "Bearer"
-	}
-
-	clone.Header.Set("Authorization", fmt.Sprintf("%s %s", tokenType, token.AccessToken))
+	// Use headerName and valuePrefix from the resolved strategy
+	clone.Header.Set(token.HeaderName, token.ValuePrefix+token.AccessToken)
 
 	return t.base.RoundTrip(clone)
 }

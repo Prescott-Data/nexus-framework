@@ -276,20 +276,34 @@ class NexusClient:
         if not credentials:
             raise NexusError("invalid_response", "Missing credentials in gateway response")
 
-        # Determine token type
+        # Determine auth injection strategy from broker response
+        header_name = "Authorization"
+        value_prefix = "Bearer "
         token_type = "Bearer"
         strategy = data.get("strategy", {})
-        if strategy.get("type") == "header":
-            config = strategy.get("config", {})
-            if config.get("value_prefix"):
-                token_type = str(config["value_prefix"]).strip()
+        strategy_config = strategy.get("config", {}) if isinstance(strategy, dict) else {}
+
+        if strategy.get("type") == "header" and strategy_config:
+            # Non-OAuth strategy: broker specifies which header and prefix to use
+            if strategy_config.get("header_name"):
+                header_name = str(strategy_config["header_name"])
+            vp = strategy_config.get("value_prefix")
+            if vp is not None:
+                # Explicit prefix from broker — may be empty for raw API keys
+                value_prefix = str(vp)
+                token_type = value_prefix.strip() or header_name
         elif credentials.get("token_type"):
             token_type = str(credentials["token_type"])
+            # Normalize Bearer casing per RFC 6750
+            if token_type.lower() == "bearer":
+                value_prefix = "Bearer "
+            else:
+                value_prefix = token_type + " "
 
         # Extract access token
         access_token = credentials.get("access_token") or data.get("access_token")
-        if not access_token and strategy.get("config", {}).get("credential_field"):
-            access_token = credentials.get(strategy["config"]["credential_field"])
+        if not access_token and strategy_config.get("credential_field"):
+            access_token = credentials.get(strategy_config["credential_field"])
 
         if not access_token:
             raise NexusError("invalid_credentials", "Could not locate access token in response")
@@ -340,6 +354,8 @@ class NexusClient:
             access_token=str(access_token),
             token_type=token_type,
             expires_at=expires_at,
+            header_name=header_name,
+            value_prefix=value_prefix,
         )
 
     def get_cached_token(
@@ -393,11 +409,11 @@ class NexusClient:
 
         req_headers = dict(headers or {})
 
-        # Normalize token type per RFC 6750
-        token_type = token.token_type
-        if token_type.lower() == "bearer":
-            token_type = "Bearer"
-        req_headers["Authorization"] = f"{token_type} {token.access_token}"
+        # Use header name and prefix from the resolved strategy.
+        # For OAuth2: Authorization: Bearer <token>
+        # For API key: X-API-Key: <token>  (value_prefix is empty)
+        # For custom:  X-Custom: prefix <token>
+        req_headers[token.header_name] = f"{token.value_prefix}{token.access_token}"
 
         logger.info("Fetcher → %s %s", method, url)
 
