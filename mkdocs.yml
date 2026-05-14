@@ -35,7 +35,6 @@ theme:
     - navigation.tabs
     - navigation.tabs.sticky
     - navigation.sections
-    - navigation.expand
     - navigation.top
     - navigation.indexes
     - navigation.path
@@ -53,6 +52,7 @@ extra_css:
 
 extra_javascript:
   - javascripts/header.js
+  - javascripts/llm-assist.js
 
 plugins:
   - search
@@ -83,47 +83,60 @@ nav:
   - Home:
       - Overview: index.md
       - Website: https://developers.prescottdata.io
-      - Community: https://discord.gg/nexus-framework
+      - Community: https://discord.gg/AbskSXypq
       - Blog: https://developers.prescottdata.io/blog
   - Concepts:
       - Architecture: concepts/architecture.md
-      - Connections: concepts/connections.md
-      - Agent Identity: concepts/agent-identity.md
-      - Auth Strategies: concepts/auth-strategies.md
-      - Provider Types: concepts/provider-types.md
-      - Security Model: concepts/security-model.md
-      - The Bridge: concepts/bridge.md
       - The Broker: concepts/broker.md
       - The Gateway: concepts/gateway.md
+      - The Bridge: concepts/bridge.md
+      - Connections: concepts/connections.md
+      - Provider Types: concepts/provider-types.md
+      - Auth Strategies: concepts/auth-strategies.md
+      - Agent Identity: concepts/agent-identity.md
+      - Security Model: concepts/security-model.md
+      - Client Libraries: concepts/client-libraries.md
   - Getting Started:
       - Deploy in Five Minutes: getting-started/quickstart.md
-      - Environment Variables: getting-started/configuration.md
+      - Configuration: getting-started/configuration.md
       - Your First Connection: getting-started/first-connection.md
   - Guides:
-      - Registering a Provider: guides/registering-a-provider.md
+      - Providers: guides/registering-a-provider.md
       - Integrating Agents: guides/integrating-agents.md
-      - MCP Server Integration: guides/mcp-integration.md
+      - Go SDK: sdks/go.md
+      - TypeScript SDK: sdks/typescript.md
+      - Python SDK: sdks/python.md
       - Agent Sessions: guides/agent-sessions.md
       - Static Credential Flow: guides/static-credentials.md
-      - Handling Attention State: guides/attention-state.md
       - OBO Delegation: guides/obo-delegation.md
-      - Managing Providers: guides/managing-providers.md
+      - MCP Server Integration: guides/mcp-integration.md
+      - Handling Attention State: guides/attention-state.md
+      - Troubleshooting: guides/troubleshooting.md
       - Security-as-Code: guides/security-as-code.md
       - Deploying Nexus: infrastructure/deploying-nexus.md
   - Reference:
       - API Reference: reference/api.md
       - CLI Reference: reference/cli.md
       - Audit Log: reference/audit-log.md
-      - SDKs:
-          - Overview: sdks/index.md
-          - Go SDK: sdks/go.md
-          - TypeScript SDK: sdks/typescript.md
-          - Python SDK: sdks/python.md
+      - Security Model: reference/security-model.md
+      - Changelog: CHANGELOG.md
 
 
 extra:
-  version: "0.4.0"
+  version: "0.2.3"
   social:
+    - icon: material/web
+      link: https://developers.prescottdata.io
+      name: Prescott Data Developer Hub
+    - icon: fontawesome/brands/x-twitter
+      link: https://x.com/prescottdata
+      name: Prescott Data on X
+    - icon: fontawesome/brands/linkedin
+      link: https://linkedin.com/company/jarviscore
+      name: JarvisCore on LinkedIn
     - icon: fontawesome/brands/github
       link: https://github.com/Prescott-Data/nexus-framework
       name: nexus-framework on GitHub
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/AbskSXypq
+      name: Join our Discord

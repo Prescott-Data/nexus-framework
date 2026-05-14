@@ -255,12 +255,26 @@ body,
   margin-left: 0.45rem;
 }
 
+/* On mobile the title must shrink to fit next to hamburger + logo */
+@media screen and (max-width: 76.1875em) {
+  .md-header__title {
+    min-width: 0 !important;
+    flex-shrink: 1 !important;
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 [data-md-color-scheme="slate"] .md-header__title {
   color: #fff !important;
 }
 
-/* Center the search bar absolutely in the header */
-@media (min-width: 768px) {
+/* Center the search bar absolutely in the header — desktop only.
+   On mobile Material hides the pill behind a magnifying glass icon
+   button that opens a full-screen modal. */
+@media screen and (min-width: 76.25em) {
   .md-header .md-header__inner.md-grid {
     position: relative !important;
   }
@@ -767,8 +781,30 @@ body,
   padding: 0.15rem 0 2rem;
 }
 
-/* Top-level section labels (nav titles like "Getting Started") */
-.md-nav--primary>.md-nav__list>.md-nav__item>.md-nav__link,
+/* Top-level section labels — desktop only.
+   On desktop with navigation.tabs these are just visual labels in the
+   sidebar (e.g. "GUIDES") that should not be clickable.
+   On mobile these same elements become the ACTUAL nav items in the
+   drawer (Home, Concepts, Guides, etc.) and MUST be clickable.
+   So we scope pointer-events:none to desktop only. */
+@media screen and (min-width: 76.25em) {
+  .md-nav--primary>.md-nav__list>.md-nav__item>.md-nav__link {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--nx-text-muted) !important;
+    padding: 0.9rem 0.75rem 0.3rem;
+    opacity: 0.7;
+    cursor: default;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+}
+
+/* .md-nav__title — on desktop it's a static label, on mobile it's the
+   drawer back button. Scope the non-interactive styling to desktop. */
 .md-nav__title {
   font-family: 'Inter', sans-serif;
   font-size: 0.62rem;
@@ -778,8 +814,14 @@ body,
   color: var(--nx-text-muted) !important;
   padding: 0.9rem 0.75rem 0.3rem;
   opacity: 0.7;
-  cursor: default;
-  pointer-events: none;
+  white-space: nowrap;
+}
+
+@media screen and (min-width: 76.25em) {
+  .md-nav__title {
+    cursor: default;
+    pointer-events: none;
+  }
 }
 
 /* All nav links */
@@ -1000,25 +1042,29 @@ body,
 /* --- CTA Buttons --- */
 .nx-cta {
   display: flex;
-  gap: 0.4rem;
+  align-items: center;
+  gap: 0.6rem;
   justify-content: center;
   flex-wrap: wrap;
-  margin-bottom: 0.6rem;
+  margin-bottom: 0.8rem;
 }
 
 .nx-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.32rem 0.75rem;
-  border-radius: 5px;
-  font-size: 0.72rem;
-  font-weight: 500;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1.1rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1;
   text-decoration: none !important;
-  transition: opacity 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
   cursor: pointer;
-  letter-spacing: 0;
+  letter-spacing: 0.01em;
   white-space: nowrap;
+  vertical-align: middle;
 }
 
 .nx-btn:hover {
@@ -1027,13 +1073,14 @@ body,
 }
 
 .nx-btn-primary {
-  background: var(--nx-gradient);
+  background: #0071F7;
   color: #fff !important;
-  box-shadow: 0 3px 12px rgba(23, 88, 245, 0.28);
+  box-shadow: 0 3px 12px rgba(0, 113, 247, 0.28);
 }
 
 .nx-btn-primary:hover {
-  box-shadow: 0 6px 22px rgba(23, 88, 245, 0.38);
+  background: #0060d6;
+  box-shadow: 0 6px 22px rgba(0, 113, 247, 0.38);
   color: #fff !important;
 }
 
@@ -1054,6 +1101,18 @@ body,
   background: #0c0c0e;
   color: #fff !important;
   border: 1px solid #0c0c0e;
+  gap: 0.4rem;
+}
+
+.nx-btn-github::before {
+  content: '';
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='white' d='M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: contain;
+  flex-shrink: 0;
 }
 
 .nx-btn-github:hover {
@@ -1832,6 +1891,7 @@ body,
    ============================================================ */
 
 @media (max-width: 600px) {
+  /* --- Stats strip --- */
   .nx-stats {
     flex-direction: column;
   }
@@ -1845,23 +1905,41 @@ body,
     border-bottom: none;
   }
 
+  /* --- Grids --- */
   .nx-ecosystem {
     grid-template-columns: 1fr;
     padding: 1.5rem;
-  }
-
-  .nx-gh-btn {
-    display: none;
-  }
-
-  .nx-version-chip {
-    display: none;
   }
 
   .nx-grid {
     grid-template-columns: 1fr;
   }
 
+  /* --- Hero CTAs: stack vertically and full-width --- */
+  .nx-cta {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .nx-cta-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* --- Hide decorative chips in header on tiny screens --- */
+  .nx-gh-btn,
+  .nx-version-chip {
+    display: none;
+  }
+
+  /* --- Code blocks: scroll don't overflow --- */
+  .md-content pre {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* --- Changelog --- */
   .changelog-meta {
     flex-direction: column;
     gap: 0.5rem;
@@ -1871,13 +1949,87 @@ body,
   .changelog-release {
     padding: 1rem 1.25rem;
   }
+
+  /* --- Tables: scroll horizontally --- */
+  .md-typeset table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
+/* --- Tablet (601–960px): 2-col grids --- */
 @media (max-width: 960px) and (min-width: 601px) {
   .nx-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .nx-cta {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .md-content pre {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
+
+/* ============================================================
+   MOBILE DRAWER — full interactivity
+   On mobile (< 76.25em) Material collapses navigation.tabs
+   into a full-width overlay drawer. Every item must be
+   tappable, the back button must work, and touch targets
+   must be at least 44px.
+   ============================================================ */
+
+@media screen and (max-width: 76.1875em) {
+
+  /* Back button / section title — fully interactive */
+  .md-nav__title {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    opacity: 1 !important;
+    font-size: 0.8rem !important;
+    padding: 0.75rem 1rem !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+    font-weight: 600 !important;
+    color: var(--md-default-fg-color) !important;
+  }
+
+  /* ALL nav links in drawer — interactive with 44px touch targets.
+     This includes top-level items (Home, Concepts, Guides, etc.)
+     which are the primary navigation on mobile. */
+  .md-nav__link {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    min-height: 44px !important;
+    display: flex !important;
+    align-items: center !important;
+    padding: 0.6rem 1rem !important;
+    font-size: 0.875rem !important;
+    opacity: 1 !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Remove active left-bar indicator in drawer — looks odd */
+  .md-nav__link--active::before {
+    display: none !important;
+  }
+
+  /* Drawer overlay — captures taps to close */
+  .md-overlay {
+    pointer-events: auto !important;
+  }
+
+  /* Hide right TOC sidebar on mobile — no room */
+  .md-sidebar--secondary {
+    display: none !important;
+  }
+}
+
 
 
 /* Suppress Material's sidebar nav tooltips — labels are now fully visible.
@@ -2144,13 +2296,17 @@ body,
    Override Material's default ~12rem with 15rem so all nav
    labels have room to display without truncation or ellipsis.
    ============================================================ */
-.md-sidebar--primary {
-  min-width: var(--md-sidebar-width, 15rem);
-  width: var(--md-sidebar-width, 15rem);
-}
+/* Sidebar width: only enforce on desktop. On mobile Material uses a
+   full-width overlay drawer — forcing 15rem breaks it completely. */
+@media screen and (min-width: 76.25em) {
+  .md-sidebar--primary {
+    min-width: var(--md-sidebar-width, 15rem);
+    width: var(--md-sidebar-width, 15rem);
+  }
 
-.md-sidebar--primary .md-nav {
-  width: 100%;
+  .md-sidebar--primary .md-nav {
+    width: 100%;
+  }
 }
 
 /* Belt-and-braces tooltip suppression for Material's ellipsis tooltip */

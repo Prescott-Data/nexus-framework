@@ -1,3 +1,7 @@
+---
+icon: material/console
+---
+
 # CLI Reference
 
 `nexus-cli` is a command-line tool for managing Nexus provider configuration declaratively. It reads a YAML manifest, compares it against the live Broker state, and applies changes.

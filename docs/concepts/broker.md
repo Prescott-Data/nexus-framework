@@ -1,3 +1,7 @@
+---
+icon: material/database-lock-outline
+---
+
 # The Broker
 
 The Broker is the only service in a Nexus deployment that holds durable credential material. No other service receives a refresh token, client secret, or plaintext key.

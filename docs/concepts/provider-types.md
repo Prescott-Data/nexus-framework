@@ -1,3 +1,7 @@
+---
+icon: material/puzzle-outline
+---
+
 # Provider Types
 
 A provider profile tells Nexus how to authenticate users against a third-party service. The provider type determines the authorization flow and the shape of stored credentials.

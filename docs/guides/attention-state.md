@@ -1,3 +1,7 @@
+---
+icon: material/alert-circle-outline
+---
+
 # Handling Attention State
 
 A connection enters `attention` state when the Broker attempts to refresh the access token and the provider responds with a `4xx` error. This indicates the user's authorization grant has been revoked, the refresh token has expired, or the provider requires the user to re-authorize.

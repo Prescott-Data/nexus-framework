@@ -1,3 +1,7 @@
+---
+icon: material/file-code-outline
+---
+
 # Security-as-Code with nexus-cli
 
 `nexus-cli` is a command-line tool that applies a GitOps workflow to Nexus provider configuration. Instead of making ad-hoc API calls to register and update providers, you declare the desired state in a YAML manifest, commit it to your repository, and use `nexus-cli` to reconcile the live Broker against that manifest.

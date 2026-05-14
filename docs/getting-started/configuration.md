@@ -1,3 +1,7 @@
+---
+icon: material/cog-outline
+---
+
 # Environment Variables
 
 This page documents every environment variable accepted by the Broker and Gateway. Variables marked **Required** will cause the service to refuse to start if absent.

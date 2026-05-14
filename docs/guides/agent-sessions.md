@@ -1,15 +1,14 @@
+---
+icon: material/account-key-outline
+---
+
 # Agent Sessions
 
 This guide covers the complete developer journey for building an agent that uses Nexus for authentication — from registering providers and agents to making scoped requests and handling the full OBO flow.
 
 ## What you are building
 
-An agent that:
-- Calls Salesforce with read-only access
-- Calls Google Calendar with read-only access
-- Executes internal business operations only when a human user with the right permission triggers them
-
-No OAuth code in the agent. No credentials in environment variables. No refresh token logic. Nexus handles all of it.
+An agent that calls Salesforce with read-only access, calls Google Calendar with read-only access, and executes internal business operations only when a human user with the right permission triggers them. No OAuth code in the agent. No credentials in environment variables. No refresh token logic. Nexus handles all of it.
 
 ## Step 1 — Register your providers (one-time admin)
 
@@ -186,16 +185,16 @@ If either check fails, the request returns `403`.
 
 ## What the agent never wrote
 
-```
-OAuth implementation           broker handles it
-Refresh token logic            broker handles it
-Token storage                  broker handles it
-Scope enforcement              broker enforces at session request time
-JWT validation for OBO         broker calls your backend, extracts claims
-User context stamping          broker stamps acting_for, tenant_id, clearance_level
-Credential rotation            broker handles it
-Token expiry                   session has explicit expires_at, broker enforces
-```
+| Responsibility | Who handles it |
+|---|---|
+| OAuth implementation | Broker |
+| Refresh token logic | Broker |
+| Token storage | Broker |
+| Scope enforcement | Broker — at session request time |
+| JWT validation for OBO | Broker — calls your backend, extracts claims |
+| User context stamping | Broker — stamps `acting_for`, `tenant_id`, `clearance_level` |
+| Credential rotation | Broker |
+| Token expiry | Broker — session has explicit `expires_at` |
 
 ## Session vs connection — when to use which
 

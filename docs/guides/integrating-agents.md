@@ -1,3 +1,7 @@
+---
+icon: material/robot-love-outline
+---
+
 # Integrating Agents
 
 This guide covers the two ways an agent retrieves credentials from Nexus at runtime: the Bridge library for Go agents, and the manual HTTP flow for agents written in other languages or for cases where you want direct control over credential retrieval.
@@ -101,7 +105,7 @@ if err != nil {
 strategyType := payload.Strategy["type"]
 ```
 
-Inspect `strategyType` and use the `payload.Credentials` map to extract the values you need. See [The SDK](../concepts/sdk.md) for the full method reference.
+Inspect `strategyType` and use the `payload.Credentials` map to extract the values you need. See [Client Libraries](../concepts/client-libraries.md) for the full SDK method reference.
 
 ### Using the TypeScript SDK
 

@@ -1,3 +1,7 @@
+---
+icon: material/layers-triple
+---
+
 # Architecture
 
 Nexus is split into a control plane and a data plane. The control plane manages the lifecycle of credentials: registering providers, completing OAuth handshakes, storing tokens, and refreshing them before they expire. The data plane serves credentials to agents when they need them and injects those credentials into outgoing requests.

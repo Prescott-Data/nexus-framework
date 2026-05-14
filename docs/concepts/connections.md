@@ -1,3 +1,7 @@
+---
+icon: material/link-variant
+---
+
 # Connections
 
 A connection represents a user's authorization grant to a specific provider. Every token fetch and audit event is tied to a connection ID.

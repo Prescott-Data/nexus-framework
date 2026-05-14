@@ -8,13 +8,10 @@ icon: material/home
 
 # Nexus
 
-Credential brokering for autonomous agents. Nexus sits between your agents and every third-party service they reach, managing the full credential lifecycle so your agents never hold OAuth tokens, API keys, or refresh tokens directly.
+### Auth infrastructure for autonomous agents.
 
-<div class="nx-cta-text" markdown>
+One authority for every service your agents touch. Nexus orchestrates provider connections, token lifecycle, agent identity, scoped sessions, and on-behalf-of delegation — your agents never write auth code or hold a raw secret.
 
-[Architecture](concepts/architecture.md) &nbsp;·&nbsp; [Deploy in five minutes](getting-started/quickstart.md) &nbsp;·&nbsp; [GitHub](https://github.com/Prescott-Data/nexus-framework){ target="_blank" rel="noopener" }
-
-</div>
 
 <div class="nx-cta" markdown>
 
@@ -29,9 +26,11 @@ Credential brokering for autonomous agents. Nexus sits between your agents and e
 
 ## What Nexus does
 
-When an agent needs to call Salesforce, Google Drive, or any other provider, it asks the Nexus Gateway for a session. The Gateway forwards the request to the Broker, which decrypts the stored refresh token, fetches a fresh access token from the provider, and returns only that short-lived token. The agent uses it and discards it. If the agent is compromised, the attacker has nothing durable.
+Every agent that connects to an external service hits the same wall. OAuth flows, token refresh loops, credential rotation, per-provider auth implementations — all of it written from scratch, per integration, per team. Nexus eliminates that wall entirely.
 
-Nexus handles token storage, refresh scheduling, OAuth handshakes, and audit logging as infrastructure. You configure providers once. Your agents authenticate against them through a single API surface.
+Register a provider once. Every agent in your fleet connects to it through a single authority. The Broker handles the OAuth handshake, encrypts the token at rest, runs the refresh loop, and issues only a short-lived credential when an agent asks. The agent uses it and discards it. If the agent is compromised, the attacker has nothing durable.
+
+Beyond the OAuth layer, Nexus covers the full auth surface that production agent systems require. Agents are registered principals with declared scope ceilings — a `crm-agent` registered with `crm:contacts:read` cannot request `crm:delete`, even if the underlying connection has that scope. When a human user triggers an agent mission, the Broker validates the user's permission, stamps the session with their identity and tenant context, and enforces data isolation across every downstream operation. Internal business operations — `acme:gliding`, `pipeline:trigger` — are first-class scopes enforced at the same authority as OAuth tokens. Every credential request, session open, and session close is logged in a tamper-evident audit trail.
 
 <div class="nx-grid" markdown>
 
@@ -77,7 +76,7 @@ Broker runs on `localhost:8080`. Gateway runs on `localhost:8090`.
 
 ## Where to start
 
-Read [Architecture](concepts/architecture.md) first. It establishes the control plane and data plane split, the OAuth handshake flow, and the credential retrieval model. Every other page assumes that mental model.
+Start with [Architecture](concepts/architecture.md) under the Concepts tab. It establishes the control plane and data plane split, the OAuth handshake flow, and the credential retrieval model. Every other page assumes that mental model.
 
 Then follow [Deploy in Five Minutes](getting-started/quickstart.md) to run a stack and make your first connection. After that, the [Guides](guides/integrating-agents.md) cover the operational tasks you return to repeatedly.
 

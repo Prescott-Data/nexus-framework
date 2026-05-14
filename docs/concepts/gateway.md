@@ -1,3 +1,7 @@
+---
+icon: material/api
+---
+
 # The Gateway
 
 The Gateway is the public API for Nexus. Your application backend and agents communicate exclusively with the Gateway. The Broker is unreachable from outside.

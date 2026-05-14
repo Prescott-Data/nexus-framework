@@ -1,3 +1,7 @@
+---
+icon: material/badge-account-outline
+---
+
 # Agent Identity
 
 The base Nexus connection model is anonymous: any process that holds a `connection_id` can retrieve tokens from it. There is no record of which agent is which, what it is allowed to do, or how long its authorization should last.

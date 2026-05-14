@@ -1,3 +1,7 @@
+---
+icon: material/package-variant-closed
+---
+
 # SDK Overview
 
 Nexus ships three first-class client SDKs. Each provides identical functionality — choose the one that matches your application's language.

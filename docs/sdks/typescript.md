@@ -1,3 +1,7 @@
+---
+icon: material/language-typescript
+---
+
 # TypeScript SDK
 
 The `@dromos/nexus-sdk` package is a TypeScript/JavaScript client for the Nexus Gateway supporting both standard OAuth connection management and MCP server token injection.

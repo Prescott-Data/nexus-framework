@@ -1,6 +1,10 @@
+---
+icon: material/puzzle-edit-outline
+---
+
 # Managing Providers
 
-A provider in Nexus represents the configuration for a third-party service your agents connect to. This guide covers how to register, update, and delete providers through the Broker's REST API, and how to list the providers available in your workspace.
+A provider in Nexus represents the configuration for a third-party service your agents connect to. This guide covers how to register, update, and delete providers through the Gateway's REST API, and how to list the providers available in your workspace.
 
 For declarative provider management using `nexus-cli`, see the [Security-as-Code](security-as-code.md) guide. For production environments where provider configuration is sensitive infrastructure, the declarative approach is preferred.
 
@@ -8,14 +12,14 @@ For declarative provider management using `nexus-cli`, see the [Security-as-Code
 
 ## Registering an OAuth 2.0 provider
 
-POST to `/providers` on the Broker with the provider configuration. The `X-API-Key` header must carry the Broker's `API_KEY`.
+POST to `/v1/providers` on the Gateway with the provider configuration. The `X-API-Key` header must carry your `API_KEY`.
 
 ### Discovery-based provider
 
 For providers that support OIDC discovery, set `enable_discovery: true` and supply the `issuer` URL. Nexus fetches the authorization endpoint, token endpoint, and JWKS URI from the discovery document automatically.
 
 ```bash
-curl -s -X POST http://localhost:8080/providers \
+curl -s -X POST http://localhost:8090/v1/providers \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{
@@ -34,7 +38,7 @@ curl -s -X POST http://localhost:8080/providers \
 For providers without OIDC discovery, supply the `auth_url` and `token_url` explicitly:
 
 ```bash
-curl -s -X POST http://localhost:8080/providers \
+curl -s -X POST http://localhost:8090/v1/providers \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{
@@ -57,7 +61,7 @@ curl -s -X POST http://localhost:8080/providers \
 For providers that use API keys rather than OAuth, set `auth_type` to `api_key` and define a `credential_schema` that describes the shape of the credential:
 
 ```bash
-curl -s -X POST http://localhost:8080/providers \
+curl -s -X POST http://localhost:8090/v1/providers \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{
@@ -100,14 +104,14 @@ When a connection is established for this provider, the user supplies values for
 To see all registered providers in a workspace:
 
 ```bash
-curl -s http://localhost:8080/providers \
+curl -s http://localhost:8090/v1/providers \
   -H "X-API-Key: your-api-key" | jq .
 ```
 
-To retrieve grouped metadata (a condensed view suitable for frontend integration logic):
+To retrieve grouped metadata:
 
 ```bash
-curl -s http://localhost:8080/providers/metadata \
+curl -s http://localhost:8090/v1/providers/metadata \
   -H "X-API-Key: your-api-key" | jq .
 ```
 
@@ -120,7 +124,7 @@ The metadata endpoint returns providers grouped by `auth_type`, with only the fi
 Updating a provider's `client_secret` or `scopes` is a PATCH operation. Only the fields you include in the request body are changed.
 
 ```bash
-curl -s -X PATCH http://localhost:8080/providers/google-workspace \
+curl -s -X PATCH http://localhost:8090/v1/providers/google-workspace \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{"client_secret": "NEW_SECRET"}'
@@ -135,7 +139,7 @@ Every update is recorded in the [audit log](../reference/audit-log.md).
 Deleting a provider removes its configuration from the Broker. Existing connections that reference the provider will fail credential retrieval after deletion because the client credentials are gone.
 
 ```bash
-curl -s -X DELETE http://localhost:8080/providers/google-workspace \
+curl -s -X DELETE http://localhost:8090/v1/providers/google-workspace \
   -H "X-API-Key: your-api-key"
 ```
 

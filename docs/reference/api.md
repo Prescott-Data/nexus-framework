@@ -1,3 +1,7 @@
+---
+icon: material/code-json
+---
+
 # API Reference
 
 Nexus exposes two API surfaces: the **Gateway API**, which agents and applications call, and the **Broker API**, which is internal and used only by the Gateway and administrative tooling.

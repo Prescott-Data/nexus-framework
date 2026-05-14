@@ -1,3 +1,7 @@
+---
+icon: material/shield-key-outline
+---
+
 # Authentication Strategies
 
 An authentication strategy defines how the Bridge applies a connection's credentials to an outgoing request. The strategy is stored on the provider profile and returned as part of every token response. Your agent code does not select or configure strategies at runtime — the Bridge reads and applies them automatically.

@@ -1,3 +1,7 @@
+---
+icon: material/key-outline
+---
+
 # Static Credential Flow
 
 OAuth2 providers redirect users to an authorization page. Static credential providers — `api_key` and `basic_auth` — do not. Instead, your application presents a form, the user fills it in, and you submit the credentials directly to Nexus.

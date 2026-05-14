@@ -1,3 +1,7 @@
+---
+icon: material/transit-connection-variant
+---
+
 # The Bridge
 
 The Bridge is a Go library you embed in your agent process. It maintains an authenticated connection, fetching tokens, injecting credentials into requests, and refreshing tokens before expiry, so your agent code handles only application logic.

@@ -1,49 +1,55 @@
+---
+icon: material/rocket-launch-outline
+---
+
 # Deploy in Five Minutes
 
-This guide gets a Nexus stack running locally. By the end you will have a Broker, a Gateway, and a PostgreSQL database running in Docker, with the admin API accessible and ready to accept provider registrations.
+This guide gets a Nexus stack running locally. By the end you will have a Broker, a Gateway, PostgreSQL, and Redis running in Docker, with the admin API accessible and ready to accept provider registrations.
 
 ---
 
 ## Prerequisites
 
-You need Docker and Docker Compose installed. You also need `openssl` available on your PATH to generate the required keys.
+- Docker and Docker Compose installed
+- `openssl` on your PATH
 
 ---
 
-## Generate the required secrets
+## Step 1: Generate secrets
 
-Nexus requires two symmetric keys before it will start. Generate them now and keep them safe.
+Nexus requires two symmetric keys before it will start. Generate them now.
 
 ```bash
 openssl rand -base64 32   # ENCRYPTION_KEY
-openssl rand -base64 32   # STATE_KEY
+openssl rand -base64 32   # STATE_KEY — run separately, do not reuse the same value
 ```
 
-The `ENCRYPTION_KEY` encrypts all stored tokens. If you lose it, all existing connections become permanently unreadable. The `STATE_KEY` signs OAuth state parameters. Both the Broker and the Gateway must receive the same `STATE_KEY` value or every OAuth callback will fail.
+**ENCRYPTION_KEY** encrypts all stored tokens using AES-GCM 256-bit. If this key is lost or rotated while connections exist, every stored token becomes permanently unreadable. Treat it like a master key and back it up accordingly.
+
+**STATE_KEY** signs OAuth state parameters to prevent CSRF attacks. Both the Broker and the Gateway must receive the same value, or every OAuth callback will fail with a state mismatch.
 
 ---
 
-## Configure the environment
-
-Copy the example environment file and fill in the values you just generated.
+## Step 2: Configure the environment
 
 ```bash
 cp .env.example .env
 ```
 
-Open `.env` and set:
+Open `.env` and set the following fields:
 
 ```bash
 ENCRYPTION_KEY=<your first openssl output>
 STATE_KEY=<your second openssl output>
-API_KEY=<any strong random string for the admin key>
+API_KEY=<a strong random string — this is your admin key for the Broker>
+BROKER_API_KEY=<same value as API_KEY — the Gateway uses this to talk to the Broker>
 ```
 
-The other variables in `.env.example` have sensible defaults for local development.
+The remaining variables in `.env.example` have sensible defaults for local development. `BASE_URL` defaults to `http://localhost:8080`, which means the OAuth callback URL is `http://localhost:8080/auth/callback`. Register that URI in your provider's developer console.
 
 ---
 
-## Start the stack
+## Step 3: Start the stack
 
 ```bash
 make up
@@ -55,25 +61,30 @@ If you do not have `make` installed:
 docker-compose up -d --build
 ```
 
-This starts the Broker on port 8080 and the Gateway on port 8090. PostgreSQL and Redis start as dependencies of the Broker. The Gateway connects to the Broker automatically using the `BROKER_API_KEY` you set.
+This builds and starts four containers:
 
-Wait a few seconds for the database migrations to complete, then verify both services are healthy:
+| Container | Port | Purpose |
+|---|---|---|
+| `nexus-broker` | 8080 | Stores tokens, runs OAuth flows, background refresh |
+| `nexus-gateway` | 8090 | Public API — your agents and backend call this |
+| `nexus-postgres` | 5432 | Encrypted token storage |
+| `nexus-redis` | 6379 | Caching and state |
+
+Wait for migrations to complete (a few seconds), then verify both services are healthy:
 
 ```bash
-curl http://localhost:8080/health
-curl http://localhost:8090/health
+curl http://localhost:8080/health   # {"status": "ok"}
+curl http://localhost:8090/health   # {"status": "ok"}
 ```
-
-Both should return `{"status": "ok"}`.
 
 ---
 
-## Register your first provider
+## Step 4: Register your first provider
 
-With the stack running, register a provider. This example uses Google with OIDC discovery:
+Provider registration goes through the **Gateway** at port 8090. This example registers Google with OIDC discovery:
 
 ```bash
-curl -s -X POST http://localhost:8080/providers \
+curl -s -X POST http://localhost:8090/v1/providers \
   -H "Content-Type: application/json" \
   -H "X-API-Key: <your API_KEY>" \
   -d '{
@@ -84,15 +95,15 @@ curl -s -X POST http://localhost:8080/providers \
     "issuer": "https://accounts.google.com",
     "enable_discovery": true,
     "scopes": ["openid", "email", "profile", "offline_access"]
-  }'
+  }' | jq .
 ```
 
-A successful registration returns the provider object with a UUID. Save the `name` field. That is the alias you use in all subsequent operations.
+A successful registration returns the provider object with a UUID. The `name` field (`google`) is the alias you use in all subsequent operations.
 
 ---
 
 ## What is next
 
-Your stack is running and you have a provider registered. The [Environment Variables](configuration.md) page documents every configuration option the Broker and Gateway accept. The [Your First Connection](first-connection.md) page walks through completing an OAuth handshake and retrieving a credential from an agent.
+Your stack is running and you have a provider registered. Continue to [Your First Connection](first-connection.md) to walk through the full OAuth handshake and retrieve your first credential.
 
-For production deployment on Azure Container Apps, see the Production Deployment section of the [Environment Variables](configuration.md) page.
+For all configuration options, see [Configuration](configuration.md). For production deployment on Docker, Kubernetes, or Azure Container Apps, see [Deploying Nexus](../infrastructure/deploying-nexus.md).

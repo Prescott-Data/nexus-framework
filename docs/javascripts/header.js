@@ -1,31 +1,40 @@
 /* Nexus Docs — Header enhancements
-   - Injects version chip after site title
-   - Injects GitHub repo + stars widget
+   - Injects version chip after site title (live from GitHub tags)
+   - Injects GitHub repo + stars widget (Prescott-Data/nexus ★ N)
    - Moves theme palette toggle to far-right
    - Opens external tabs in new window
 */
 document.addEventListener('DOMContentLoaded', function () {
 
-  /* ── 1. Version chip ─────────────────────────────────── */
+  /* ── 1. Version chip — live from GitHub API ─────────── */
   var title = document.querySelector('.md-header__title');
-  var fallbackVersion = 'v0.4.0';
   var chip;
   if (title) {
     chip = document.createElement('span');
     chip.className = 'nx-version-chip';
-    chip.textContent = fallbackVersion;
+    chip.textContent = '…';
     title.insertAdjacentElement('afterend', chip);
   }
 
-  /* Fetch live version from GitHub tags */
+  /* Fetch the LATEST tag from GitHub — single source of truth */
   fetch('https://api.github.com/repos/Prescott-Data/nexus-framework/tags')
     .then(function (r) { return r.json(); })
     .then(function (tags) {
       if (Array.isArray(tags) && tags.length > 0) {
-        if (chip) chip.textContent = tags[0].name;
+        var latestVersion = tags[0].name;
+        if (chip) chip.textContent = latestVersion;
+
+        /* Also update hero badge if present */
+        var heroBadge = document.getElementById('nx-hero-version-badge');
+        if (heroBadge) {
+          heroBadge.innerHTML = latestVersion + ' &middot; Apache 2.0 &middot; Production Ready';
+        }
       }
     })
-    .catch(function () {});
+    .catch(function () {
+      /* On network failure, hide chip entirely rather than showing stale data */
+      if (chip) chip.style.display = 'none';
+    });
 
   /* ── 2. GitHub stars widget ─────────────────────────── */
   var inner = document.querySelector('.md-header__inner');

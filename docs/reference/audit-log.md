@@ -1,3 +1,7 @@
+---
+icon: material/clipboard-text-clock-outline
+---
+
 # Audit Log
 
 The Nexus Broker maintains a tamper-evident audit log of every control-plane mutation. The log is written to the `audit_events` table in PostgreSQL and is queryable through the Broker's REST API.

@@ -1,3 +1,7 @@
+---
+icon: material/shield-lock-outline
+---
+
 # Security Model
 
 Nexus is built on one rule: agents never hold durable secrets. An access token expires within hours. A refresh token, API key, or client secret does not. Nexus ensures agents receive only the former.

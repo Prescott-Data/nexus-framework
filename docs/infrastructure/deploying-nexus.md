@@ -1,3 +1,7 @@
+---
+icon: material/cloud-upload-outline
+---
+
 # Deploying Nexus
 
 This guide covers deploying the Broker and Gateway to a production environment. For local development setup, see [Deploy in Five Minutes](../getting-started/quickstart.md).

@@ -1,3 +1,7 @@
+---
+icon: material/account-arrow-right-outline
+---
+
 # OBO Delegation
 
 On Behalf Of (OBO) delegation is a session pattern for multi-agent systems where an agent needs to act with a specific user's authorization rather than with system-level access. OBO sessions tie the agent's credentials to the identity and permission tier of the user who initiated the operation.
