@@ -110,7 +110,7 @@ Inspect `strategyType` and use the `payload.Credentials` map to extract the valu
 ### Using the TypeScript SDK
 
 ```typescript
-import { NexusClient } from '@dromos/nexus-sdk';
+import { NexusClient } from '@prescott/nexus-sdk';
 
 const client = new NexusClient({ gatewayUrl: 'https://nexus-gateway.example.com' });
 
