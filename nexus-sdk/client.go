@@ -112,8 +112,9 @@ type TokenResponse struct {
 }
 
 type ErrorEnvelope struct {
-    Code    string `json:"code"`
-    Message string `json:"message"`
+    Code       string `json:"code"`
+    Message    string `json:"message"`
+    StatusCode int    `json:"-"` // HTTP status code (not serialized)
 }
 
 func (e ErrorEnvelope) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Message) }
@@ -186,6 +187,7 @@ func readGatewayError(r io.Reader, status int) error {
     var e ErrorEnvelope
     b, _ := io.ReadAll(r)
     if err := json.Unmarshal(b, &e); err == nil && e.Code != "" {
+        e.StatusCode = status
         return e
     }
     if len(b) > 0 { return fmt.Errorf("gateway error %d: %s", status, strings.TrimSpace(string(b))) }

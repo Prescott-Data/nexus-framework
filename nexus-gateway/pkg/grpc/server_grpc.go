@@ -13,10 +13,9 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/config"
 	gwmiddleware "github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/middleware"
 	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/usecase"
-	
-	"github.com/go-redis/redis/v8"
 
 	"github.com/go-chi/cors"
+	"github.com/go-redis/redis/v8"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -196,7 +195,7 @@ func (s *Server) Start(ctx context.Context) error {
 		AllowCredentials: true,
 		MaxAge:           300,
 	})
-	
+
 	// Add Rate Limiter (wrapped over cors)
 	rateLimiter := gwmiddleware.RateLimiter(s.redisClient)
 

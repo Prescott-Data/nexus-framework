@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
-	"strings"
 	"time"
+
+	oauthsdk "github.com/Prescott-Data/nexus-framework/nexus-sdk"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-bridge/pkg/auth"
 	"github.com/Prescott-Data/nexus-framework/nexus-bridge/telemetry"
@@ -182,9 +183,12 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 	// Step 1: Get an initial token.
 	token, err := b.oauthClient.GetToken(ctx, connectionID)
 	if err != nil {
-		if strings.Contains(err.Error(), "429") {
+		// Check if the gateway returned a 429 (rate limited) — treat as recoverable
+		// so the run loop retries with backoff.
+		var envErr oauthsdk.ErrorEnvelope
+		if errors.As(err, &envErr) && envErr.StatusCode == 429 {
 			b.logger.Error(err, "Rate limited getting initial token; will retry", "connectionID", connectionID)
-			return err // Return as recoverable so the run loop retries
+			return err
 		}
 		// Any other error during the initial token acquisition is considered permanent.
 		return NewPermanentError(fmt.Errorf("failed to get initial token: %w", err))

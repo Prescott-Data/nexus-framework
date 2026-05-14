@@ -29,11 +29,13 @@ func getEnvInt(key string, fallback int) int {
 func RateLimiter(redisClient *redis.Client) func(http.Handler) http.Handler {
 	limiter := redis_rate.NewLimiter(redisClient)
 
-	// Fetch configurations at initialization (can be dynamic per-request if needed)
+	// Configuration is read once at construction time and remains fixed for the
+	// lifetime of this middleware. Restart the gateway to apply new values.
 	enabled := os.Getenv("RATE_LIMIT_ENABLED") == "true"
 	reqConnRPM := getEnvInt("RATE_LIMIT_REQUEST_CONNECTION_RPM", 10)
 	callbackRPM := getEnvInt("RATE_LIMIT_CALLBACK_RPM", 20)
 	tokenRPM := getEnvInt("RATE_LIMIT_TOKEN_RPM", 60)
+	resolveRPM := getEnvInt("RATE_LIMIT_RESOLVE_RPM", 60)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +62,9 @@ func RateLimiter(redisClient *redis.Client) func(http.Handler) http.Handler {
 			case strings.HasPrefix(path, "/v1/refresh") && r.Method == http.MethodPost:
 				limit = redis_rate.PerMinute(tokenRPM)
 				limitKeyPrefix = "refresh"
+			case strings.HasPrefix(path, "/v1/resolve") && r.Method == http.MethodGet:
+				limit = redis_rate.PerMinute(resolveRPM)
+				limitKeyPrefix = "resolve"
 			default:
 				// Route not subject to rate limits
 				next.ServeHTTP(w, r)
@@ -100,10 +105,6 @@ func RateLimiter(redisClient *redis.Client) func(http.Handler) http.Handler {
 // extractWorkspaceID attempts to find the workspace_id in the Context, Header, or Query.
 func extractWorkspaceID(r *http.Request) string {
 	if ws, ok := r.Context().Value(workspaceIDKey).(string); ok && ws != "" {
-		return ws
-	}
-	// The grpc-gateway might put things differently or simple string
-	if ws, ok := r.Context().Value("workspace_id").(string); ok && ws != "" {
 		return ws
 	}
 

@@ -150,11 +150,11 @@ func TestExtractWorkspaceID(t *testing.T) {
 			expected: "ctx-ws-1",
 		},
 		{
-			name: "From Context (string key)",
+			name: "Bare string key no longer matches (must use typed key)",
 			setup: func(r *http.Request) *http.Request {
 				return r.WithContext(context.WithValue(r.Context(), "workspace_id", "ctx-ws-str"))
 			},
-			expected: "ctx-ws-str",
+			expected: "",
 		},
 		{
 			name: "From Header",
