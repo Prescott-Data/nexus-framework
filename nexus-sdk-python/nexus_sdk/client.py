@@ -296,15 +296,39 @@ class NexusClient:
 
         # Parse expiration — conservative 5-minute default
         expires_at = time.time() + 300  # 5 minutes
-        ea_str = credentials.get("expires_at") or data.get("expires_at")
-        if ea_str:
+        raw_expires_at = credentials.get("expires_at")
+        if raw_expires_at is None:
+            raw_expires_at = data.get("expires_at")
+
+        if raw_expires_at is not None:
             try:
-                dt = datetime.fromisoformat(str(ea_str).replace("Z", "+00:00"))
-                expires_at = dt.timestamp()
-            except (ValueError, TypeError):
+                if isinstance(raw_expires_at, (int, float)) and not isinstance(raw_expires_at, bool):
+                    parsed_expires_at = float(raw_expires_at)
+                else:
+                    raw_expires_at_str = str(raw_expires_at).strip()
+                    if not raw_expires_at_str:
+                        raise ValueError("empty expires_at")
+
+                    try:
+                        parsed_expires_at = float(raw_expires_at_str)
+                    except ValueError:
+                        dt = datetime.fromisoformat(raw_expires_at_str.replace("Z", "+00:00"))
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        parsed_expires_at = dt.timestamp()
+
+                if not math.isfinite(parsed_expires_at):
+                    raise ValueError("non-finite expires_at")
+
+                # Heuristic: values larger than 1e12 are almost certainly epoch milliseconds.
+                if parsed_expires_at > 1e12:
+                    parsed_expires_at /= 1000.0
+
+                expires_at = parsed_expires_at
+            except (ValueError, TypeError, OverflowError):
                 logger.warning(
                     "Could not parse expires_at=%r for workspace=%s provider=%s, using 5-minute fallback",
-                    ea_str, workspace_id, provider,
+                    raw_expires_at, workspace_id, provider,
                 )
         else:
             logger.warning(
