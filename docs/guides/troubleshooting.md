@@ -138,5 +138,5 @@ curl http://localhost:8080/health
 ## Getting more help
 
 - **GitHub Issues**: [github.com/Prescott-Data/nexus-framework/issues](https://github.com/Prescott-Data/nexus-framework/issues)
-- **Discord**: [discord.gg/nexus-framework](https://discord.gg/nexus-framework)
+- **Discord**: [discord.gg/AbskSXypq](https://discord.gg/AbskSXypq)
 - **Audit Log**: Run `GET /audit` on the Broker to see the event trail for any connection or provider operation. See [Audit Log](../reference/audit-log.md).

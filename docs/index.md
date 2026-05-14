@@ -88,5 +88,5 @@ Then follow [Deploy in Five Minutes](getting-started/quickstart.md) to run a sta
 |---|---|
 | **Source** | Browse the code, open issues, and submit PRs — [GitHub](https://github.com/Prescott-Data/nexus-framework){ target="_blank" rel="noopener" } |
 | **OpenAPI** | The full Gateway v1 contract — [openapi.yaml](https://github.com/Prescott-Data/nexus-framework/blob/main/openapi.yaml){ target="_blank" rel="noopener" } |
-| **Community** | Questions, showcases, and early feature previews — [Discord](https://discord.gg/nexus-framework){ target="_blank" rel="noopener" } |
+| **Community** | Questions, showcases, and early feature previews — [Discord](https://discord.gg/AbskSXypq){ target="_blank" rel="noopener" } |
 | **Blog** | Engineering deep-dives and architecture walkthroughs — [read the blog](https://developers.prescottdata.io/blog){ target="_blank" rel="noopener" } |
