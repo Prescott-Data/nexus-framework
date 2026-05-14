@@ -40,7 +40,7 @@ See [The Bridge](bridge.md) for transport details, the authentication engine, an
 
 The SDKs are thin HTTP clients for the Gateway API. They expose `GetToken()`, `ResolveToken()`, and related methods, giving you direct control over credential retrieval without the connection management logic the Bridge provides. Use an SDK when you want to fetch credentials explicitly, when you are building an MCP server, or when your agent is written in TypeScript or Python.
 
-Nexus ships three SDKs with full feature parity: Go, TypeScript, and Python. See the [SDK Reference](../reference/api.md) for the full method surface.
+Nexus ships three SDKs with full feature parity: Go, TypeScript, and Python. See the [SDK Reference](client-libraries.md) for the full method surface.
 
 ---
 
