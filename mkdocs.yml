@@ -61,15 +61,20 @@ nav:
       - Technical Whitepaper: nexus-protocol-whitepaper.pdf
       - Security Model: reference/security-model.md
   - Getting Started:
-      - Quick Start: index.md # Will link to the Quick Start section
+      - Quick Start: index.md
       - Deployment & Config: deployment.md
   - Component Deep Dives:
       - Nexus Broker: services/broker.md
       - Nexus Gateway: services/gateway.md
       - Nexus Bridge: services/bridge.md
-      - Nexus SDK: services/sdk.md
+  - SDKs:
+      - Overview: sdks/index.md
+      - Go SDK: sdks/go.md
+      - TypeScript SDK: sdks/typescript.md
+      - Python SDK: sdks/python.md
   - Guides:
       - Agent Integration: guides/integrating-agents.md
+      - MCP Server Integration: guides/mcp-integration.md
       - Managing Providers: guides/managing-providers.md
       - Security-as-Code (nexus-cli): guides/security-as-code.md
   - API Reference:

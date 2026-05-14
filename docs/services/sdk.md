@@ -1,39 +1,21 @@
-# Nexus SDK
+# Nexus SDKs
 
-The **Nexus SDK** is the lightweight Go client used by your application's **Control Plane** logic to manage user connections.
+The Nexus Framework ships three first-class client SDKs with full feature parity. See the [SDK Overview](../sdks/index.md) for a complete guide.
 
-## Core Features
+| SDK | Language | Package |
+|---|---|---|
+| [Go SDK](../sdks/go.md) | Go | `github.com/Prescott-Data/nexus-framework/nexus-sdk` |
+| [TypeScript SDK](../sdks/typescript.md) | TypeScript / JavaScript | `@dromos/nexus-sdk` |
+| [Python SDK](../sdks/python.md) | Python ≥ 3.11 | `nexus-sdk` |
 
-- **Connection Management:** Start handshakes and check status.
-- **Token Retrieval:** Fetch the current Strategy and Credentials.
-- **Automatic Retries:** Built-in exponential backoff for Gateway calls.
-- **Polling Helpers:** `WaitForActive` simplifies the "waiting for user consent" flow.
+## Capabilities
 
-## Common Operations
+All SDKs provide:
 
-### Initialize Client
-```go
-client := nexus.New("https://nexus-gateway.example.com")
-```
+- **Connection lifecycle** — `requestConnection`, `checkConnection`, `waitForActive`, `getToken`, `refreshConnection`
+- **MCP token injection** — automatic `Authorization: Bearer` header injection via workspace + provider resolution
+- **Token caching** — thread-safe, TTL-aware in-memory cache with configurable safety buffer
+- **Retry logic** — exponential backoff with jitter
+- **Structured errors** — machine-readable error codes from the gateway
 
-### Request a Connection
-```go
-resp, err := client.RequestConnection(ctx, nexus.RequestConnectionInput{
-    UserID:       "user-1",
-    ProviderName: "google",
-    Scopes:       []string{"email", "profile"},
-    ReturnURL:    "https://my-app.com/callback",
-})
-```
-
-### Wait for User Consent
-```go
-// Polls the gateway until the user completes the flow or the context expires
-status, err := client.WaitForActive(ctx, connectionID, 2 * time.Second)
-```
-
-### Force a Refresh
-```go
-// Manually trigger a token refresh
-token, err := client.RefreshConnection(ctx, connectionID)
-```
+See the [MCP Server Integration Guide](../guides/mcp-integration.md) for end-to-end examples.
