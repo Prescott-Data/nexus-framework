@@ -1,0 +1,45 @@
+{
+  "name": "@dromos/nexus-sdk",
+  "version": "0.2.3",
+  "description": "Nexus SDK for TypeScript — unified client for Nexus OAuth Gateway and MCP server integration",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "tsx tests/runner.ts",
+    "test:providers": "tsx tests/runner.ts --providers"
+  },
+  "keywords": [
+    "nexus",
+    "oauth",
+    "mcp",
+    "sdk",
+    "dromos",
+    "authentication"
+  ],
+  "author": "Prescott Data",
+  "license": "ISC",
+  "dependencies": {
+    "lru-cache": "^11.3.6"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@types/node": "^25.7.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "zod": "^4.4.3"
+  }
+}

@@ -122,4 +122,34 @@ payload, _ := client.GetToken(context.Background(), "your-connection-id")
 // Inspect the strategy to decide how to authenticate
 strategyType := payload.Strategy["type"]
 ```
-See the [`nexus-sdk/README.md`](../../nexus-sdk/README.md) for more details.
+See the [Go SDK Reference](../sdks/go.md) for full documentation.
+
+### Using the TypeScript SDK (server-side)
+
+```typescript
+import { NexusClient } from '@dromos/nexus-sdk';
+
+const client = new NexusClient({ gatewayUrl: 'https://<gateway-base-url>' });
+
+const token = await client.getTokenByConnectionId('your-connection-id');
+console.log(token.accessToken);
+```
+See the [TypeScript SDK Reference](../sdks/typescript.md) for full documentation.
+
+### Using the Python SDK (server-side)
+
+```python
+from nexus_sdk import NexusClient, NexusClientOptions
+
+client = NexusClient(NexusClientOptions(gateway_url='https://<gateway-base-url>'))
+
+token = client.get_token_by_connection_id('your-connection-id')
+print(token.access_token)
+```
+See the [Python SDK Reference](../sdks/python.md) for full documentation.
+
+---
+
+## MCP Server Integration
+
+For building MCP servers that automatically resolve and inject tokens, see the dedicated [MCP Server Integration Guide](mcp-integration.md).

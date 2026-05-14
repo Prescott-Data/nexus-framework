@@ -56,5 +56,7 @@ tmp/
 *.tmp
 
 # Documentation/Artifacts
+site/
 docs/site/
 node_modules/
+__pycache__/
