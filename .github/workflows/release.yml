@@ -39,9 +39,17 @@ jobs:
       - name: Check if tag already exists
         id: check
         run: |
-          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "⚠️ Tag v${{ steps.version.outputs.version }} already exists — skipping"
+          TAG="${{ steps.version.outputs.tag }}"
+          CURRENT_SHA=$(git rev-parse HEAD)
+          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
+            TAG_SHA=$(git rev-parse "refs/tags/${TAG}^{commit}")
+            if [ "$TAG_SHA" = "$CURRENT_SHA" ]; then
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              echo "✅ Tag ${TAG} already exists on this commit — skipping tag creation"
+            else
+              echo "::error::Tag ${TAG} exists but points to ${TAG_SHA}, not current commit ${CURRENT_SHA}. Delete the stale tag or bump VERSION."
+              exit 1
+            fi
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
@@ -59,7 +67,7 @@ jobs:
         id: notes
         run: |
           # Get the previous tag
-          PREV_TAG=$(git tag --sort=-version:refname | grep -v "${{ steps.version.outputs.tag }}" | head -1)
+          PREV_TAG=$(git tag --sort=-version:refname | grep -xv "${{ steps.version.outputs.tag }}" | head -1)
           echo "Previous tag: ${PREV_TAG:-none}"
 
           if [ -n "$PREV_TAG" ]; then
