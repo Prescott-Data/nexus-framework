@@ -196,7 +196,7 @@ func TestApplyAuthentication(t *testing.T) {
 		{
 			name: "Error - Query Auth Missing Param Name",
 			strategy: AuthStrategy{
-				Type: "query_param",
+				Type:   "query_param",
 				Config: map[string]interface{}{
 					// Missing param_name
 				},
@@ -207,7 +207,7 @@ func TestApplyAuthentication(t *testing.T) {
 		{
 			name: "Error - HMAC Missing Header Name",
 			strategy: AuthStrategy{
-				Type: "hmac_payload",
+				Type:   "hmac_payload",
 				Config: map[string]interface{}{
 					// Missing header_name
 				},
@@ -235,7 +235,7 @@ func TestApplyAuthentication(t *testing.T) {
 			}
 
 			// Add a blank context for AWS SigV4 tests if needed, though NewRequest does it
-			// req = req.WithContext(context.Background()) 
+			// req = req.WithContext(context.Background())
 
 			err := ApplyAuthentication(req, tc.strategy, tc.creds)
 

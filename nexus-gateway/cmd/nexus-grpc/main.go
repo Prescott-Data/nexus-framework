@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-redis/redis/v8"
+
 	grpcsrv "github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/grpc"
 	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/usecase"
 )
@@ -62,10 +64,21 @@ func main() {
 	httpClient := &http.Client{Timeout: 30 * time.Second, Transport: transport}
 	handler := usecase.NewHandler(brokerBaseURL, stateKey, httpClient)
 
+	redisURL := getEnv("REDIS_URL", "redis://localhost:6379/0")
+	opt, err := redis.ParseURL(redisURL)
+	if err != nil {
+		log.Fatalf("Invalid REDIS_URL: %v", err)
+	}
+	redisClient := redis.NewClient(opt)
+	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+		log.Printf("Warning: Failed to connect to Redis at %s: %v", redisURL, err)
+	}
+
 	srv, err := grpcsrv.NewServer(grpcsrv.Options{
 		GRPCAddress: ":" + portGRPC,
 		HTTPAddress: ":" + portHTTP,
 		Handler:     handler,
+		RedisClient: redisClient,
 	})
 	if err != nil {
 		log.Fatal(err)

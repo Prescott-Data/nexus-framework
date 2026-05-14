@@ -247,12 +247,12 @@ func applyAWSSigV4(req *http.Request, config map[string]interface{}, creds Crede
 	if !ok || secretAccessKey == "" {
 		return fmt.Errorf("credential field 'secret_key' is empty or not a string")
 	}
-    
-    // Optional: Session Token
-    sessionToken := ""
-    if val, ok := creds["session_token"].(string); ok {
-        sessionToken = val
-    }
+
+	// Optional: Session Token
+	sessionToken := ""
+	if val, ok := creds["session_token"].(string); ok {
+		sessionToken = val
+	}
 
 	// 3. Prepare Payload Hash
 	var payloadHash string
@@ -271,14 +271,14 @@ func applyAWSSigV4(req *http.Request, config map[string]interface{}, creds Crede
 
 	hash := sha256.Sum256(bodyBytes)
 	payloadHash = hex.EncodeToString(hash[:])
-	
+
 	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
 
 	// 4. Sign the Request
 	credentials := aws.Credentials{
 		AccessKeyID:     accessKeyID,
 		SecretAccessKey: secretAccessKey,
-        SessionToken:    sessionToken,
+		SessionToken:    sessionToken,
 	}
 
 	signer := v4.NewSigner()
@@ -323,8 +323,6 @@ func GetGRPCMetadata(strategy AuthStrategy, creds Credentials) (map[string]strin
 
 	md := make(map[string]string)
 
-
-
 	switch strategy.Type {
 
 	case "header", "oauth2":
@@ -343,8 +341,6 @@ func GetGRPCMetadata(strategy AuthStrategy, creds Credentials) (map[string]strin
 
 		}
 
-
-
 		// Determine credential field
 
 		credField := "access_token" // Default for oauth2
@@ -360,8 +356,6 @@ func GetGRPCMetadata(strategy AuthStrategy, creds Credentials) (map[string]strin
 			}
 
 		}
-
-
 
 		// Get value
 
@@ -381,8 +375,6 @@ func GetGRPCMetadata(strategy AuthStrategy, creds Credentials) (map[string]strin
 
 		}
 
-
-
 		// Prefix
 
 		prefix := "Bearer " // Default for oauth2
@@ -399,11 +391,7 @@ func GetGRPCMetadata(strategy AuthStrategy, creds Credentials) (map[string]strin
 
 		}
 
-
-
 		md[key] = prefix + valStr
-
-
 
 	case "basic_auth":
 
@@ -425,8 +413,6 @@ func GetGRPCMetadata(strategy AuthStrategy, creds Credentials) (map[string]strin
 
 		}
 
-
-
 		// Get credentials
 
 		uVal, ok := creds[userField]
@@ -445,8 +431,6 @@ func GetGRPCMetadata(strategy AuthStrategy, creds Credentials) (map[string]strin
 
 		}
 
-
-
 		pVal, ok := creds[passField]
 
 		if !ok {
@@ -463,21 +447,15 @@ func GetGRPCMetadata(strategy AuthStrategy, creds Credentials) (map[string]strin
 
 		}
 
-
-
 		// Encode Basic Auth
 
 		auth := base64.StdEncoding.EncodeToString([]byte(uStr + ":" + pStr))
 
 		md["authorization"] = "Basic " + auth
 
-
-
 	case "query_param":
 
 		return nil, fmt.Errorf("query_param authentication is not supported for gRPC")
-
-
 
 	default:
 
@@ -485,13 +463,9 @@ func GetGRPCMetadata(strategy AuthStrategy, creds Credentials) (map[string]strin
 
 	}
 
-
-
 	return md, nil
 
 }
-
-
 
 // ApplyGRPCAuthentication injects authentication credentials into the context metadata for gRPC calls.
 

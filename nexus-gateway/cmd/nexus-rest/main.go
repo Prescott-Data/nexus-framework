@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"log"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/go-redis/redis/v8"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/server"
 )
@@ -61,7 +64,19 @@ func main() {
 		Timeout:   30 * time.Second,
 	}
 
-	srv := server.New(port, brokerBaseURL, stateKey, httpClient)
+	redisURL := getEnv("REDIS_URL", "redis://localhost:6379/0")
+	opt, err := redis.ParseURL(redisURL)
+	if err != nil {
+		log.Fatalf("Invalid REDIS_URL: %v", err)
+	}
+	redisClient := redis.NewClient(opt)
+	// Check Redis connection
+	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+		log.Printf("Warning: Failed to connect to Redis at %s: %v", redisURL, err)
+		// We proceed anyway; RateLimiter fails open
+	}
+
+	srv := server.New(port, brokerBaseURL, stateKey, httpClient, redisClient)
 
 	log.Printf("Starting Nexus on port %s, broker=%s", port, brokerBaseURL)
 	log.Printf("Version: %s", Version)

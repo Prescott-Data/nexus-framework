@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-bridge/pkg/auth"
@@ -181,7 +182,11 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 	// Step 1: Get an initial token.
 	token, err := b.oauthClient.GetToken(ctx, connectionID)
 	if err != nil {
-		// Any error during the initial token acquisition is considered permanent.
+		if strings.Contains(err.Error(), "429") {
+			b.logger.Error(err, "Rate limited getting initial token; will retry", "connectionID", connectionID)
+			return err // Return as recoverable so the run loop retries
+		}
+		// Any other error during the initial token acquisition is considered permanent.
 		return NewPermanentError(fmt.Errorf("failed to get initial token: %w", err))
 	}
 	b.logger.Info("Successfully obtained initial token", "connectionID", connectionID)

@@ -11,7 +11,10 @@ import (
 
 	nexuspb "github.com/Prescott-Data/nexus-framework/nexus-gateway/gen/go/api/proto/nexus/v1"
 	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/config"
+	gwmiddleware "github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/middleware"
 	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/usecase"
+	
+	"github.com/go-redis/redis/v8"
 
 	"github.com/go-chi/cors"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -132,12 +135,14 @@ type Server struct {
 	httpServer  *http.Server
 	listener    net.Listener
 	service     *Service
+	redisClient *redis.Client
 }
 
 type Options struct {
 	GRPCAddress string
 	HTTPAddress string
 	Handler     *usecase.Handler
+	RedisClient *redis.Client
 }
 
 func NewServer(opts Options) (*Server, error) {
@@ -158,6 +163,7 @@ func NewServer(opts Options) (*Server, error) {
 		httpAddress: opts.HTTPAddress,
 		grpcServer:  grpcSrv,
 		service:     service,
+		redisClient: opts.RedisClient,
 	}, nil
 }
 
@@ -190,10 +196,13 @@ func (s *Server) Start(ctx context.Context) error {
 		AllowCredentials: true,
 		MaxAge:           300,
 	})
+	
+	// Add Rate Limiter (wrapped over cors)
+	rateLimiter := gwmiddleware.RateLimiter(s.redisClient)
 
 	httpSrv := &http.Server{
 		Addr:              s.httpAddress,
-		Handler:           corsMiddleware(gwMux),
+		Handler:           corsMiddleware(rateLimiter(gwMux)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,

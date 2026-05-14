@@ -26,14 +26,14 @@ type Metrics interface {
 
 type nopLogger struct{}
 
-func (l *nopLogger) Info(msg string, keysAndValues ...interface{})  {}
+func (l *nopLogger) Info(msg string, keysAndValues ...interface{})             {}
 func (l *nopLogger) Error(err error, msg string, keysAndValues ...interface{}) {}
 
 type nopMetrics struct{}
 
-func (m *nopMetrics) IncConnections()             {}
-func (m *nopMetrics) IncDisconnects()             {}
-func (m *nopMetrics) IncTokenRefreshes()          {}
+func (m *nopMetrics) IncConnections()                    {}
+func (m *nopMetrics) IncDisconnects()                    {}
+func (m *nopMetrics) IncTokenRefreshes()                 {}
 func (m *nopMetrics) SetConnectionStatus(status float64) {}
 
 // --- Configuration ---

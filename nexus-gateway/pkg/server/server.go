@@ -9,9 +9,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/go-redis/redis/v8"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/config"
+	gwmiddleware "github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/middleware"
 	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/usecase"
 )
 
@@ -21,7 +23,7 @@ type Server struct {
 	handler *usecase.Handler
 }
 
-func New(port, brokerBaseURL string, stateKey []byte, httpClient *http.Client) *Server {
+func New(port, brokerBaseURL string, stateKey []byte, httpClient *http.Client, redisClient *redis.Client) *Server {
 	mux := chi.NewRouter()
 
 	// CORS Setup
@@ -39,6 +41,9 @@ func New(port, brokerBaseURL string, stateKey []byte, httpClient *http.Client) *
 	mux.Use(middleware.Recoverer)
 	mux.Use(middleware.Timeout(30 * time.Second))
 	mux.Use(middleware.RealIP)
+	
+	// Add Rate Limiter
+	mux.Use(gwmiddleware.RateLimiter(redisClient))
 
 	h := usecase.NewHandler(brokerBaseURL, stateKey, httpClient)
 
