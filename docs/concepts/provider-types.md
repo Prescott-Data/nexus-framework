@@ -1,53 +1,57 @@
 # Provider Types
 
-A provider in Nexus represents a third-party service that your agents need to authenticate against. Nexus supports two categories of provider: OAuth 2.0 providers and static key providers. The category determines how Nexus acquires credentials, how it stores them, and what it returns when an agent requests a session.
+A provider profile tells Nexus how to authenticate users against a third-party service. The provider type determines the authorization flow and the shape of stored credentials.
 
----
+## OAuth2
 
-## OAuth 2.0 providers
+OAuth2 providers use the Authorization Code flow with PKCE. Nexus manages the full token lifecycle — your agents always receive a current access token.
 
-An OAuth 2.0 provider uses the standard authorization code flow: a user grants consent, the provider issues tokens, and Nexus stores and manages those tokens on the user's behalf.
+### OIDC discovery
 
-Nexus supports two configuration approaches for OAuth 2.0 providers.
+Set `enable_discovery: true` and provide an `issuer` URL. Nexus fetches `{issuer}/.well-known/openid-configuration` to populate `authorization_endpoint` and `token_endpoint` automatically.
 
-Discovery-based providers expose an OIDC discovery endpoint at `/.well-known/openid-configuration`. You supply the issuer URL, and Nexus fetches the authorization endpoint, token endpoint, and JWKS URI automatically. Google, Microsoft Entra, Okta, and most modern identity platforms support discovery.
+Use this for Google, Microsoft Entra ID, Auth0, and any provider with a published discovery document.
 
-Manual configuration is for providers that do not support OIDC discovery. You supply the authorization URL and token URL explicitly. GitHub, Twitter, and many API-first products fall into this category.
+### Manual configuration
 
-Both approaches result in the same runtime behavior: Nexus holds the refresh token, runs the background refresh loop, and returns a short-lived access token when an agent requests credentials.
+Set `auth_url` and `token_url` explicitly. Use this for GitHub and other OAuth2 providers without a discovery document.
 
----
+### Provider profile fields
 
-## Static key providers
+| Field | Required | Description |
+|---|---|---|
+| `name` | yes | Unique name for this provider within your Nexus instance |
+| `auth_type` | yes | `oauth2`, `api_key`, or `basic_auth` |
+| `client_id` | OAuth2 | OAuth2 application client ID |
+| `client_secret` | OAuth2 | OAuth2 application client secret |
+| `auth_url` | OAuth2 (manual) | Authorization endpoint |
+| `token_url` | OAuth2 (manual) | Token endpoint |
+| `issuer` | OAuth2 (discovery) | OIDC issuer URL |
+| `enable_discovery` | no | `true` to use OIDC discovery |
+| `scopes` | no | Default OAuth2 scopes for this provider |
+| `auth_header` | static | Header name for static-key injection |
+| `params` | no | Additional provider-specific parameters as JSON |
 
-A static key provider does not use OAuth. Instead, you register a JSON schema that describes the shape of the credential (an API key, a username and password, an AWS access key pair, and so on). When a connection is established, the user or system supplies values matching that schema. Nexus encrypts and stores the values. When an agent requests credentials, Nexus decrypts them and returns them as a structured payload.
+### PKCE
 
-Static key providers do not have a background refresh loop because the credentials do not expire on a schedule managed by Nexus. If a static credential is rotated externally, you update the connection in Nexus manually.
+All OAuth2 flows use PKCE (RFC 7636). The Broker generates a random `code_verifier`, sends the SHA-256 `code_challenge` to the provider, and verifies the exchange on callback. You do not configure this — it is always enabled.
 
----
+## Static credentials
 
-## The credential payload
+Static providers authenticate with credentials that do not expire and cannot be refreshed.
 
-Regardless of provider type, the credential retrieval endpoint returns a consistent structure:
+### api_key
 
-```json
-{
-  "strategy": { "type": "oauth2" },
-  "credentials": {
-    "access_token": "eyJ...",
-    "expires_at": 1715000000
-  }
-}
-```
+A single opaque key. Your backend calls `GET /v1/capture-schema` to get the field definition, presents it to the user, and submits via `POST /v1/capture-credential`. The connection goes directly to `active`. Set `auth_strategy` to `header` or `query_param` on the provider profile to control how the key is injected.
 
-For a static key provider, the `strategy.type` is `api_key` or `basic_auth`, and the `credentials` object contains the fields defined by the provider's schema.
+### basic_auth
 
-Your agent inspects `strategy.type` to determine how to use the credentials. The Bridge handles this automatically. If you are making direct HTTP calls, you apply the credentials based on the strategy type.
+Username and password pair. The capture flow is identical to `api_key`. The stored credentials map has `username` and `password` keys. The auth strategy is always `basic_auth`.
 
----
+## Scopes
 
-## Provider aliases
+The `scopes` array on the provider profile is the default for new connections. Individual connections can request a different subset by passing `scopes` to `POST /v1/request-connection`. Static providers ignore scopes entirely.
 
-Every provider is assigned a human-readable name (its alias) at registration time. Aliases are the identifier you use throughout Nexus: in connection requests, in the `nexus-providers.yaml` manifest, and in audit log entries. Internally, each provider also has a UUID, but you never need to use it directly.
+## Registration and deletion
 
-Aliases must be unique within a workspace. Choose names that are stable and descriptive: `google-workspace`, `github-ci`, `salesforce-prod`. Renaming an alias requires updating every connection that references it.
+Register providers via `POST /v1/providers`. Each provider has a unique name. Deleting a provider with `DELETE /v1/providers/{id}` does not delete its connections — clean up connections first to avoid orphaned records.

@@ -1,57 +1,79 @@
 # Roadmap
 
-This page documents what is actively being built, what has been intentionally deferred, and the known limitations of the current implementation. It is kept in this documentation site rather than only in GitHub Issues so that developers integrating with Nexus can plan their own work against it.
+This page documents what is actively being built, what has been intentionally deferred, and the known limitations of the current implementation. It is kept here rather than only in GitHub Issues so that developers integrating with Nexus can plan their own work against it.
 
----
+## Active development
 
-## Active work
+### Agent identity and sessions
+
+The core agent auth surface is in development. This includes the agent registry, scoped agent sessions, and OBO delegation.
+
+| Work item | Priority | Description |
+|---|---|---|
+| Broker: `POST /admin/v1/agents` + agent registry table | High | Register agents with `allowed_scopes`, list and manage the registry |
+| Broker: `POST /v1/agent-sessions` + enforcement | High | Short-lived scoped sessions with two-gate scope validation |
+| Broker: `POST /v1/agent-sessions/obo` + JWT validation | High | OBO sessions tied to user identity and permission tier |
+| Go SDK: `RequestAgentSession`, `RequestOBOSession`, `CloseAgentSession` | Medium | Extend `nexus-sdk/client.go` with agent session methods |
+| CLI: `nexus agents list`, `nexus agents register`, `nexus sessions list` | Medium | CLI surface for agent management |
+| OpenAPI spec: all new agent endpoints | Low | Document in `openapi.yaml` for SDK generation |
+
+### Python SDK
+
+The Python SDK exists inside `jarviscore` as `jarviscore.nexus.NexusClient`. It is being extracted into a standalone `nexus-sdk` package and published to PyPI. Once published, it will include the agent session methods (`request_agent_session`, `request_obo_session`, `close_agent_session`).
+
+### TypeScript SDK
+
+New package. Same REST API surface as the Go and Python SDKs, TypeScript ergonomics. Will be published to npm as `nexus-sdk` and include agent session support from the initial release.
+
+### Vault backend integration
+
+The Broker currently stores OAuth `client_id` and `client_secret` in PostgreSQL. A `SECRET_BACKEND` configuration option is in development that will allow the Broker to read credentials from external secret managers instead:
+
+| Backend | Config value |
+|---|---|
+| Internal PostgreSQL (current default) | `SECRET_BACKEND=internal` |
+| HashiCorp Vault | `SECRET_BACKEND=hashicorp-vault` |
+| AWS Secrets Manager | `SECRET_BACKEND=aws-secrets-manager` |
+| GCP Secret Manager | `SECRET_BACKEND=gcp-secret-manager` |
+
+When an external backend is configured, provider registration stores only metadata in PostgreSQL (auth URLs, scopes) — not credentials. Credentials are written to and read from the vault at OAuth flow time. Nexus becomes a pure orchestration layer over your existing secret infrastructure.
 
 ### mTLS between Gateway and Broker
 
-The current security model uses an API key for Gateway-to-Broker authentication. Mutual TLS will replace this, providing cryptographically enforced identity at the transport layer. This removes the API key as a single-point secret that, if compromised, allows unrestricted Broker access from any host.
-
-The design is complete. Implementation is in progress.
-
-### Gateway-proxied token refresh
-
-Today, if a token expires and you are making direct HTTP calls (not using the Bridge), you call the Broker's refresh endpoint directly to force a refresh before the next `GET /token`. This is an internal endpoint that should not be accessible to agents. The Gateway will expose a proxy endpoint that wraps this operation so agents and non-Go clients can trigger refreshes without needing Broker access.
+The current security model uses an API key for Gateway-to-Broker authentication. Mutual TLS will replace this, providing cryptographically enforced identity at the transport layer. Design is complete. Implementation is in progress.
 
 ### OBO session webhooks
 
-When an OBO session is created, closed, or expires, Nexus will emit a webhook event. This allows you to stream delegation activity to your SIEM, audit store, or observability pipeline without polling the audit log.
+When an OBO session is created, closed, or expires, Nexus will emit a webhook event. This allows streaming delegation activity to a SIEM, audit store, or observability pipeline without polling the audit log.
 
-### TypeScript and Python SDKs
+### Sidecar deployment model
 
-The Go SDK is the reference implementation. TypeScript (`@nexus/sdk`) and Python (`nexus-sdk`) ports are in development. The TypeScript SDK is scheduled for the 0.6 milestone. The Python SDK follows in 0.7.
+For environments requiring zero in-process secret exposure, a Nexus sidecar will intercept outgoing agent requests on `localhost`, fetch credentials from the Gateway, sign the request, and forward it. The agent process holds no credential material. Design phase.
 
 ---
 
 ## Known limitations
 
-### No per-scope access control on connections
+### Audit log has no built-in archival
 
-Currently, when a connection is established, it grants access to all scopes the provider was configured with. There is no mechanism to create a connection scoped to a subset of those scopes per-user. This is relevant for multi-tenant deployments where different users should have different levels of access to the same provider.
-
-The OBO delegation feature addresses this for agent-initiated operations by tying the session to the user's clearance level. Full per-scope connection scoping is on the roadmap but has not been scheduled.
+The audit log grows without bound. There is no TTL or archival mechanism in the Broker. Implement your own archival job. See the [Audit Log reference](audit-log.md) for the recommended approach.
 
 ### Static credential rotation requires reconnection
 
-For `api_key` providers, if the underlying credential changes externally (the API key is rotated at the provider), there is no automated mechanism to detect the change and prompt reconnection. You update the connection manually. Automated stale credential detection for static key providers is tracked but not scheduled.
-
-### Audit log has no built-in archival
-
-The audit log grows without bound. There is no TTL or archival mechanism in the Broker. Teams running Nexus in production should implement their own archival job. See the [Audit Log reference](audit-log.md) for the recommended approach.
+For `api_key` providers, if the credential changes at the provider, there is no automated detection. You update the connection manually via the capture flow.
 
 ### Single-region deployment
 
-Nexus does not currently support multi-region active-active deployments. The `ENCRYPTION_KEY` and PostgreSQL state make cross-region replication non-trivial to implement safely. Multi-region read replicas for the audit log query path are feasible today; write operations must route to a single Broker primary.
+Nexus does not support multi-region active-active deployments. The `ENCRYPTION_KEY` and PostgreSQL state make cross-region replication non-trivial. Multi-region read replicas for audit log queries are feasible; write operations must route to a single Broker primary.
+
+### No key rotation tooling
+
+`ENCRYPTION_KEY` rotation requires decrypting and re-encrypting every token row. There is no built-in migration command for this. Implement this as an offline script against the database.
 
 ---
 
-## Deferred features
+## Deferred
 
-The following features were considered and explicitly deferred rather than forgotten.
+**SAML provider support.** SAML is a different protocol requiring significant changes to the handshake engine. Out of scope until the core OAuth surface is stable in production.
 
-**SAML provider support.** Nexus is designed around OAuth 2.0 and OIDC. SAML is a different protocol with different security properties and a different credential lifecycle. Supporting it within the current Broker architecture would require significant changes to the handshake engine. SAML support is out of scope until the core OAuth surface is stable and well-tested in production.
-
-**Role-based access control for the admin API.** The Broker's admin API currently uses a single API key. Fine-grained RBAC (read-only admin, provider admin, full admin) is deferred. The immediate mitigation is to manage providers declaratively through `nexus-cli` with git-enforced review gates, which provides access control at the process level rather than the API level.
+**RBAC for the admin API.** The Broker's admin API uses a single API key. Fine-grained RBAC is deferred. The immediate mitigation is declarative provider management through `nexus-cli` with git-enforced review gates.

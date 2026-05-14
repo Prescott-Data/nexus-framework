@@ -1,80 +1,59 @@
-# The Security Model
+# Security Model
 
-Nexus is built on one principle: agents should never hold master secrets. An agent that is compromised should give an attacker only a short-lived, scoped access token. The refresh token or API key that would let them persist.
+Nexus is built on one rule: agents never hold durable secrets. An access token expires within hours. A refresh token, API key, or client secret does not. Nexus ensures agents receive only the former.
 
-This page explains how that boundary is enforced, what the three critical environment variables are and what happens if any of them is mishandled, and how the network is hardened to limit the blast radius of a credential leak.
+## Secret separation
 
----
+| Service | What it holds |
+|---|---|
+| Broker | Refresh tokens, API keys, client secrets — encrypted at rest |
+| Gateway | Nothing. Proxies requests, holds no credential state. |
+| Bridge | Short-lived access token in memory, for the duration of one connection. Discarded on close. |
 
-## Master secrets and usage secrets
+If a Bridge process is compromised, the attacker gets an access token valid for at most the remaining token lifetime. They cannot get the refresh token.
 
-Nexus draws a hard line between two categories of credential.
+## Encryption at rest
 
-Master secrets are the credentials that grant long-term or permanent access: OAuth refresh tokens and provider API keys. These are stored in the Broker's PostgreSQL database, encrypted at rest. No service other than the Broker ever holds a master secret. The Gateway does not store them. The Bridge does not store them. Your application stores only a `connection_id` that refers to them.
-
-Usage secrets are the credentials that grant short-lived access: OAuth access tokens and the signed headers produced from API keys. These are held in the Bridge's process memory for the duration of a request or connection and discarded. If an attacker gains access to an agent process, they obtain at most a usage secret that expires within an hour.
-
-| Category | Examples | Where it lives | Lifetime |
-|---|---|---|---|
-| Master secret | Refresh token, API key | Broker database (encrypted) | Persistent |
-| Usage secret | Access token, signed header | Bridge process memory | Less than one hour |
-
----
-
-## The three critical environment variables
-
-### ENCRYPTION_KEY
-
-The `ENCRYPTION_KEY` is a 32-byte, Base64-encoded value that the Broker uses for AES-GCM 256-bit encryption of all tokens stored in PostgreSQL. Generate it with:
+All token material is encrypted with **AES-GCM 256-bit**. The `ENCRYPTION_KEY` must be exactly 32 bytes. A fresh 12-byte nonce from `crypto/rand` is generated per write.
 
 ```bash
-openssl rand -base64 32
+openssl rand -base64 32   # ENCRYPTION_KEY
 ```
 
-If this key is lost or changed, every stored connection in the database becomes permanently unreadable. There is no recovery path. You will need to delete all stored connections and require users to reconnect their provider accounts.
+Losing this key makes all stored tokens permanently unreadable. There is no built-in rotation — rotation requires a migration script that decrypts and re-encrypts every token row.
 
-Store this key in a secrets manager (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault). Inject it as an environment variable at deploy time. Never commit it to version control. Treat it as you would a private key for a certificate authority.
+## OAuth state signing
 
-### STATE_KEY
-
-The `STATE_KEY` is a 32-byte, Base64-encoded value used to sign the `state` and `nonce` parameters during the OAuth handshake. Both the Broker and the Gateway must have the same `STATE_KEY`. Generate it with:
+Every OAuth `state` parameter is signed with **HMAC-SHA256** using `STATE_KEY`. The state payload encodes `{workspace_id, provider_id, nonce, iat}` and is rejected if older than 10 minutes or if the signature does not verify.
 
 ```bash
-openssl rand -base64 32
+openssl rand -base64 32   # STATE_KEY
 ```
 
-If the keys differ between Broker and Gateway, every OAuth callback will fail with an invalid state error. Both services perform a startup check and will exit with a fatal error if `STATE_KEY` is absent:
+The Broker and Gateway must share the same `STATE_KEY`. A mismatch causes all OAuth callbacks to fail.
 
-```
-FATAL: STATE_KEY environment variable is required and must be identical across Broker and Gateway
-```
+## PKCE
 
-In orchestrated deployments (Kubernetes, Docker Swarm, Azure Container Apps), inject this from a shared secret object so both services always receive the same value.
-
-### API_KEY / BROKER_API_KEY
-
-The `API_KEY` on the Broker and the corresponding `BROKER_API_KEY` on the Gateway authenticate the Gateway-to-Broker channel. The Gateway includes this key in every request it proxies to the Broker. If this key is compromised, an attacker can query any stored connection's token and register or delete providers.
-
----
+All OAuth2 flows use PKCE (RFC 7636). The Broker generates a random `code_verifier` per consent request and sends the SHA-256 `code_challenge` to the provider. The verifier is submitted on callback. This is always enabled — you cannot disable it.
 
 ## Network hardening
 
-The Broker supports an `ALLOWED_CIDRS` configuration that restricts which IP addresses can reach it. In production, set this to the IP address (or CIDR range) of the Gateway. This means that even if the Broker's API key is leaked, it cannot be used from any host outside your trusted network.
+API keys are not sufficient on their own. Layer network controls on top:
 
-```
-ALLOWED_CIDRS=10.0.0.0/8
-```
+- The Broker should only accept connections from the Gateway's IP range.
+- The Gateway's admin paths should only accept connections from your application backend's IP range.
+- Agents should only reach the Gateway's token and check-connection endpoints.
 
-The Gateway should be the only service with a path to the Broker. Agents talk to the Gateway; nothing else reaches the Broker.
-
-Mutual TLS between the Gateway and Broker is on the roadmap. Until it ships, the API key plus network-level IP allowlisting is the recommended defense-in-depth posture.
-
----
+CIDR allowlisting is configurable on both the Broker and the Gateway.
 
 ## Audit log
 
-Every mutation that affects the control plane is written to the `audit_events` table. This includes provider creates, updates, and deletes; OAuth flow completions; token retrievals; and token refresh failures. Each record captures the event type, the structured event data, the caller IP address (respecting `X-Forwarded-For`), and the User-Agent.
+Every significant event is written to `audit_events`: consents created, tokens issued, refreshes succeeded or failed, connections cleaned up. Each row includes IP address and User-Agent.
 
-The audit log is queryable via `GET /audit` on the Broker. See the [Audit Log reference](../reference/audit-log.md) for the schema and query parameters.
+The audit log has no TTL. Implement a scheduled archival job to move rows older than your retention window to cold storage. Without archival, the table grows without bound.
 
-If you manage providers declaratively with `nexus-cli`, every `apply` run generates audit log entries in addition to the git history of your manifest file, giving you two independent records of every provider change.
+## What Nexus does not enforce
+
+Nexus does not control which agents may request tokens for which connections. If your agent has a `connection_id`, it can call `GET /v1/token/{connection_id}`. Access control over which agents may use which connections belongs to your application layer.
+
+Mutual TLS between internal services is not yet implemented. Rely on network isolation and TLS termination at the load balancer for current deployments.
