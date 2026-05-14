@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nexus-sdk"
+version = "0.2.3"
+description = "Nexus SDK for Python — unified client for the Nexus OAuth Gateway and MCP server integration"
+readme = "README.md"
+license = {text = "ISC"}
+requires-python = ">=3.11"
+authors = [{name = "Prescott Data"}]
+keywords = ["nexus", "oauth", "mcp", "sdk", "dromos", "authentication"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+# Zero runtime dependencies — stdlib only
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.5"]
