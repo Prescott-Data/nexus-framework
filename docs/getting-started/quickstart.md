@@ -42,7 +42,7 @@ Open `.env` and set the following fields:
 ENCRYPTION_KEY=<your first openssl output>
 STATE_KEY=<your second openssl output>
 API_KEY=<a strong random string — this is your admin key for the Broker>
-BROKER_API_KEY=<same value as API_KEY — the Gateway uses this to talk to the Broker>
+BROKER_API_KEY=<a different strong random string — the Gateway uses this to talk to the Broker>
 ```
 
 The remaining variables in `.env.example` have sensible defaults for local development. `BASE_URL` defaults to `http://localhost:8080`, which means the OAuth callback URL is `http://localhost:8080/auth/callback`. Register that URI in your provider's developer console.
