@@ -63,6 +63,8 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.highlight:
       anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.snippets:
       base_path: ['.']
@@ -71,9 +73,18 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
+  - attr_list
+  - md_in_html
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
 nav:
-  - Home: index.md
+  - Home:
+      - Overview: index.md
+      - Website: https://developers.prescottdata.io
+      - Community: https://discord.gg/nexus-framework
+      - Blog: https://developers.prescottdata.io/blog
   - Concepts:
       - Architecture: concepts/architecture.md
       - Connections: concepts/connections.md

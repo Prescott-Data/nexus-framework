@@ -1,4 +1,10 @@
+---
+icon: material/home
+---
+
 <div class="nx-hero" markdown>
+
+<img src="assets/nexus-logo-blue.png" alt="Nexus" class="nx-hero-logo" />
 
 # Nexus
 
@@ -6,22 +12,15 @@ Credential brokering for autonomous agents. Nexus sits between your agents and e
 
 <div class="nx-cta-text" markdown>
 
-[Deploy in five minutes](getting-started/quickstart.md) · [Architecture](concepts/architecture.md) · [GitHub](https://github.com/Prescott-Data/nexus-framework)
+[Architecture](concepts/architecture.md) &nbsp;·&nbsp; [Deploy in five minutes](getting-started/quickstart.md) &nbsp;·&nbsp; [GitHub](https://github.com/Prescott-Data/nexus-framework){ target="_blank" rel="noopener" }
 
 </div>
 
 <div class="nx-cta" markdown>
 
 [Get started](getting-started/quickstart.md){ .nx-btn .nx-btn-primary }
-[View on GitHub](https://github.com/Prescott-Data/nexus-framework){ .nx-btn .nx-btn-github }
+[View on GitHub](https://github.com/Prescott-Data/nexus-framework){ .nx-btn .nx-btn-github target="_blank" rel="noopener" }
 
-</div>
-
-<div class="nx-stats" markdown>
-<div class="nx-stat"><span class="nx-stat-value">AES-256</span><span class="nx-stat-label">Token encryption</span></div>
-<div class="nx-stat"><span class="nx-stat-value">4</span><span class="nx-stat-label">Core components</span></div>
-<div class="nx-stat"><span class="nx-stat-value">v0.4</span><span class="nx-stat-label">Current release</span></div>
-<div class="nx-stat"><span class="nx-stat-value">3 SDKs</span><span class="nx-stat-label">Go · TypeScript · Python</span></div>
 </div>
 
 </div>
@@ -76,17 +75,19 @@ Broker runs on `localhost:8080`. Gateway runs on `localhost:8090`.
 
 ---
 
-## Documentation map
+## Where to start
 
-Read [Architecture](concepts/architecture.md) first. It establishes the control plane and data plane split, the OAuth handshake, and the credential retrieval model. Every other page assumes that mental model.
+Read [Architecture](concepts/architecture.md) first. It establishes the control plane and data plane split, the OAuth handshake flow, and the credential retrieval model. Every other page assumes that mental model.
 
 Then follow [Deploy in Five Minutes](getting-started/quickstart.md) to run a stack and make your first connection. After that, the [Guides](guides/integrating-agents.md) cover the operational tasks you return to repeatedly.
 
 ---
 
-## Links
+## Explore
 
-- [GitHub repository](https://github.com/Prescott-Data/nexus-framework)
-- [OpenAPI spec](https://github.com/Prescott-Data/nexus-framework/blob/main/openapi.yaml)
-- [CHANGELOG](https://github.com/Prescott-Data/nexus-framework/blob/main/CHANGELOG.md)
-- [Prescott Data developer portal](https://developers.prescottdata.io)
+| | |
+|---|---|
+| **Source** | Browse the code, open issues, and submit PRs — [GitHub](https://github.com/Prescott-Data/nexus-framework){ target="_blank" rel="noopener" } |
+| **OpenAPI** | The full Gateway v1 contract — [openapi.yaml](https://github.com/Prescott-Data/nexus-framework/blob/main/openapi.yaml){ target="_blank" rel="noopener" } |
+| **Community** | Questions, showcases, and early feature previews — [Discord](https://discord.gg/nexus-framework){ target="_blank" rel="noopener" } |
+| **Blog** | Engineering deep-dives and architecture walkthroughs — [read the blog](https://developers.prescottdata.io/blog){ target="_blank" rel="noopener" } |
