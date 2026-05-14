@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit & Contract Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: nexus-gateway/go.mod
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install TS SDK dependencies
+        working-directory: nexus-sdk-ts
+        run: npm ci
+
+      # --- Go Modules ---
+      - name: Go SDK — test
+        working-directory: nexus-sdk
+        run: go test ./... -count=1
+
+      - name: Gateway — test (incl. broker contract tests)
+        working-directory: nexus-gateway
+        run: go test ./... -count=1
+
+      - name: Bridge — test (incl. fault injection)
+        working-directory: nexus-bridge
+        run: go test ./... -count=1 -timeout=30s
+
+      - name: Broker — test
+        working-directory: nexus-broker
+        run: go test ./... -count=1
+
+      # --- TypeScript SDK ---
+      - name: TypeScript SDK — build
+        working-directory: nexus-sdk-ts
+        run: npm run build
+
+      # --- Python SDK ---
+      - name: Python SDK — test
+        working-directory: nexus-sdk-python
+        run: python3 -m unittest discover -s tests -v
