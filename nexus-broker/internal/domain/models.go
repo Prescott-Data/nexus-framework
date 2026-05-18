@@ -18,6 +18,8 @@ type Connection struct {
 	ReturnURL    string
 	Status       string
 	ExpiresAt    time.Time
+	LastHealthCheckAt sql.NullTime
+	HealthStatus      string
 }
 
 // ConnectionWithProvider joins connection and basic provider info

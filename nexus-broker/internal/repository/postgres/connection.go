@@ -103,3 +103,54 @@ func (r *connectionRepository) CountByStatus(ctx context.Context) (map[string]in
 	}
 	return counts, rows.Err()
 }
+
+func (r *connectionRepository) GetForHealthCheck(ctx context.Context, limit int) ([]*domain.ConnectionWithProvider, error) {
+	var rows []domain.ConnectionWithProvider
+	// Fetch active connections that haven't been checked in the last hour,
+	// or have never been checked, prioritizing the oldest checks first.
+	query := `
+		SELECT c.id, c.workspace_id, c.provider_id, c.scopes, c.return_url, c.status, c.expires_at,
+		       c.last_health_check_at, COALESCE(c.health_status, 'unknown'),
+		       p.name, p.auth_type, COALESCE(p.auth_header, ''), COALESCE(p.api_base_url, ''), COALESCE(p.user_info_endpoint, ''), p.params
+		FROM connections c
+		JOIN provider_profiles p ON c.provider_id = p.id
+		WHERE c.status = 'active'
+		  AND (c.last_health_check_at IS NULL OR c.last_health_check_at < NOW() - INTERVAL '1 hour')
+		ORDER BY c.last_health_check_at ASC NULLS FIRST
+		LIMIT $1
+	`
+	dbRows, err := r.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer dbRows.Close()
+
+	for dbRows.Next() {
+		var conn domain.ConnectionWithProvider
+		err := dbRows.Scan(
+			&conn.ID, &conn.WorkspaceID, &conn.ProviderID, pq.Array(&conn.Scopes), &conn.ReturnURL, &conn.Status, &conn.ExpiresAt,
+			&conn.LastHealthCheckAt, &conn.HealthStatus,
+			&conn.ProviderName, &conn.AuthType, &conn.AuthHeader, &conn.APIBaseURL, &conn.UserInfoEndpoint, &conn.ProviderParams,
+		)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, conn)
+	}
+
+	// Returning pointers as per interface
+	var ptrRows []*domain.ConnectionWithProvider
+	for i := range rows {
+		ptrRows = append(ptrRows, &rows[i])
+	}
+
+	return ptrRows, nil
+}
+
+func (r *connectionRepository) UpdateHealthStatus(ctx context.Context, id uuid.UUID, status string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE connections 
+		SET health_status = $1, last_health_check_at = NOW(), updated_at = NOW()
+		WHERE id = $2`, status, id)
+	return err
+}

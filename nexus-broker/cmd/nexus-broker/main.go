@@ -25,9 +25,17 @@ import (
 var Version = "dev"
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "-v" || os.Args[1] == "--version") {
-		log.Printf("Nexus Broker version: %s", Version)
-		os.Exit(0)
+	isWorkerOnly := false
+	if len(os.Args) > 1 {
+		for _, arg := range os.Args[1:] {
+			if arg == "-v" || arg == "--version" {
+				log.Printf("Nexus Broker version: %s", Version)
+				os.Exit(0)
+			}
+			if arg == "--worker-only" {
+				isWorkerOnly = true
+			}
+		}
 	}
 
 	cfg, err := config.Load()
@@ -131,14 +139,25 @@ func main() {
 	healthWorker := provider.NewHealthWorker(store, 5*time.Minute)
 	go healthWorker.Start(cleanupCtx)
 
+	// Start connection health worker (polls every 1m)
+	connHealthWorker := service.NewConnectionHealthWorker(connRepo, connSvc, 1*time.Minute)
+	go connHealthWorker.Start(cleanupCtx)
+
 	// Start connection health gauge (polls every 30s)
 	telemetry.NewConnectionGaugeCollector(connRepo, 30*time.Second)
 
-	log.Printf("Starting OAuth Broker server on port %s", cfg.Port)
-	log.Printf("Version: %s", Version)
-	log.Printf("Base URL: %s", cfg.BaseURL)
+	if isWorkerOnly {
+		log.Printf("Starting Nexus Broker in WORKER-ONLY mode")
+		log.Printf("Version: %s", Version)
+		// Block forever
+		select {}
+	} else {
+		log.Printf("Starting OAuth Broker server on port %s", cfg.Port)
+		log.Printf("Version: %s", Version)
+		log.Printf("Base URL: %s", cfg.BaseURL)
 
-	if err := srv.Start(); err != nil {
-		log.Fatal("Server failed to start:", err)
+		if err := srv.Start(); err != nil {
+			log.Fatal("Server failed to start:", err)
+		}
 	}
 }

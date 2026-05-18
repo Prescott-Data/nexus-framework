@@ -16,6 +16,8 @@ type ConnectionRepository interface {
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	CountByStatus(ctx context.Context) (map[string]int64, error)
 	GetActiveByWorkspaceAndProvider(ctx context.Context, workspaceID, providerName string) (*domain.ConnectionWithProvider, error)
+	GetForHealthCheck(ctx context.Context, limit int) ([]*domain.ConnectionWithProvider, error)
+	UpdateHealthStatus(ctx context.Context, id uuid.UUID, status string) error
 }
 
 // TokenRepository handles database operations for tokens

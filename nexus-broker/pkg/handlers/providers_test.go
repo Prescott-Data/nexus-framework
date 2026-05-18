@@ -75,6 +75,14 @@ func (m *MockStore) ListProfiles() ([]provider.ProfileList, error) {
 	return args.Get(0).([]provider.ProfileList), args.Error(1)
 }
 
+func (m *MockStore) GetAllProfiles() ([]provider.Profile, error) {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]provider.Profile), args.Error(1)
+}
+
 func (m *MockStore) GetMetadata() (map[string]map[string]interface{}, error) {
 	args := m.Called()
 	if args.Get(0) == nil {

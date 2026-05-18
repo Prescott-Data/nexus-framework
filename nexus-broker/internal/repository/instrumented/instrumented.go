@@ -73,6 +73,17 @@ func (r *ConnectionRepository) GetActiveByWorkspaceAndProvider(ctx context.Conte
         defer observe("connection", "GetActiveByWorkspaceAndProvider", time.Now())
         return r.inner.GetActiveByWorkspaceAndProvider(ctx, workspaceID, providerName)
 }
+
+func (r *ConnectionRepository) GetForHealthCheck(ctx context.Context, limit int) ([]*domain.ConnectionWithProvider, error) {
+	defer observe("connection", "GetForHealthCheck", time.Now())
+	return r.inner.GetForHealthCheck(ctx, limit)
+}
+
+func (r *ConnectionRepository) UpdateHealthStatus(ctx context.Context, id uuid.UUID, status string) error {
+	defer observe("connection", "UpdateHealthStatus", time.Now())
+	return r.inner.UpdateHealthStatus(ctx, id, status)
+}
+
 // --- TokenRepository decorator ---
 
 // TokenRepository wraps repository.TokenRepository with latency instrumentation.

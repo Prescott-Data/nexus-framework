@@ -149,6 +149,14 @@ func (m *MockProfileStorer) ListProfiles() ([]provider.ProfileList, error) {
 	return nil, args.Error(1)
 }
 
+func (m *MockProfileStorer) GetAllProfiles() ([]provider.Profile, error) {
+	args := m.Called()
+	if args.Get(0) != nil {
+		return args.Get(0).([]provider.Profile), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *MockProfileStorer) GetMetadata() (map[string]map[string]interface{}, error) {
 	args := m.Called()
 	if args.Get(0) != nil {

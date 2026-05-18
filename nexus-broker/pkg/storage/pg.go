@@ -56,9 +56,11 @@ type Connection struct {
 	CodeVerifier *string   `db:"code_verifier" json:"code_verifier,omitempty"`
 	Scopes       []string  `db:"scopes" json:"scopes"`
 	ReturnURL    string    `db:"return_url" json:"return_url"`
-	CreatedAt    time.Time `db:"created_at" json:"created_at"`
-	ExpiresAt    time.Time `db:"expires_at" json:"expires_at"`
-	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
+	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
+	ExpiresAt    time.Time  `db:"expires_at" json:"expires_at"`
+	UpdatedAt    time.Time  `db:"updated_at" json:"updated_at"`
+	LastHealthCheckAt *time.Time `db:"last_health_check_at" json:"last_health_check_at,omitempty"`
+	HealthStatus    string     `db:"health_status" json:"health_status"`
 }
 
 // Token represents encrypted OAuth tokens

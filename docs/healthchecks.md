@@ -76,8 +76,24 @@ A new API endpoint to expose health data:
 3.  **State Management:** Updated the `provider_profiles` table with the result of the check (`health_status`, `last_health_check_at`, `health_message`).
 4.  **Observability:** Exposed the `GET /providers/health` endpoint for monitoring and alerting integrations.
 
-### Phase 2: Connection-Level Checks (Planned)
-1.  **Connection Verifier Worker:** Build a new worker that iterates through active `connections`.
-2.  **Credential Validation:** For `api_key` or `basic_auth` connections, periodically decrypt the credential and make a lightweight, read-only request (e.g., `GET /v1/users/me`).
-3.  **State Management:** If the request returns `401 Unauthorized`, automatically flip the connection status to `expired`.
-4.  **User Experience:** Frontend clients query `GET /connections` and prompt users to re-authenticate if their specific connection is marked expired.
+### Phase 2: Connection-Level Checks (Completed)
+1.  **Connection Verifier Worker:** Built a new `ConnectionHealthWorker` that uses jittered polling to iterate through active `connections`.
+2.  **Credential Validation:** For `api_key` or `basic_auth` connections, it periodically decrypts the credential and makes a lightweight, read-only request (e.g., `GET /v1/users/me`). For `oauth2`, it attempts a background token refresh.
+3.  **State Management:** If the request returns `401 Unauthorized` (or `invalid_grant`), it automatically flips the connection status to `expired`.
+4.  **Worker Mode:** Added a `--worker-only` flag to the `nexus-broker` binary to allow running these heavy background jobs on separate, isolated infrastructure.
+
+---
+
+## 5. Technical Debt & Future Enhancements
+
+### Scope Downgrade Detection (Partial Revocation)
+The current Connection-Level Health Worker can reliably detect when a user *entirely* revokes access (the refresh token is rejected). However, detecting **partial scope revocation** (e.g., a user revokes `calendar.read` but keeps `profile`) is inherently difficult due to limitations in the OAuth2 specification.
+
+The Broker is domain-agnostic; it does not know which provider API endpoints correspond to which scopes, meaning it cannot actively "test" individual scopes.
+
+**Proposed Solution: Passive Telemetry via the Bridge**
+To solve this, we must rely on passive monitoring rather than active polling. 
+1. The `nexus-bridge` handles all active traffic from Agents.
+2. If an Agent attempts to use a specific scope that has been revoked, the provider's API will return a `403 Forbidden`.
+3. The `nexus-bridge` should be enhanced to catch these `403` errors and report them back to the `nexus-broker` via an internal telemetry endpoint.
+4. The Broker can then mark the connection as `degraded` and log exactly which scopes are failing, allowing the frontend to prompt the user to re-authenticate and re-grant the missing permissions.
