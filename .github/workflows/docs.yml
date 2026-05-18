@@ -16,6 +16,9 @@ permissions:
   pages: write        # deploy to GitHub Pages
   id-token: write     # OIDC token for Pages deployment
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: pages
   cancel-in-progress: false
