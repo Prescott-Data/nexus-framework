@@ -42,6 +42,9 @@ type Profile struct {
 	UserInfoEndpoint string           `json:"user_info_endpoint,omitempty" db:"user_info_endpoint"`
 	Params           *json.RawMessage `json:"params,omitempty" db:"params"`
 	DeletedAt        *time.Time       `json:"-" db:"deleted_at"`
+	LastHealthCheckAt *time.Time      `json:"last_health_check_at,omitempty" db:"last_health_check_at"`
+	HealthStatus     string           `json:"health_status" db:"health_status"`
+	HealthMessage    *string          `json:"health_message,omitempty" db:"health_message"`
 }
 
 // RegisterProfile registers a new provider profile from JSON
@@ -153,10 +156,10 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 // GetProfile retrieves a provider profile by ID
 func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 	var p Profile
-	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params, COALESCE(description, ''), COALESCE(category, '') FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
+	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params, COALESCE(description, ''), COALESCE(category, ''), last_health_check_at, COALESCE(health_status, 'unknown'), health_message FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
 
 	row := s.db.QueryRow(query, id)
-	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category)
+	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category, &p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider profile: %w", err)
 	}
@@ -174,7 +177,8 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 		SELECT id, name, client_id, client_secret, auth_url, token_url, issuer,
 		       enable_discovery, scopes, auth_type, COALESCE(auth_header, ''),
 		       COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params,
-		       COALESCE(description, ''), COALESCE(category, '')
+		       COALESCE(description, ''), COALESCE(category, ''), last_health_check_at,
+		       COALESCE(health_status, 'unknown'), health_message
 		FROM provider_profiles
 		WHERE LOWER(name) = $1 AND deleted_at IS NULL
 	`
@@ -192,6 +196,7 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 			&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL,
 			&p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType,
 			&p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category,
+			&p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan provider profile: %w", err)
@@ -369,8 +374,59 @@ func (s *Store) ListProfiles() ([]ProfileList, error) {
 	return rows, nil
 }
 
+// GetAllProfiles retrieves all non-deleted provider profiles in full
+func (s *Store) GetAllProfiles() ([]Profile, error) {
+	query := `
+		SELECT id, name, client_id, client_secret, auth_url, token_url, issuer,
+		       enable_discovery, scopes, auth_type, COALESCE(auth_header, ''),
+		       COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params,
+		       COALESCE(description, ''), COALESCE(category, ''), last_health_check_at,
+		       COALESCE(health_status, 'unknown'), health_message
+		FROM provider_profiles
+		WHERE deleted_at IS NULL
+	`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all profiles: %w", err)
+	}
+	defer rows.Close()
+
+	var profiles []Profile
+	for rows.Next() {
+		var p Profile
+		err := rows.Scan(
+			&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL,
+			&p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType,
+			&p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category,
+			&p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan provider profile: %w", err)
+		}
+		profiles = append(profiles, p)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating all profiles: %w", err)
+	}
+
+	return profiles, nil
+}
+
+// UpdateHealthStatus updates the health fields for a given provider profile
+func (s *Store) UpdateHealthStatus(id uuid.UUID, status string, message *string) error {
+	query := `UPDATE provider_profiles SET health_status = $1, health_message = $2, last_health_check_at = NOW() WHERE id = $3 AND deleted_at IS NULL`
+	_, err := s.db.Exec(query, status, message, id)
+	if err != nil {
+		return fmt.Errorf("failed to update provider health status: %w", err)
+	}
+	return nil
+}
+
 // GetMetadata retrieves integration metadata for all providers, grouped by auth_type
 func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
+
 	query := `
 		SELECT
 			id,

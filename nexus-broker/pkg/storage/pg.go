@@ -42,6 +42,9 @@ type ProviderProfile struct {
 	Params          *json.RawMessage `db:"params" json:"params,omitempty"`
 	CreatedAt       time.Time        `db:"created_at" json:"created_at"`
 	UpdatedAt       time.Time        `db:"updated_at" json:"updated_at"`
+	LastHealthCheckAt *time.Time     `db:"last_health_check_at" json:"last_health_check_at,omitempty"`
+	HealthStatus    string           `db:"health_status" json:"health_status"`
+	HealthMessage   *string          `db:"health_message" json:"health_message,omitempty"`
 }
 
 // Connection represents an OAuth connection flow

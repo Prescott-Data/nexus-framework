@@ -107,6 +107,7 @@ func main() {
 	protected.Route("/providers", func(r chi.Router) {
 		r.Post("/", providersHandler.Register)
 		r.Get("/", providersHandler.List)
+		r.Get("/health", providersHandler.Health)
 		r.Get("/metadata", providersHandler.Metadata)
 		r.Get("/by-name/{name}", providersHandler.GetByName)
 		r.Delete("/by-name/{name}", providersHandler.DeleteByName)
@@ -125,6 +126,10 @@ func main() {
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	defer cleanupCancel()
 	go handlers.StartOrphanTokenCleanup(cleanupCtx, db, 1*time.Hour)
+
+	// Start provider health worker (polls every 5m)
+	healthWorker := provider.NewHealthWorker(store, 5*time.Minute)
+	go healthWorker.Start(cleanupCtx)
 
 	// Start connection health gauge (polls every 30s)
 	telemetry.NewConnectionGaugeCollector(connRepo, 30*time.Second)

@@ -203,6 +203,28 @@ func (h *ProvidersHandler) List(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, rows)
 }
 
+// Health handles GET /providers/health to list provider health statuses
+func (h *ProvidersHandler) Health(w http.ResponseWriter, r *http.Request) {
+	profiles, err := h.store.GetAllProfiles()
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "health_failed", "Failed to list providers health")
+		return
+	}
+	
+	var healthData []map[string]interface{}
+	for _, p := range profiles {
+		healthData = append(healthData, map[string]interface{}{
+			"id": p.ID.String(),
+			"name": p.Name,
+			"health_status": p.HealthStatus,
+			"last_health_check_at": p.LastHealthCheckAt,
+			"health_message": p.HealthMessage,
+		})
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, healthData)
+}
+
 // GetByName handles GET /providers/by-name/{name}
 func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")

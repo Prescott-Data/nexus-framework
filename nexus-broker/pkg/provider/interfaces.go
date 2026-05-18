@@ -22,5 +22,6 @@ type ProfileStorer interface {
 	// ...
 	DeleteProfileByName(name string) (int64, error)
 	ListProfiles() ([]ProfileList, error)
+	GetAllProfiles() ([]Profile, error)
 	GetMetadata() (map[string]map[string]interface{}, error)
 }
