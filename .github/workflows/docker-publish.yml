@@ -10,6 +10,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME_BROKER: Prescott-Data/nexus-broker
   IMAGE_NAME_GATEWAY: Prescott-Data/nexus-gateway
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build-and-push:

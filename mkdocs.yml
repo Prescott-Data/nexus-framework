@@ -1,6 +1,6 @@
 site_name: Nexus
 site_description: Provider-agnostic credential brokering for autonomous agents. Built by Prescott Data.
-site_url: https://prescott-data.github.io/nexus-framework/
+site_url: https://nexus.developers.prescottdata.io/
 repo_url: https://github.com/Prescott-Data/nexus-framework
 repo_name: Prescott-Data/nexus-framework
 edit_uri: edit/main/docs/
