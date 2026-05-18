@@ -10,7 +10,6 @@ site_dir: site
 
 theme:
   name: material
-  custom_dir: docs/overrides
   logo: assets/nexus-logo-blue.png
   favicon: assets/nexus-logo-blue.png
   palette:
