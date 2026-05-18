@@ -1,3 +1,7 @@
+---
+icon: material/server-network-outline
+---
+
 # MCP Server Integration
 
 This guide shows how to build a **Model Context Protocol (MCP) server** that uses the Nexus SDK to make authorized API calls on behalf of a workspace/tenant — in TypeScript, Go, and Python.

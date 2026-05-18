@@ -1,5 +1,5 @@
-site_name: Nexus Framework
-site_description: Provider-agnostic identity and connection orchestration for autonomous agents.
+site_name: Nexus
+site_description: Provider-agnostic credential brokering for autonomous agents. Built by Prescott Data.
 site_url: https://prescott-data.github.io/nexus-framework/
 repo_url: https://github.com/Prescott-Data/nexus-framework
 repo_name: Prescott-Data/nexus-framework
@@ -10,30 +10,49 @@ site_dir: site
 
 theme:
   name: material
+  custom_dir: docs/overrides
+  logo: assets/nexus-logo-blue.png
+  favicon: assets/nexus-logo-blue.png
   palette:
     - scheme: default
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
   features:
+    - navigation.instant
+    - navigation.instant.progress
     - navigation.tabs
     - navigation.tabs.sticky
     - navigation.sections
-    - navigation.expand
     - navigation.top
+    - navigation.indexes
+    - navigation.path
+    - navigation.footer
+    - toc.follow
     - search.highlight
     - search.share
+    - search.suggest
     - content.code.copy
     - content.code.annotate
-    - toc.integrate
+    - content.tooltips
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/header.js
+  - javascripts/llm-assist.js
 
 plugins:
   - search
@@ -44,46 +63,80 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.highlight:
       anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.snippets:
-      base_path: ['.']   # repo root — allows --8<-- "README.md" in index.md
+      base_path: ['.']
   - pymdownx.tabbed:
       alternate_style: true
   - tables
   - toc:
       permalink: true
+  - attr_list
+  - md_in_html
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
 nav:
-  - Home: index.md
-  - Core Concepts:
-      - Architecture: architecture.md
-      - The Nexus Protocol: NEXUS_PROTOCOL.md
-      - Technical Whitepaper: nexus-protocol-whitepaper.pdf
-      - Security Model: reference/security-model.md
+  - Home:
+      - Overview: index.md
+      - Website: https://developers.prescottdata.io
+      - Community: https://discord.gg/AbskSXypq
+      - Blog: https://developers.prescottdata.io/blog
+  - Concepts:
+      - Architecture: concepts/architecture.md
+      - The Broker: concepts/broker.md
+      - The Gateway: concepts/gateway.md
+      - The Bridge: concepts/bridge.md
+      - Connections: concepts/connections.md
+      - Provider Types: concepts/provider-types.md
+      - Auth Strategies: concepts/auth-strategies.md
+      - Agent Identity: concepts/agent-identity.md
+      - Security Model: concepts/security-model.md
+      - Client Libraries: concepts/client-libraries.md
   - Getting Started:
-      - Quick Start: index.md
-      - Deployment & Config: deployment.md
-  - Component Deep Dives:
-      - Nexus Broker: services/broker.md
-      - Nexus Gateway: services/gateway.md
-      - Nexus Bridge: services/bridge.md
-  - SDKs:
-      - Overview: sdks/index.md
+      - Deploy in Five Minutes: getting-started/quickstart.md
+      - Configuration: getting-started/configuration.md
+      - Your First Connection: getting-started/first-connection.md
+  - Guides:
+      - Providers: guides/registering-a-provider.md
+      - Integrating Agents: guides/integrating-agents.md
       - Go SDK: sdks/go.md
       - TypeScript SDK: sdks/typescript.md
       - Python SDK: sdks/python.md
-  - Guides:
-      - Agent Integration: guides/integrating-agents.md
+      - Agent Sessions: guides/agent-sessions.md
+      - Static Credential Flow: guides/static-credentials.md
+      - OBO Delegation: guides/obo-delegation.md
       - MCP Server Integration: guides/mcp-integration.md
-      - Managing Providers: guides/managing-providers.md
-      - Security-as-Code (nexus-cli): guides/security-as-code.md
-  - API Reference:
-      - API Overview: reference/api.md
+      - Handling Attention State: guides/attention-state.md
+      - Troubleshooting: guides/troubleshooting.md
+      - Security-as-Code: guides/security-as-code.md
+      - Deploying Nexus: infrastructure/deploying-nexus.md
+  - Reference:
+      - API Reference: reference/api.md
+      - CLI Reference: reference/cli.md
       - Audit Log: reference/audit-log.md
-      - Technical Debt & Roadmap: reference/tech-debt.md
+      - Security Model: reference/security-model.md
+      - Changelog: CHANGELOG.md
+
 
 extra:
+  version: "0.2.3"
   social:
+    - icon: material/web
+      link: https://developers.prescottdata.io
+      name: Prescott Data Developer Hub
+    - icon: fontawesome/brands/x-twitter
+      link: https://x.com/prescottdata
+      name: Prescott Data on X
+    - icon: fontawesome/brands/linkedin
+      link: https://www.linkedin.com/company/prescott-data/
+      name: Prescott Data on LinkedIn
     - icon: fontawesome/brands/github
       link: https://github.com/Prescott-Data/nexus-framework
-      name: Nexus Framework on GitHub
+      name: nexus-framework on GitHub
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/AbskSXypq
+      name: Join our Discord

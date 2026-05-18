@@ -1,3 +1,7 @@
+---
+icon: material/shield-check-outline
+---
+
 # Security Model
 
 The Nexus Framework is built on the principle of **Least Privilege for Agents**. Agents should never hold the "keys to the kingdom" (Refresh Tokens); they should only hold short-lived "Usage Secrets."
