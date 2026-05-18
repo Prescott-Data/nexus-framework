@@ -774,13 +774,12 @@ body,
 
 /* ============================================================
    HIDE MATERIAL'S GLOBE ICON ON EXTERNAL NAV LINKS ONLY
-   Material injects a .md-nav__icon globe SVG on every nav link
-   that opens in a new tab (external URLs). Internal page links
-   have frontmatter icons (icon: material/...) using the same
-   .md-nav__icon structure — we must NOT hide those.
-   Targeting [target="_blank"] isolates only the external links.
+   The globe is a bare <svg> direct child of .md-nav__link on
+   external URLs. Internal page icons (icon: material/...) are
+   inside span.md-nav__icon — a completely different element —
+   so targeting > svg only on [target="_blank"] is safe.
    ============================================================ */
-.md-nav__link[target="_blank"] .md-nav__icon {
+.md-nav__link[target="_blank"] > svg {
   display: none !important;
 }
 
