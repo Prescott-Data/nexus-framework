@@ -773,33 +773,14 @@ body,
 
 
 /* ============================================================
-   HIDE MATERIAL'S BUILT-IN GLOBE / EXTERNAL-LINK ICON
-   Material injects an inline <svg> globe on every nav link
-   pointing to an external URL — sidebar items AND TOC headings.
-   We already have purpose-built ::before icons for the three
-   Home links (Website, Community, Blog), so suppress the
-   auto-injected globe everywhere else.
+   HIDE MATERIAL'S GLOBE ICON ON EXTERNAL NAV LINKS ONLY
+   Material injects a .md-nav__icon globe SVG on every nav link
+   that opens in a new tab (external URLs). Internal page links
+   have frontmatter icons (icon: material/...) using the same
+   .md-nav__icon structure — we must NOT hide those.
+   Targeting [target="_blank"] isolates only the external links.
    ============================================================ */
-
-/* Left sidebar — primary nav tree */
-.md-nav--primary .md-nav__link > svg.md-icon,
-.md-nav--primary .md-nav__link > .md-ellipsis > svg.md-icon {
-  display: none !important;
-}
-
-/* Right sidebar — table of contents */
-.md-nav--secondary .md-nav__link > svg.md-icon,
-.md-nav--secondary .md-nav__link > .md-ellipsis > svg.md-icon {
-  display: none !important;
-}
-
-/* Mobile drawer */
-.md-nav--integrated .md-nav__link > svg.md-icon {
-  display: none !important;
-}
-
-/* Broad catch-all for any remaining injected SVG globe in sidebars */
-.md-sidebar .md-nav__link > svg[viewBox] {
+.md-nav__link[target="_blank"] .md-nav__icon {
   display: none !important;
 }
 
