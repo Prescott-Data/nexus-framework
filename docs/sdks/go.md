@@ -1,3 +1,7 @@
+---
+icon: material/language-go
+---
+
 # Go SDK
 
 The `nexus-sdk` Go package is a zero-dependency client for the Nexus Gateway. It supports both standard OAuth connection management and MCP server token injection.

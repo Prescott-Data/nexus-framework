@@ -1,3 +1,7 @@
+---
+icon: material/language-python
+---
+
 # Python SDK
 
 The `nexus-sdk` Python package is a zero-dependency client for the Nexus Gateway supporting both standard OAuth connection management and MCP server token injection.

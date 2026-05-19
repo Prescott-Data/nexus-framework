@@ -1,0 +1,2437 @@
+/* ============================================================
+   Nexus Docs — Custom Theme
+   ============================================================ */
+
+/* ---------- Material Custom Palette Overrides ---------- */
+[data-md-color-primary="custom"] {
+  --md-primary-fg-color:        #0071F7;
+  --md-primary-fg-color--light: #35B0FE;
+  --md-primary-fg-color--dark:  #0049C6;
+  /* Do NOT set --md-primary-bg-color here — Material uses it as
+     active-tab text colour, which would render as white-on-white
+     in light mode. Let it fall through to Material's default (#fff
+     only on coloured primary backgrounds, not on our white header). */
+}
+
+[data-md-color-accent="custom"] {
+  --md-accent-fg-color: #0CF0E3;
+  --md-accent-fg-color--light: rgba(12, 240, 227, 0.1);
+  --md-accent-bg-color-light: rgba(12, 240, 227, 0.1);
+}
+
+/* ---------- Google Fonts ---------- */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ---------- Design Tokens ---------- */
+:root {
+  --nx-brand: #0071F7;
+  --nx-brand-light: #35B0FE;
+  --nx-brand-dark: #0049C6;
+  --nx-accent: #0CF0E3;
+  --nx-purple: #4951F3;
+
+  /* UI Semantic Colors */
+  --nx-green: #0CC572;          /* UI Green — success, active, healthy states */
+  --nx-green-subtle: rgba(12, 197, 114, 0.10);
+  --nx-yellow: #E8A302;         /* UI Yellow — warnings, in-progress, caution */
+  --nx-yellow-subtle: rgba(232, 163, 2, 0.10);
+
+  --nx-surface: #f8fafc;
+  --nx-border: #e2e8f0;
+  --nx-text-muted: #64748b;
+
+  --nx-gradient: linear-gradient(135deg, #35B0FE 0%, #2457F7 35%, #443ACC 68%, #752CEA 100%);
+  --nx-gradient-subtle: linear-gradient(135deg, rgba(23, 88, 245, 0.06) 0%, rgba(12, 240, 227, 0.04) 100%);
+  --nx-gradient-brand: linear-gradient(135deg, #0049C6 0%, #0971EE 50%, #023DF3 100%);
+
+  --nx-radius: 10px;
+  --nx-shadow: 0 4px 24px rgba(23, 88, 245, 0.10);
+  --nx-shadow-hover: 0 8px 32px rgba(23, 88, 245, 0.18);
+  --nx-transition: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Sidebar width — wider than Material default (12rem) so labels never truncate */
+  --md-sidebar-width: 15rem;
+}
+
+/* ---------- Logo ---------- */
+.md-header__button.md-logo {
+  height: auto !important;
+  padding: 0.25rem 0.5rem !important;
+  margin: 0 0.2rem 0 0 !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+.md-header__button.md-logo img {
+  height: 2.2rem !important;
+  width: 2.2rem !important;
+  max-width: none !important;
+  max-height: none !important;
+  display: block !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15) !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+.md-header__button.md-logo img:hover {
+  transform: scale(1.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
+}
+
+[data-md-color-scheme="slate"] {
+  --nx-surface: #0f1117;
+  --nx-border: #1e2130;
+  --nx-text-muted: #94a3b8;
+  --nx-gradient-subtle: linear-gradient(135deg, rgba(23, 88, 245, 0.12) 0%, rgba(12, 240, 227, 0.08) 100%);
+  --nx-shadow: 0 4px 24px rgba(0, 0, 0, 0.40);
+  --nx-shadow-hover: 0 8px 40px rgba(23, 88, 245, 0.25);
+}
+
+/* ---------- Base Typography ---------- */
+body,
+.md-content {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ── Heading scale & site-wide colour hierarchy ───────────────────────────
+   H1 — page title        → default (dark/white per scheme), large + bold
+   H2 — section grouper  → brand blue + left border accent
+   H3 — sub-section       → brand-light blue
+   H4 — individual item   → slightly muted, normal weight
+   ─────────────────────────────────────────────────────────────────────── */
+
+.md-typeset h1 {
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.md-typeset h2 {
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--nx-brand);
+  border-left: 3px solid var(--nx-brand);
+  padding-left: 0.7rem;
+  margin-top: 2rem;
+}
+
+.md-typeset h3 {
+  font-weight: 600;
+  color: var(--nx-brand-light);
+}
+
+.md-typeset h4 {
+  font-weight: 500;
+  color: var(--nx-text-muted);
+}
+
+/* Dark mode heading colours */
+[data-md-color-scheme="slate"] .md-typeset h2 {
+  color: var(--nx-brand-light);
+  border-left-color: var(--nx-brand-light);
+}
+
+[data-md-color-scheme="slate"] .md-typeset h3 {
+  color: #7ec8f8;
+}
+
+[data-md-color-scheme="slate"] .md-typeset h4 {
+  color: var(--nx-text-muted);
+}
+
+/* ── Body copy density — tight prose ── */
+.md-typeset {
+  font-size: 0.7875rem !important;
+  line-height: 1.5 !important;
+}
+
+.md-typeset p {
+  font-size: 0.7875rem;
+  line-height: 1.5;
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.md-typeset li {
+  font-size: 0.7875rem;
+  line-height: 1.45;
+}
+
+.md-typeset dt,
+.md-typeset dd {
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.md-typeset .admonition p,
+.md-typeset details p {
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.md-typeset table td,
+.md-typeset table th {
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.md-typeset table th {
+  font-size: 0.64rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.05em !important;
+  text-transform: uppercase !important;
+}
+
+.md-typeset code,
+.md-typeset pre code {
+  font-size: 0.72rem;
+  line-height: 1.38;
+}
+
+/* Headings stay prominent but tighter */
+.md-typeset h1 {
+  font-size: 1.75rem;
+  line-height: 1.2;
+}
+
+.md-typeset h2 {
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+
+.md-typeset h3 {
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+
+.md-typeset h4 {
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+/* ============================================================
+   HEADER — adaptive: white in light mode, #0c0c0e in dark
+   ============================================================ */
+
+/* Light mode */
+.md-header {
+  background: #ffffff !important;
+  box-shadow: none !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.md-header[data-md-state="shadow"] {
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Dark mode */
+[data-md-color-scheme="slate"] .md-header {
+  background: #0c0c0e !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+[data-md-color-scheme="slate"] .md-header[data-md-state="shadow"] {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Push theme-toggle (palette form) to the far right */
+.md-header__inner {
+  display: flex;
+  align-items: center;
+}
+
+/* Prevent title from collapsing due to flex rules */
+.md-header__title {
+  flex-grow: 0 !important;
+  flex-shrink: 0 !important;
+  min-width: max-content !important;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: #0c0c0e !important;
+  margin-left: 0.45rem;
+}
+
+/* On mobile the title must shrink to fit next to hamburger + logo */
+@media screen and (max-width: 76.1875em) {
+  .md-header__title {
+    min-width: 0 !important;
+    flex-shrink: 1 !important;
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+[data-md-color-scheme="slate"] .md-header__title {
+  color: #fff !important;
+}
+
+/* Center the search bar absolutely in the header — desktop only.
+   On mobile Material hides the pill behind a magnifying glass icon
+   button that opens a full-screen modal. */
+@media screen and (min-width: 76.25em) {
+  .md-header .md-header__inner.md-grid {
+    position: relative !important;
+  }
+
+  .md-header .md-header__inner .md-search,
+  .md-header .md-search[data-md-component="search"] {
+    position: absolute !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: 380px !important;
+    z-index: 2 !important;
+  }
+}
+
+.md-header .md-search__form {
+  width: 100%;
+}
+
+/* Push right-side items (GH widget, palette toggle) to far right */
+.nx-version-chip {
+  margin-right: auto;
+}
+
+/* Hide Material's built-in repo source link — we don't use it */
+.md-header__source {
+  display: none !important;
+}
+
+/* Hide edit/view-source icon button in header */
+[data-md-component="header"] .md-header__button[title*="Edit"],
+[data-md-component="header"] .md-header__button[title*="View"] {
+  display: none !important;
+}
+
+
+
+/* All header icons/buttons */
+.md-header .md-icon,
+.md-header .md-header__button {
+  color: rgba(0, 0, 0, 0.45) !important;
+  transition: color 0.15s ease;
+}
+
+.md-header .md-header__button:hover {
+  color: rgba(0, 0, 0, 0.8) !important;
+}
+
+[data-md-color-scheme="slate"] .md-header .md-icon,
+[data-md-color-scheme="slate"] .md-header .md-header__button {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+[data-md-color-scheme="slate"] .md-header .md-header__button:hover {
+  color: #fff !important;
+}
+
+/* ============================================================
+   SEARCH UI (Pill & Modal)
+   ============================================================ */
+
+/* 1. Idle Search Bar (Pill) */
+.md-header .md-search__form {
+  background: rgba(0, 0, 0, 0.05) !important;
+  border-radius: 99px !important;
+  border: none !important;
+  height: 36px !important;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.md-header .md-search__input {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.85rem;
+  color: #0c0c0e !important;
+  padding-left: 2.2rem !important;
+  padding-right: 2.5rem !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  background: transparent !important;
+}
+
+.md-header .md-search__input::placeholder {
+  color: rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Show the search icon */
+.md-search__icon[for="__search"] {
+  display: block !important;
+  position: absolute;
+  left: 0.7rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1rem;
+  height: 1rem;
+  color: rgba(0, 0, 0, 0.4);
+}
+
+/* Add the ⌘K badge */
+.md-header .md-search__form::after {
+  content: "⌘K";
+  position: absolute;
+  right: 0.8rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+/* 2. Active Search State (Modal) */
+[data-md-toggle="search"]:checked~.md-header .md-search {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 100 !important;
+  transform: none !important;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 15vh;
+}
+
+/* Modal Overlay (Blur + Click to close) */
+[data-md-toggle="search"]:checked~.md-header .md-search__overlay {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background: rgba(0, 0, 0, 0.4) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  z-index: 0 !important;
+  opacity: 1 !important;
+  cursor: default !important;
+  display: block !important;
+}
+
+/* Modal Box (Inner) */
+[data-md-toggle="search"]:checked~.md-header .md-search__inner {
+  position: relative !important;
+  width: 600px !important;
+  max-width: 90vw !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  top: 0 !important;
+  transform: none !important;
+  left: 0 !important;
+  z-index: 10 !important;
+}
+
+/* Active Modal Header (Form) */
+[data-md-toggle="search"]:checked~.md-header .md-search__form {
+  background: #fff !important;
+  border-radius: 12px 12px 0 0 !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
+  height: 56px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1) !important;
+}
+
+[data-md-toggle="search"]:checked~.md-header .md-search__form::after {
+  display: none !important;
+  /* Hide ⌘K when active */
+}
+
+/* Active Modal Body (Output/Results) */
+[data-md-toggle="search"]:checked~.md-header .md-search__output {
+  position: static !important;
+  background: #fff !important;
+  border-radius: 0 0 12px 12px !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  border-top: none !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15) !important;
+  max-height: 60vh !important;
+  overflow: hidden !important;
+}
+
+/* Dark Mode Tweaks */
+[data-md-color-scheme="slate"] .md-header .md-search__form {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-md-color-scheme="slate"] .md-header .md-search__input {
+  color: #fff !important;
+}
+
+[data-md-color-scheme="slate"] .md-header .md-search__input::placeholder,
+[data-md-color-scheme="slate"] .md-search__icon[for="__search"],
+[data-md-color-scheme="slate"] .md-header .md-search__form::after {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+[data-md-color-scheme="slate"] [data-md-toggle="search"]:checked~.md-header .md-search__form {
+  background: #1e1e1e !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-md-color-scheme="slate"] [data-md-toggle="search"]:checked~.md-header .md-search__output {
+  background: #1e1e1e !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* ── Version chip ─────────────────────────────────────── */
+.nx-version-chip {
+  display: inline-flex;
+  align-items: center;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: rgba(0, 0, 0, 0.4);
+  margin-left: 0.6rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+[data-md-color-scheme="slate"] .nx-version-chip {
+  border-color: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* ── GitHub stars widget ──────────────────────────────── */
+.nx-gh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.5) !important;
+  text-decoration: none !important;
+  margin: 0 0.5rem;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.nx-gh-btn:hover {
+  border-color: var(--nx-brand);
+  color: var(--nx-brand) !important;
+  background: rgba(23, 88, 245, 0.05);
+  text-decoration: none !important;
+}
+
+.nx-gh-repo {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.nx-gh-sep {
+  opacity: 0.4;
+  font-size: 0.7rem;
+  margin: 0 1px;
+}
+
+.nx-stars-count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-md-color-scheme="slate"] .nx-gh-btn {
+  border-color: rgba(255, 255, 255, 0.13);
+  color: rgba(255, 255, 255, 0.48) !important;
+}
+
+[data-md-color-scheme="slate"] .nx-gh-btn:hover {
+  border-color: var(--nx-brand-light);
+  color: var(--nx-brand-light) !important;
+  background: rgba(23, 88, 245, 0.1);
+}
+
+
+
+
+/* ============================================================
+   NAVIGATION TABS — adaptive: white light / dark in slate
+   ============================================================ */
+
+/* ============================================================
+   NAVIGATION TABS — tight bottom-hugging active underline
+   ============================================================ */
+
+.md-tabs {
+  background: #ffffff !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  margin-top: 0;
+  min-height: 0;
+}
+
+[data-md-color-scheme="slate"] .md-tabs {
+  background: #0c0c0e !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  margin-top: 0;
+}
+
+/* The tab list — zero padding so links sit flush */
+.md-tabs__list {
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: stretch;
+  /* children fill full height */
+}
+
+.md-tabs__item {
+  /* let the item height be driven by the link */
+  display: flex;
+  align-items: stretch;
+}
+
+.md-tabs__link {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: #292929 !important;
+  opacity: 1 !important;
+  /* tight vertical padding — 6px top, only 4px bottom so underline is RIGHT at the bar */
+  padding: 6px 12px 4px;
+  position: relative;
+  transition: color 0.15s ease;
+  margin-top: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  text-decoration: none;
+  /* no bottom gap — the 2px underline will touch the border */
+  box-sizing: border-box;
+}
+
+[data-md-color-scheme="slate"] .md-tabs__link {
+  color: rgba(255, 255, 255, 0.42) !important;
+}
+
+/* Active underline — pinned to very bottom of the tab row */
+.md-tabs__link::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  /* sit on top of the border-bottom of .md-tabs */
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  background: var(--nx-brand);
+  border-radius: 2px 2px 0 0;
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.md-tabs__link:hover {
+  color: #1a1a1a !important;
+  text-decoration: none;
+}
+
+[data-md-color-scheme="slate"] .md-tabs__link:hover {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Active tab — explicit colours that beat Material's primary-bg-color bleed */
+.md-tabs__item--active .md-tabs__link,
+.md-tabs__item--active .md-tabs__link:link,
+.md-tabs__item--active .md-tabs__link:visited {
+  color: var(--nx-brand) !important;
+  font-weight: 600 !important;
+}
+
+[data-md-color-scheme="slate"] .md-tabs__item--active .md-tabs__link,
+[data-md-color-scheme="slate"] .md-tabs__item--active .md-tabs__link:link,
+[data-md-color-scheme="slate"] .md-tabs__item--active .md-tabs__link:visited {
+  color: var(--nx-brand-light) !important;
+  font-weight: 600 !important;
+}
+
+.md-tabs__item--active .md-tabs__link::after {
+  transform: scaleX(1);
+}
+
+/* Hover preview of underline */
+.md-tabs__item:not(.md-tabs__item--active) .md-tabs__link:hover::after {
+  transform: scaleX(0.6);
+  opacity: 0.35;
+}
+
+/* ============================================================
+   TAB BAR ICONS — injected for sections that link to pages
+   without navigation.indexes (so Material doesn't auto-render
+   an icon from frontmatter). We match by the tab's href.
+   ============================================================ */
+
+/* Shared pseudo-element setup for injected tab icons */
+.md-tabs__link[href*="getting-started"]::before,
+.md-tabs__link[href*="concepts/"]::before,
+.md-tabs__link[href*="guides/"]::before,
+.md-tabs__link[href*="reference/"]::before,
+.md-tabs__link[href*="infrastructure/"]::before {
+  content: '';
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  vertical-align: middle;
+  margin-right: 2px;
+  opacity: 0.85;
+}
+
+/* Getting Started — rocket launch */
+.md-tabs__link[href*="getting-started"]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2.81 14.12L5.64 11.29L8.17 13.82C9.78 12.5 11.5 11.39 13.5 10.62L13.57 10.69C15 8.5 17.5 7 20.23 7A9.98 9.98 0 0 1 22 12C22 17.52 17.52 22 12 22C8.91 22 6.19 20.55 4.43 18.3L6.56 16.17C7.72 17.65 9.5 18.6 11.5 18.91L11.5 15.79C9.28 15.36 7.19 14.36 5.64 13L2.81 14.12M13.5 13.43V18.91C15.5 18.6 17.28 17.65 18.44 16.17L16.36 14.09C15.5 14.82 14.53 15.22 13.5 15.43M5.5 5A2 2 0 0 0 3.5 7A2 2 0 0 0 5.5 9A2 2 0 0 0 7.5 7A2 2 0 0 0 5.5 5Z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2.81 14.12L5.64 11.29L8.17 13.82C9.78 12.5 11.5 11.39 13.5 10.62L13.57 10.69C15 8.5 17.5 7 20.23 7A9.98 9.98 0 0 1 22 12C22 17.52 17.52 22 12 22C8.91 22 6.19 20.55 4.43 18.3L6.56 16.17C7.72 17.65 9.5 18.6 11.5 18.91L11.5 15.79C9.28 15.36 7.19 14.36 5.64 13L2.81 14.12M13.5 13.43V18.91C15.5 18.6 17.28 17.65 18.44 16.17L16.36 14.09C15.5 14.82 14.53 15.22 13.5 15.43M5.5 5A2 2 0 0 0 3.5 7A2 2 0 0 0 5.5 9A2 2 0 0 0 7.5 7A2 2 0 0 0 5.5 5Z'/%3E%3C/svg%3E");
+}
+
+/* Concepts — lightbulb-on */
+.md-tabs__link[href*="concepts/"]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2A7 7 0 0 0 5 9C5 11.38 6.19 13.47 8 14.74V17A1 1 0 0 0 9 18H15A1 1 0 0 0 16 17V14.74C17.81 13.47 19 11.38 19 9A7 7 0 0 0 12 2M9 21A1 1 0 0 0 10 22H14A1 1 0 0 0 15 21V20H9V21Z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2A7 7 0 0 0 5 9C5 11.38 6.19 13.47 8 14.74V17A1 1 0 0 0 9 18H15A1 1 0 0 0 16 17V14.74C17.81 13.47 19 11.38 19 9A7 7 0 0 0 12 2M9 21A1 1 0 0 0 10 22H14A1 1 0 0 0 15 21V20H9V21Z'/%3E%3C/svg%3E");
+}
+
+/* Guides — book open */
+.md-tabs__link[href*="guides/"]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M17 22V20H20V17H22V20.5C22 20.89 21.84 21.24 21.54 21.54C21.24 21.84 20.89 22 20.5 22H17M7 22H3.5C3.11 22 2.76 21.84 2.46 21.54C2.16 21.24 2 20.89 2 20.5V17H4V20H7V22M17 2H20.5C20.89 2 21.24 2.16 21.54 2.46C21.84 2.76 22 3.11 22 3.5V7H20V4H17V2M7 2V4H4V7H2V3.5C2 3.11 2.16 2.76 2.46 2.46C2.76 2.16 3.11 2 3.5 2H7M13 17H11C10.45 17 10 16.55 10 16S10.45 15 11 15H13C13.55 15 14 15.45 14 16S13.55 17 13 17M17 13H7C6.45 13 6 12.55 6 12S6.45 11 7 11H17C17.55 11 18 11.45 18 12S17.55 13 17 13M17 9H7C6.45 9 6 8.55 6 8S6.45 7 7 7H17C17.55 7 18 7.45 18 8S17.55 9 17 9Z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M17 22V20H20V17H22V20.5C22 20.89 21.84 21.24 21.54 21.54C21.24 21.84 20.89 22 20.5 22H17M7 22H3.5C3.11 22 2.76 21.84 2.46 21.54C2.16 21.24 2 20.89 2 20.5V17H4V20H7V22M17 2H20.5C20.89 2 21.24 2.16 21.54 2.46C21.84 2.76 22 3.11 22 3.5V7H20V4H17V2M7 2V4H4V7H2V3.5C2 3.11 2.16 2.76 2.46 2.46C2.76 2.16 3.11 2 3.5 2H7M13 17H11C10.45 17 10 16.55 10 16S10.45 15 11 15H13C13.55 15 14 15.45 14 16S13.55 17 13 17M17 13H7C6.45 13 6 12.55 6 12S6.45 11 7 11H17C17.55 11 18 11.45 18 12S17.55 13 17 13M17 9H7C6.45 9 6 8.55 6 8S6.45 7 7 7H17C17.55 7 18 7.45 18 8S17.55 9 17 9Z'/%3E%3C/svg%3E");
+}
+
+/* Reference — code tags */
+.md-tabs__link[href*="reference/"]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M14.6 16.6L19.2 12L14.6 7.4L16 6L22 12L16 18L14.6 16.6M9.4 16.6L4.8 12L9.4 7.4L8 6L2 12L8 18L9.4 16.6Z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M14.6 16.6L19.2 12L14.6 7.4L16 6L22 12L16 18L14.6 16.6M9.4 16.6L4.8 12L9.4 7.4L8 6L2 12L8 18L9.4 16.6Z'/%3E%3C/svg%3E");
+}
+
+/* Enterprise — office building */
+.md-tabs__link[href*="infrastructure/"]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18 15H16V17H18M18 11H16V13H18M20 19H12V17H14V15H12V13H14V11H12V9H20M10 7H8V5H10M10 11H8V9H10M10 15H8V13H10M10 19H8V17H10M6 7H4V5H6M6 11H4V9H6M6 15H4V13H6M6 19H4V17H6M12 7V3H2V21H22V7H12Z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18 15H16V17H18M18 11H16V13H18M20 19H12V17H14V15H12V13H14V11H12V9H20M10 7H8V5H10M10 11H8V9H10M10 15H8V13H10M10 19H8V17H10M6 7H4V5H6M6 11H4V9H6M6 15H4V13H6M6 19H4V17H6M12 7V3H2V21H22V7H12Z'/%3E%3C/svg%3E");
+}
+
+/* ============================================================
+   WELCOME PAGE — Website / Community / Blog sidebar icons
+   Injected as ::before pseudo on links matching those hrefs.
+   ============================================================ */
+.md-sidebar--primary .md-nav__link[href="https://developers.prescottdata.io"]::before,
+.md-sidebar--primary .md-nav__link[href="https://discord.gg/AbskSXypq"]::before,
+.md-sidebar--primary .md-nav__link[href="https://developers.prescottdata.io/blog"]::before {
+  content: '';
+  display: inline-block;
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  margin-right: 0.45rem;
+  opacity: 0.6;
+  vertical-align: middle;
+}
+
+/* Website — globe/web icon */
+/* Website — globe/web icon */
+.md-sidebar--primary .md-nav__link[href="https://developers.prescottdata.io"]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M16.36 14C16.44 13.34 16.5 12.68 16.5 12S16.44 10.66 16.36 10H19.74C19.9 10.64 20 11.31 20 12S19.9 13.36 19.74 14M14.59 19.56C15.19 18.45 15.65 17.25 15.97 16H18.92C17.96 17.65 16.43 18.93 14.59 19.56M14.34 14H9.66C9.56 13.34 9.5 12.68 9.5 12S9.56 10.65 9.66 10H14.34C14.43 10.65 14.5 11.32 14.5 12S14.43 13.34 14.34 14M12 19.96C11.17 18.76 10.5 17.43 10.09 16H13.91C13.5 17.43 12.83 18.76 12 19.96M8 8H5.08C6.03 6.34 7.57 5.06 9.4 4.44C8.8 5.55 8.35 6.75 8 8M5.08 16H8C8.35 17.25 8.8 18.45 9.4 19.56C7.57 18.93 6.03 17.65 5.08 16M4.26 14C4.1 13.36 4 12.69 4 12S4.1 10.64 4.26 10H7.64C7.56 10.66 7.5 11.32 7.5 12S7.56 13.34 7.64 14M12 4.03C12.83 5.23 13.5 6.57 13.91 8H10.09C10.5 6.57 11.17 5.23 12 4.03M18.92 8H15.97C15.65 6.75 15.19 5.55 14.59 4.44C16.43 5.07 17.96 6.34 18.92 8M12 2C6.47 2 2 6.5 2 12A10 10 0 0 0 12 22A10 10 0 0 0 22 12A10 10 0 0 0 12 2Z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M16.36 14C16.44 13.34 16.5 12.68 16.5 12S16.44 10.66 16.36 10H19.74C19.9 10.64 20 11.31 20 12S19.9 13.36 19.74 14M14.59 19.56C15.19 18.45 15.65 17.25 15.97 16H18.92C17.96 17.65 16.43 18.93 14.59 19.56M14.34 14H9.66C9.56 13.34 9.5 12.68 9.5 12S9.56 10.65 9.66 10H14.34C14.43 10.65 14.5 11.32 14.5 12S14.43 13.34 14.34 14M12 19.96C11.17 18.76 10.5 17.43 10.09 16H13.91C13.5 17.43 12.83 18.76 12 19.96M8 8H5.08C6.03 6.34 7.57 5.06 9.4 4.44C8.8 5.55 8.35 6.75 8 8M5.08 16H8C8.35 17.25 8.8 18.45 9.4 19.56C7.57 18.93 6.03 17.65 5.08 16M4.26 14C4.1 13.36 4 12.69 4 12S4.1 10.64 4.26 10H7.64C7.56 10.66 7.5 11.32 7.5 12S7.56 13.34 7.64 14M12 4.03C12.83 5.23 13.5 6.57 13.91 8H10.09C10.5 6.57 11.17 5.23 12 4.03M18.92 8H15.97C15.65 6.75 15.19 5.55 14.59 4.44C16.43 5.07 17.96 6.34 18.92 8M12 2C6.47 2 2 6.5 2 12A10 10 0 0 0 12 22A10 10 0 0 0 22 12A10 10 0 0 0 12 2Z'/%3E%3C/svg%3E");
+}
+
+/* Community — Discord bubble */
+/* Community — Discord bubble */
+.md-sidebar--primary .md-nav__link[href="https://discord.gg/AbskSXypq"]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z'/%3E%3C/svg%3E");
+}
+
+/* Blog — RSS feed */
+/* Blog — RSS feed */
+.md-sidebar--primary .md-nav__link[href="https://developers.prescottdata.io/blog"]::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6.18 15.64A2.18 2.18 0 0 1 8.36 17.82C8.36 19 7.38 20 6.18 20C4.98 20 4 19 4 17.82A2.18 2.18 0 0 1 6.18 15.64M4 4.44A15.56 15.56 0 0 1 19.56 20H16.73A12.73 12.73 0 0 0 4 7.27V4.44M4 10.1A9.9 9.9 0 0 1 13.9 20H11.07A7.07 7.07 0 0 0 4 12.93V10.1Z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6.18 15.64A2.18 2.18 0 0 1 8.36 17.82C8.36 19 7.38 20 6.18 20C4.98 20 4 19 4 17.82A2.18 2.18 0 0 1 6.18 15.64M4 4.44A15.56 15.56 0 0 1 19.56 20H16.73A12.73 12.73 0 0 0 4 7.27V4.44M4 10.1A9.9 9.9 0 0 1 13.9 20H11.07A7.07 7.07 0 0 0 4 12.93V10.1Z'/%3E%3C/svg%3E");
+}
+
+
+/* ============================================================
+   HIDE MATERIAL'S GLOBE ICON ON EXTERNAL NAV LINKS ONLY
+   The globe is a bare <svg> direct child of .md-nav__link on
+   external URLs. Internal page icons (icon: material/...) are
+   inside span.md-nav__icon — a completely different element —
+   so targeting > svg only on [target="_blank"] is safe.
+   ============================================================ */
+.md-nav__link[target="_blank"] > svg {
+  display: none !important;
+}
+
+
+/* ============================================================
+   LEFT SIDEBAR — premium redesign
+   ============================================================ */
+
+/* Sidebar container */
+.md-sidebar--primary .md-sidebar__scrollwrap {
+  padding: 0.15rem 0 2rem;
+}
+
+/* Top-level section labels — desktop only.
+   On desktop with navigation.tabs these are just visual labels in the
+   sidebar (e.g. "GUIDES") that should not be clickable.
+   On mobile these same elements become the ACTUAL nav items in the
+   drawer (Home, Concepts, Guides, etc.) and MUST be clickable.
+   So we scope pointer-events:none to desktop only. */
+@media screen and (min-width: 76.25em) {
+  .md-nav--primary>.md-nav__list>.md-nav__item>.md-nav__link {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--nx-text-muted) !important;
+    padding: 0.9rem 0.75rem 0.3rem;
+    opacity: 0.7;
+    cursor: default;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+}
+
+/* .md-nav__title — on desktop it's a static label, on mobile it's the
+   drawer back button. Scope the non-interactive styling to desktop. */
+.md-nav__title {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nx-text-muted) !important;
+  padding: 0.9rem 0.75rem 0.3rem;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+@media screen and (min-width: 76.25em) {
+  .md-nav__title {
+    cursor: default;
+    pointer-events: none;
+  }
+}
+
+/* All nav links */
+.md-nav__link {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.65rem;
+  font-weight: 400;
+  color: var(--md-default-fg-color) !important;
+  opacity: 0.88;
+  padding: 0.24rem 0.6rem;
+  border-radius: 6px;
+  margin: 1px 0.25rem;
+  display: flex;
+  align-items: center;
+  transition: background 0.13s ease, color 0.13s ease, opacity 0.13s ease;
+  position: relative;
+  text-decoration: none !important;
+  /* Allow text to wrap — never clip or ellipsis */
+  white-space: normal;
+  overflow: visible;
+  word-break: break-word;
+}
+
+.md-nav__link:hover {
+  background: rgba(23, 88, 245, 0.07);
+  color: var(--nx-brand) !important;
+  opacity: 1;
+  text-decoration: none !important;
+}
+
+[data-md-color-scheme="slate"] .md-nav__link:hover {
+  background: rgba(23, 88, 245, 0.12);
+  color: var(--nx-brand-light) !important;
+}
+
+/* Active left-bar indicator */
+.md-nav__link--active {
+  font-weight: 600;
+  color: var(--nx-brand) !important;
+  opacity: 1;
+  background: rgba(23, 88, 245, 0.08);
+}
+
+.md-nav__link--active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--nx-brand);
+  border-radius: 0 2px 2px 0;
+}
+
+[data-md-color-scheme="slate"] .md-nav__link--active {
+  color: var(--nx-brand-light) !important;
+  background: rgba(23, 88, 245, 0.15);
+}
+
+/* Nested sub-items — indented, slightly smaller */
+.md-nav--secondary .md-nav__link,
+.md-nav__item--nested .md-nav .md-nav__link {
+  font-size: 0.63rem;
+  opacity: 0.75;
+  padding-left: 1rem;
+  white-space: normal;
+  overflow: visible;
+  word-break: break-word;
+}
+
+.md-nav--secondary .md-nav__link:hover,
+.md-nav__item--nested .md-nav .md-nav__link:hover {
+  opacity: 1;
+}
+
+/* Sidebar section dividers */
+.md-nav__item+.md-nav__item {
+  margin-top: 0;
+}
+
+/* Remove default Material nav item bullet */
+.md-nav__item {
+  list-style: none;
+}
+
+/* ---------- Custom Scrollbar ---------- */
+::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--nx-brand);
+  border-radius: 99px;
+  opacity: 0.5;
+}
+
+/* ============================================================
+   HERO SECTION
+   ============================================================ */
+
+.nx-hero {
+  text-align: center;
+  padding: 1.75rem 1.5rem 1.25rem;
+  position: relative;
+  overflow: hidden;
+  clear: both;
+}
+
+.nx-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--nx-gradient-subtle);
+  z-index: 0;
+}
+
+.nx-hero>* {
+  position: relative;
+  z-index: 1;
+}
+
+/* Hide the ugly ¶ anchor inside hero heading */
+.nx-hero h1 .headerlink,
+.nx-hero h1 a.headerlink {
+  display: none !important;
+}
+
+.nx-hero-logo {
+  display: block;
+  margin: 0 auto 1.5rem !important;
+  height: 90px !important;
+  width: auto !important;
+}
+
+
+
+.nx-hero h1 {
+  font-size: clamp(1.35rem, 3.5vw, 1.85rem) !important;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  margin-bottom: 0.5rem !important;
+  margin-top: 0 !important;
+  color: var(--md-default-fg-color);
+}
+
+.nx-hero p {
+  font-size: 0.74rem !important;
+  color: var(--nx-text-muted);
+  max-width: 480px;
+  margin: 0 auto 0.85rem !important;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+/* Hero code block — compact, inline-ish */
+.nx-hero .highlight,
+.nx-hero pre {
+  max-width: 420px;
+  margin: 0 auto !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+  border: 1px solid var(--nx-border) !important;
+}
+
+.nx-hero .highlight pre code {
+  font-size: 0.8rem !important;
+  padding: 0.8rem 1.2rem !important;
+}
+
+/* --- CTA Text Links --- */
+.nx-cta-text {
+  margin-bottom: 1.2rem;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.nx-cta-text p {
+  display: flex;
+  gap: 1.25rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.nx-cta-text a {
+  color: var(--md-default-fg-color) !important;
+  opacity: 0.7;
+  text-decoration: none !important;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.nx-cta-text a:first-child {
+  color: var(--nx-brand) !important;
+  opacity: 1;
+  font-weight: 600;
+}
+
+.nx-cta-text a:first-child::after {
+  content: "→";
+  margin-left: 2px;
+}
+
+.nx-cta-text a:hover {
+  opacity: 1;
+  color: var(--nx-brand) !important;
+}
+
+/* --- CTA Buttons --- */
+.nx-cta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.8rem;
+}
+
+.nx-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1.1rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none !important;
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.nx-btn:hover {
+  text-decoration: none !important;
+  transform: translateY(-1px);
+}
+
+.nx-btn-primary {
+  background: #0071F7;
+  color: #fff !important;
+  box-shadow: 0 3px 12px rgba(0, 113, 247, 0.28);
+}
+
+.nx-btn-primary:hover {
+  background: #0060d6;
+  box-shadow: 0 6px 22px rgba(0, 113, 247, 0.38);
+  color: #fff !important;
+}
+
+.nx-btn-secondary {
+  border: 1px solid var(--nx-border);
+  color: var(--md-default-fg-color) !important;
+  background: var(--md-default-bg-color);
+}
+
+.nx-btn-secondary:hover {
+  border-color: var(--nx-brand);
+  color: var(--nx-brand) !important;
+  box-shadow: var(--nx-shadow);
+}
+
+/* GitHub CTA button */
+.nx-btn-github {
+  background: #0c0c0e;
+  color: #fff !important;
+  border: 1px solid #0c0c0e;
+  gap: 0.4rem;
+}
+
+.nx-btn-github::before {
+  content: '';
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='white' d='M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: contain;
+  flex-shrink: 0;
+}
+
+.nx-btn-github:hover {
+  background: #1a1a1e;
+  color: #fff !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+
+[data-md-color-scheme="slate"] .nx-btn-github {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff !important;
+}
+
+/* Discord CTA button */
+.nx-btn-discord {
+  background: #5865f2;
+  color: #fff !important;
+  border: 1px solid #5865f2;
+}
+
+.nx-btn-discord:hover {
+  background: #4752c4;
+  color: #fff !important;
+  box-shadow: 0 4px 16px rgba(23, 88, 245, 0.3);
+}
+
+/* ============================================================
+   FEATURE CARDS GRID
+   ============================================================ */
+
+.nx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+  margin: 2.5rem 0;
+}
+
+.nx-card {
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--nx-border);
+  border-radius: var(--nx-radius);
+  padding: 1.6rem 1.5rem;
+  transition: transform var(--nx-transition), box-shadow var(--nx-transition), border-color var(--nx-transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.nx-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+  background: var(--nx-gradient);
+  opacity: 0;
+  transition: opacity var(--nx-transition);
+}
+
+.nx-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--nx-shadow-hover);
+  border-color: var(--nx-brand);
+}
+
+.nx-card:hover::before {
+  opacity: 1;
+}
+
+.nx-card-label {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--nx-brand);
+  margin-bottom: 0.85rem;
+}
+
+.nx-card h3 {
+  font-size: 0.88rem;
+  font-weight: 700;
+  margin: 0 0 0.35rem;
+  letter-spacing: -0.01em;
+  color: var(--md-default-fg-color);
+}
+
+.nx-card p {
+  font-size: 0.76rem;
+  color: var(--nx-text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ============================================================
+   STAT ROW
+   ============================================================ */
+
+.nx-stats {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--nx-border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 1rem 0;
+  background: var(--md-default-bg-color);
+}
+
+.nx-stat {
+  flex: 1;
+  text-align: center;
+  padding: 0.6rem 0.5rem;
+  border-right: 1px solid var(--nx-border);
+}
+
+.nx-stat:last-child {
+  border-right: none;
+}
+
+.nx-stat-value {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 800;
+  background: var(--nx-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.nx-stat-label {
+  font-size: 0.6rem;
+  color: var(--nx-text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 0.1rem;
+}
+
+/* ============================================================
+   ECOSYSTEM / COMMUNITY CTA SECTION
+   ============================================================ */
+
+.nx-ecosystem {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin: 3rem 0 1.5rem;
+  padding: 2.5rem;
+  background: var(--nx-gradient-subtle);
+  border: 1px solid var(--nx-border);
+  border-radius: var(--nx-radius);
+  position: relative;
+  overflow: hidden;
+}
+
+.nx-ecosystem::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 30% 50%, rgba(23, 88, 245, 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse at 70% 50%, rgba(23, 88, 245, 0.07) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.nx-ecosystem-card {
+  text-align: center;
+  padding: 1.75rem 1.5rem;
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--nx-border);
+  border-radius: calc(var(--nx-radius) - 2px);
+  position: relative;
+  z-index: 1;
+}
+
+.nx-ecosystem-card h3 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin: 0 0 0.4rem !important;
+  letter-spacing: -0.02em;
+}
+
+.nx-ecosystem-card p {
+  font-size: 0.78rem;
+  color: var(--nx-text-muted);
+  line-height: 1.5;
+  margin: 0 0 1rem !important;
+}
+
+/* ============================================================
+   CODE BLOCKS
+   ============================================================ */
+
+.md-typeset pre>code {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 0.74rem;
+  line-height: 1.55;
+  font-feature-settings: "liga" 1, "calt" 1;
+}
+
+.md-typeset .highlight {
+  border-radius: var(--nx-radius);
+  overflow: hidden;
+  border: 1px solid var(--nx-border);
+  box-shadow: var(--nx-shadow);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .highlight {
+  border-color: #2a2d3e;
+}
+
+.md-typeset .highlight .filename {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* ============================================================
+   TABLES
+   ============================================================ */
+
+.md-typeset table:not([class]) {
+  border-collapse: collapse;
+  border-radius: var(--nx-radius);
+  overflow: hidden;
+  border: 1px solid var(--nx-border);
+  font-size: 0.72rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  /* auto-fit: columns size to content, table expands to content not container */
+  table-layout: auto;
+  width: auto;
+  max-width: 100%;
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.md-typeset table:not([class]) th {
+  background: var(--nx-gradient-subtle);
+  font-weight: 600 !important;
+  font-size: 0.62rem !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  padding: 0.4rem 0.75rem !important;
+  border-bottom: 1.5px solid var(--nx-border);
+  white-space: nowrap;
+  color: var(--nx-text-muted);
+}
+
+.md-typeset table:not([class]) td {
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--nx-border);
+  vertical-align: middle;
+  word-break: break-word;
+  min-width: 80px;
+}
+
+.md-typeset table:not([class]) td code {
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.md-typeset table:not([class]) tr:last-child td {
+  border-bottom: none;
+}
+
+.md-typeset table:not([class]) tr:hover td {
+  background: var(--nx-gradient-subtle);
+  transition: background var(--nx-transition);
+}
+
+/* ============================================================
+   ADMONITIONS
+   ============================================================ */
+
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: var(--nx-radius);
+  border-left-width: 3px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* ============================================================
+   INLINE CODE
+   ============================================================ */
+
+.md-typeset code:not([class]) {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.83em;
+  padding: 0.15em 0.45em;
+  border-radius: 5px;
+  font-weight: 500;
+}
+
+/* ============================================================
+   CONTENT AREA — light mode subtle gradient wash
+   ============================================================ */
+
+.md-content__inner {
+  padding-bottom: 3rem;
+}
+
+/* Subtle page-level background wash in light mode */
+.md-main {
+  background: linear-gradient(180deg, #fafbff 0%, #ffffff 120px) !important;
+}
+
+[data-md-color-scheme="slate"] .md-main {
+  background: none !important;
+}
+
+.md-typeset h2 {
+  padding-top: 0.5rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1.5px solid var(--nx-border);
+  margin-top: 2.5rem;
+}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+
+.md-footer {
+  border-top: 1px solid var(--nx-border);
+}
+
+/* ── Footer nav (prev/next arrows) ── */
+.md-footer__inner {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.md-footer-nav,
+.md-footer__link {
+  background: transparent !important;
+}
+
+/* Prev/next title typography */
+.md-footer__title {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 500;
+  opacity: 0.7;
+}
+
+.md-footer__direction {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.45;
+}
+
+/* Divider between nav and meta */
+.md-footer__inner {
+  border-top: 1px solid var(--nx-border);
+}
+
+/* ── Footer meta (social icons + Made with...) ── */
+.md-footer-meta {
+  background: transparent !important;
+  border-top: 1px solid var(--nx-border);
+}
+
+.md-footer-meta__inner {
+  background: transparent !important;
+}
+
+/* Social icons */
+.md-social {
+  gap: 4px;
+  padding: 0.6rem 0;
+}
+
+.md-social__link {
+  color: var(--nx-text-muted) !important;
+  opacity: 0.6;
+  transition: color 0.2s ease, opacity 0.2s ease;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+}
+
+.md-social__link:hover {
+  color: var(--nx-brand) !important;
+  opacity: 1;
+  background: var(--nx-gradient-subtle);
+}
+
+.md-social__link svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* ── Footer copyright — explicit per-scheme to beat Material's footer fg vars ── */
+
+/* Light mode: slate grey, visible on white bg */
+[data-md-color-scheme="default"] .md-copyright,
+[data-md-color-scheme="default"] .md-copyright__highlight,
+[data-md-color-scheme="default"] .md-copyright a,
+[data-md-color-scheme="default"] .md-copyright span {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.72rem;
+  color: #64748b !important;
+  opacity: 1 !important;
+}
+
+[data-md-color-scheme="default"] .md-copyright a:hover {
+  color: #0071F7 !important;
+}
+
+/* Dark mode: lighter muted grey, visible on dark bg */
+[data-md-color-scheme="slate"] .md-copyright,
+[data-md-color-scheme="slate"] .md-copyright__highlight,
+[data-md-color-scheme="slate"] .md-copyright a,
+[data-md-color-scheme="slate"] .md-copyright span {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.72rem;
+  color: #94a3b8 !important;
+  opacity: 1 !important;
+}
+
+[data-md-color-scheme="slate"] .md-copyright a:hover {
+  color: #35B0FE !important;
+}
+
+/* ── Light mode footer backgrounds ── */
+[data-md-color-scheme="default"] .md-footer,
+[data-md-color-scheme="default"] .md-footer__inner,
+[data-md-color-scheme="default"] .md-footer-nav,
+[data-md-color-scheme="default"] .md-footer-meta,
+[data-md-color-scheme="default"] .md-footer-meta__inner {
+  background: var(--md-default-bg-color) !important;
+  color: var(--md-default-fg-color) !important;
+}
+
+[data-md-color-scheme="default"] .md-footer__link:hover {
+  background: var(--nx-gradient-subtle) !important;
+}
+
+/* ── Dark mode footer backgrounds ── */
+[data-md-color-scheme="slate"] .md-footer,
+[data-md-color-scheme="slate"] .md-footer__inner,
+[data-md-color-scheme="slate"] .md-footer-nav,
+[data-md-color-scheme="slate"] .md-footer-meta,
+[data-md-color-scheme="slate"] .md-footer-meta__inner {
+  background: var(--md-default-bg-color) !important;
+}
+
+
+
+/* ============================================================
+   INLINE BADGES / CHIPS
+   Use in markdown as: <span class="nx-badge nx-badge-primary">Primary</span>
+   ============================================================ */
+
+.nx-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18em 0.6em;
+  border-radius: 5px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.4;
+  white-space: nowrap;
+  vertical-align: middle;
+  margin-left: 0.4rem;
+  position: relative;
+  top: -1px;
+}
+
+/* Green — primary / recommended */
+.nx-badge-primary {
+  background: var(--nx-green-subtle);
+  color: #0a9957;
+  border: 1px solid rgba(12, 197, 114, 0.25);
+}
+
+[data-md-color-scheme="slate"] .nx-badge-primary {
+  background: rgba(12, 197, 114, 0.15);
+  color: #2de68a;
+  border-color: rgba(12, 197, 114, 0.3);
+}
+
+/* Blue — required / key */
+.nx-badge-required {
+  background: rgba(23, 88, 245, 0.08);
+  color: #0071F7;
+  border: 1px solid rgba(23, 88, 245, 0.2);
+}
+
+[data-md-color-scheme="slate"] .nx-badge-required {
+  background: rgba(53, 176, 254, 0.12);
+  color: #35B0FE;
+  border-color: rgba(53, 176, 254, 0.25);
+}
+
+/* Grey — optional / secondary */
+.nx-badge-optional {
+  background: rgba(100, 116, 139, 0.08);
+  color: #64748b;
+  border: 1px solid rgba(100, 116, 139, 0.2);
+}
+
+[data-md-color-scheme="slate"] .nx-badge-optional {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+/* Teal/accent — free / no config */
+.nx-badge-free {
+  background: rgba(12, 240, 227, 0.08);
+  color: #0891b2;
+  border: 1px solid rgba(12, 240, 227, 0.2);
+}
+
+[data-md-color-scheme="slate"] .nx-badge-free {
+  background: rgba(12, 240, 227, 0.1);
+  color: #22d3ee;
+  border-color: rgba(12, 240, 227, 0.2);
+}
+
+/* Yellow — beta / experimental */
+.nx-badge-beta {
+  background: var(--nx-yellow-subtle);
+  color: #b45309;
+  border: 1px solid rgba(232, 163, 2, 0.25);
+}
+
+[data-md-color-scheme="slate"] .nx-badge-beta {
+  background: rgba(232, 163, 2, 0.12);
+  color: #fbbf24;
+  border-color: rgba(232, 163, 2, 0.3);
+}
+
+/* ============================================================
+   RIGHT SIDEBAR — Table of Contents
+   ============================================================ */
+
+.md-sidebar--secondary .md-sidebar__scrollwrap {
+  padding: 0.75rem 0 2rem;
+  padding-left: 1.5rem;  /* gap between main content and TOC */
+}
+
+/* TOC header label */
+.md-nav--secondary .md-nav__title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--nx-text-muted) !important;
+  opacity: 0.6;
+  padding: 0 0 0.5rem 0;
+  pointer-events: none;
+  cursor: default;
+}
+
+/* TOC links */
+.md-nav--secondary .md-nav__link {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: var(--md-default-fg-color) !important;
+  opacity: 0.55;
+  padding: 0.18rem 0;
+  border-left: 2px solid transparent;
+  padding-left: 0.75rem;
+  margin: 0;
+  border-radius: 0;
+  transition: opacity 0.13s ease, border-color 0.13s ease, color 0.13s ease;
+  background: transparent !important;
+}
+
+.md-nav--secondary .md-nav__link::before {
+  display: none;
+}
+
+.md-nav--secondary .md-nav__link:hover {
+  opacity: 1;
+  color: var(--nx-brand) !important;
+  border-left-color: rgba(23, 88, 245, 0.35);
+  background: transparent !important;
+}
+
+.md-nav--secondary .md-nav__link--active {
+  color: var(--nx-brand) !important;
+  font-weight: 600;
+  opacity: 1;
+  border-left-color: var(--nx-brand);
+  background: transparent !important;
+}
+
+[data-md-color-scheme="slate"] .md-nav--secondary .md-nav__link--active {
+  color: var(--nx-brand-light) !important;
+  border-left-color: var(--nx-brand-light);
+}
+
+/* Nested TOC (h3 etc) */
+.md-nav--secondary .md-nav__item .md-nav .md-nav__link {
+  font-size: 0.645rem;
+  padding-left: 1.25rem;
+  opacity: 0.45;
+}
+
+.md-nav--secondary .md-nav__item .md-nav .md-nav__link:hover,
+.md-nav--secondary .md-nav__item .md-nav .md-nav__link.md-nav__link--active {
+  opacity: 1;
+}
+
+/* ============================================================
+   CHANGELOG PAGE
+   ============================================================ */
+
+/* ── Release card ── */
+.changelog-release {
+  position: relative;
+  padding: 1.5rem 1.75rem 1.25rem;
+  margin: 0.5rem 0 1rem;
+  border-radius: var(--nx-radius);
+  background: var(--nx-gradient-subtle);
+  border: 1px solid var(--nx-border);
+  border-left: 3px solid var(--nx-brand);
+  transition: border-color var(--nx-transition), box-shadow var(--nx-transition);
+}
+
+.changelog-release:hover {
+  border-left-color: var(--nx-accent);
+  box-shadow: var(--nx-shadow);
+}
+
+/* Version heading inside card */
+.changelog-release h2 {
+  margin-top: 0 !important;
+  margin-bottom: 0.25rem !important;
+  font-size: 1.35rem !important;
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+/* Date chip */
+.changelog-date {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--nx-text-muted);
+  background: rgba(23, 88, 245, 0.08);
+  padding: 0.15rem 0.6rem;
+  border-radius: 99px;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+[data-md-color-scheme="slate"] .changelog-date {
+  background: rgba(23, 88, 245, 0.15);
+}
+
+/* ── Meta row: contributors + release link ── */
+.changelog-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0.75rem 0 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--nx-border);
+}
+
+/* Contributor avatars — overlapping stack */
+.changelog-contributors {
+  display: flex;
+  align-items: center;
+}
+
+.changelog-contributors a {
+  display: inline-block;
+  line-height: 0;
+  border-radius: 50%;
+  margin-right: -6px;
+  position: relative;
+  transition: transform var(--nx-transition), box-shadow var(--nx-transition), z-index 0s;
+}
+
+.changelog-contributors a:last-child {
+  margin-right: 0;
+}
+
+.changelog-contributors a:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 2px var(--nx-brand-light);
+  z-index: 2;
+}
+
+.changelog-contributors img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--nx-surface);
+  object-fit: cover;
+  background: var(--nx-surface);
+}
+
+/* GitHub release CTA */
+.changelog-release-link {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--nx-brand) !important;
+  border: 1px solid rgba(23, 88, 245, 0.25);
+  padding: 0.3rem 0.8rem;
+  border-radius: 99px;
+  text-decoration: none !important;
+  transition: all var(--nx-transition);
+  white-space: nowrap;
+}
+
+.changelog-release-link:hover {
+  background: rgba(23, 88, 245, 0.08);
+  border-color: var(--nx-brand);
+  color: var(--nx-brand-dark) !important;
+}
+
+/* Category labels (bold text in changelog) */
+.changelog-release strong {
+  color: var(--nx-brand);
+  font-size: 0.65rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* Tighten paragraph spacing inside cards */
+.changelog-release p {
+  margin-top: 0.35em;
+  margin-bottom: 0.45em;
+}
+
+/* Lists inside cards */
+.changelog-release ul {
+  margin-top: 0.25em;
+  margin-bottom: 0.5em;
+}
+
+.changelog-release li {
+  margin-bottom: 0.15em;
+}
+
+/* Code blocks inside cards — compact */
+.changelog-release .highlight {
+  margin-top: 0.4em;
+  margin-bottom: 0.6em;
+}
+
+/* ── Hide the right-hand TOC on the changelog page ── */
+.md-content[data-md-component="content"] .md-sidebar--secondary {
+  /* Fallback: handled by front matter hide: toc */
+}
+
+/* ============================================================
+   SEARCH
+   ============================================================ */
+
+.md-search__form {
+  border-radius: 99px;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 600px) {
+  /* --- Stats strip --- */
+  .nx-stats {
+    flex-direction: column;
+  }
+
+  .nx-stat {
+    border-right: none;
+    border-bottom: 1px solid var(--nx-border);
+  }
+
+  .nx-stat:last-child {
+    border-bottom: none;
+  }
+
+  /* --- Grids --- */
+  .nx-ecosystem {
+    grid-template-columns: 1fr;
+    padding: 1.5rem;
+  }
+
+  .nx-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* --- Hero CTAs: stack vertically and full-width --- */
+  .nx-cta {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .nx-cta-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* --- Hide decorative chips in header on tiny screens --- */
+  .nx-gh-btn,
+  .nx-version-chip {
+    display: none;
+  }
+
+  /* --- Code blocks: scroll don't overflow --- */
+  .md-content pre {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* --- Changelog --- */
+  .changelog-meta {
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-start;
+  }
+
+  .changelog-release {
+    padding: 1rem 1.25rem;
+  }
+
+  /* --- Tables: scroll horizontally --- */
+  .md-typeset table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* --- Tablet (601–960px): 2-col grids --- */
+@media (max-width: 960px) and (min-width: 601px) {
+  .nx-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .nx-cta {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .md-content pre {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ============================================================
+   MOBILE DRAWER — full interactivity
+   On mobile (< 76.25em) Material collapses navigation.tabs
+   into a full-width overlay drawer. Every item must be
+   tappable, the back button must work, and touch targets
+   must be at least 44px.
+   ============================================================ */
+
+@media screen and (max-width: 76.1875em) {
+
+  /* Back button / section title — fully interactive */
+  .md-nav__title {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    opacity: 1 !important;
+    font-size: 0.8rem !important;
+    padding: 0.75rem 1rem !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+    font-weight: 600 !important;
+    color: var(--md-default-fg-color) !important;
+  }
+
+  /* ALL nav links in drawer — interactive with 44px touch targets.
+     This includes top-level items (Home, Concepts, Guides, etc.)
+     which are the primary navigation on mobile. */
+  .md-nav__link {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    min-height: 44px !important;
+    display: flex !important;
+    align-items: center !important;
+    padding: 0.6rem 1rem !important;
+    font-size: 0.875rem !important;
+    opacity: 1 !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Remove active left-bar indicator in drawer — looks odd */
+  .md-nav__link--active::before {
+    display: none !important;
+  }
+
+  /* Drawer overlay — captures taps to close */
+  .md-overlay {
+    pointer-events: auto !important;
+  }
+
+  /* Hide right TOC sidebar on mobile — no room */
+  .md-sidebar--secondary {
+    display: none !important;
+  }
+}
+
+
+
+/* Suppress Material's sidebar nav tooltips — labels are now fully visible.
+   Target only Material's .md-tooltip component, NOT arbitrary [title] elements
+   (the broad [title] selector was killing pointer-events on changelog links). */
+.md-tooltip,
+.md-nav__link[title]::after,
+.md-nav__item .md-tooltip {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* ============================================================
+   LLM ASSIST WIDGET
+   ============================================================ */
+.nx-llm-widget {
+  position: relative;
+  display: inline-block;
+  font-family: 'Inter', sans-serif;
+}
+
+.nx-llm-trigger {
+  display: flex;
+  align-items: stretch;
+  background: #ffffff;
+  border: 1px solid var(--nx-border);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--nx-text);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+
+.nx-llm-trigger:hover {
+  border-color: var(--nx-brand-light);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.nx-llm-btn-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  transition: background 0.15s;
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+  color: var(--nx-text-muted);
+}
+
+.nx-llm-btn-main:hover {
+  background: #f8fafc;
+  color: var(--nx-text);
+}
+
+.nx-llm-btn-chev {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+  border-left: 1px solid var(--nx-border);
+  color: var(--nx-text-muted);
+  transition: background 0.15s;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
+.nx-llm-btn-chev:hover {
+  background: #f8fafc;
+  color: var(--nx-text);
+}
+
+[data-md-color-scheme="slate"] .nx-llm-trigger {
+  background: #1e2130;
+  border-color: rgba(255,255,255,0.1);
+}
+[data-md-color-scheme="slate"] .nx-llm-btn-main:hover,
+[data-md-color-scheme="slate"] .nx-llm-btn-chev:hover {
+  background: rgba(255,255,255,0.05);
+  color: #fff;
+}
+[data-md-color-scheme="slate"] .nx-llm-btn-chev {
+  border-left-color: rgba(255,255,255,0.1);
+}
+
+.nx-llm-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 250px;
+  background: #ffffff;
+  border: 1px solid var(--nx-border);
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.12);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-5px);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+}
+
+.nx-llm-dropdown.open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+[data-md-color-scheme="slate"] .nx-llm-dropdown {
+  background: #1e2130;
+  border-color: rgba(255,255,255,0.1);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+}
+
+.nx-llm-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  text-decoration: none !important;
+  color: var(--md-default-fg-color) !important;
+  transition: background 0.15s ease;
+  cursor: pointer;
+}
+
+.nx-llm-item:hover {
+  background: #f8fafc;
+}
+
+[data-md-color-scheme="slate"] .nx-llm-item:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+.nx-llm-icon-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--nx-border);
+  border-radius: 8px;
+  color: var(--nx-text-muted);
+  flex-shrink: 0;
+}
+
+[data-md-color-scheme="slate"] .nx-llm-icon-box {
+  border-color: rgba(255,255,255,0.1);
+}
+
+.nx-llm-item:hover .nx-llm-icon-box {
+  border-color: var(--nx-brand-light);
+  color: var(--nx-brand);
+}
+
+.nx-llm-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.nx-llm-text strong {
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.nx-llm-text span {
+  font-size: 0.65rem;
+  color: var(--nx-text-muted);
+  line-height: 1.2;
+}
+
+/* ============================================================
+   PAGE ICONS — Material `icon:` front-matter rendering
+   Material for MkDocs injects an <svg> before the nav link
+   text when a page has an icon: metadata key.
+   ============================================================ */
+
+/* Icon SVG inline in left sidebar nav items */
+.md-nav--primary .md-nav__link .md-icon,
+.md-nav--primary .md-nav__link > svg {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  margin-right: 0.5rem;
+  opacity: 0.55;
+  transition: opacity 0.13s ease, color 0.13s ease;
+  color: inherit;
+  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
+}
+
+.md-nav--primary .md-nav__link:hover .md-icon,
+.md-nav--primary .md-nav__link:hover > svg {
+  opacity: 1;
+  color: var(--nx-brand);
+}
+
+[data-md-color-scheme="slate"] .md-nav--primary .md-nav__link:hover .md-icon,
+[data-md-color-scheme="slate"] .md-nav--primary .md-nav__link:hover > svg {
+  color: var(--nx-brand-light);
+}
+
+.md-nav--primary .md-nav__link--active .md-icon,
+.md-nav--primary .md-nav__link--active > svg {
+  opacity: 1;
+  color: var(--nx-brand);
+}
+
+[data-md-color-scheme="slate"] .md-nav--primary .md-nav__link--active .md-icon,
+[data-md-color-scheme="slate"] .md-nav--primary .md-nav__link--active > svg {
+  color: var(--nx-brand-light);
+}
+
+/* ============================================================
+   LEFT vs RIGHT SIDEBAR — structural differentiation
+   Left (primary) = nav tree with a subtle background tint and
+   right-border. Right (secondary / TOC) = pure left-border
+   inline style with no background.
+   ============================================================ */
+
+/* Primary sidebar — subtle background tint to distinguish from content */
+.md-sidebar--primary {
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+[data-md-color-scheme="slate"] .md-sidebar--primary {
+  border-right-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Ensure TOC sidebar has NO background tint — it should float */
+.md-sidebar--secondary {
+  border-left: none;
+  background: transparent;
+}
+
+/* Section group header in left nav — add a top hairline separator
+   between major nav groups for scannability */
+.md-nav--primary > .md-nav__list > .md-nav__item + .md-nav__item {
+  padding-top: 0.5rem;
+}
+
+/* Nav section label treatment — pill-style group label */
+.md-nav--primary > .md-nav__list > .md-nav__item > .md-nav__link {
+  font-size: 0.625rem;
+  letter-spacing: 0.12em;
+  padding-top: 0.85rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.055);
+  margin-top: 0.4rem;
+}
+
+[data-md-color-scheme="slate"] .md-nav--primary > .md-nav__list > .md-nav__item > .md-nav__link {
+  border-top-color: rgba(255, 255, 255, 0.07);
+}
+
+/* ============================================================
+   SIDEBAR WIDTH ENFORCEMENT
+   Override Material's default ~12rem with 15rem so all nav
+   labels have room to display without truncation or ellipsis.
+   ============================================================ */
+/* Sidebar width: only enforce on desktop. On mobile Material uses a
+   full-width overlay drawer — forcing 15rem breaks it completely. */
+@media screen and (min-width: 76.25em) {
+  .md-sidebar--primary {
+    min-width: var(--md-sidebar-width, 15rem);
+    width: var(--md-sidebar-width, 15rem);
+  }
+
+  .md-sidebar--primary .md-nav {
+    width: 100%;
+  }
+}
+
+/* Belt-and-braces tooltip suppression for Material's ellipsis tooltip */
+.md-nav__link .md-ellipsis ~ .md-tooltip,
+.md-tooltip--active {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* ============================================================
+   HTTP METHOD BADGES  — Chat API & any endpoint reference page
+   Use in markdown as: <span class="nx-http-post">POST</span>
+   or wrap the heading: ## <span class="nx-http-get">GET</span> /chat/stream/{workflow_id}
+   ============================================================ */
+
+.nx-http-get,
+.nx-http-post,
+.nx-http-put,
+.nx-http-patch,
+.nx-http-delete {
+  display: inline-block;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  vertical-align: middle;
+  line-height: 1.5;
+  position: relative;
+  top: -1px;
+}
+
+.nx-http-get    { background: rgba(12, 197, 114, 0.12); color: #0a9e5c; border: 1px solid rgba(12, 197, 114, 0.30); }
+.nx-http-post   { background: rgba(23, 88, 245, 0.10);  color: var(--nx-brand); border: 1px solid rgba(23, 88, 245, 0.25); }
+.nx-http-put    { background: rgba(232, 163, 2, 0.12);  color: #b07d00; border: 1px solid rgba(232, 163, 2, 0.30); }
+.nx-http-patch  { background: rgba(73, 81, 243, 0.10);  color: var(--nx-purple); border: 1px solid rgba(73, 81, 243, 0.25); }
+.nx-http-delete { background: rgba(220, 38, 38, 0.10);  color: #b91c1c; border: 1px solid rgba(220, 38, 38, 0.25); }
+
+[data-md-color-scheme="slate"] .nx-http-get    { background: rgba(12, 197, 114, 0.15); color: #34d27a; border-color: rgba(12, 197, 114, 0.25); }
+[data-md-color-scheme="slate"] .nx-http-post   { background: rgba(23, 88, 245, 0.15);  color: var(--nx-brand-light); border-color: rgba(53, 176, 254, 0.25); }
+[data-md-color-scheme="slate"] .nx-http-put    { background: rgba(232, 163, 2, 0.15);  color: #f0b429; border-color: rgba(232, 163, 2, 0.25); }
+[data-md-color-scheme="slate"] .nx-http-patch  { background: rgba(73, 81, 243, 0.15);  color: #818cf8; border-color: rgba(73, 81, 243, 0.25); }
+[data-md-color-scheme="slate"] .nx-http-delete { background: rgba(220, 38, 38, 0.15);  color: #f87171; border-color: rgba(220, 38, 38, 0.25); }
+
+/* ============================================================
+   SIDEBAR SCROLL FIX
+   
+   Root cause: Material's sticky sidebar labels use
+   var(--md-default-bg-color) for background + box-shadow halo.
+   Our custom palette never defines that variable, so it resolves
+   transparent and items bleed through the sticky labels.
+   
+   Left sidebar (GUIDES):
+     Selector: .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link
+     This is a <label class="md-nav__link"> — NOT .md-nav__title
+   
+   Right sidebar (TABLE OF CONTENTS):
+     Selector: .md-nav--secondary .md-nav__title
+     This is a <label class="md-nav__title" for="__toc">
+   ============================================================ */
+
+/* Both sidebars: independent scroll within the sticky column */
+.md-sidebar__scrollwrap {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Left sidebar: "GUIDES" / section label (the lifted variant).
+   Material makes the active item's .md-nav__link sticky inside --lifted. ── */
+.md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link {
+  background: #ffffff !important;
+  box-shadow: 0 0 .4rem .4rem #ffffff !important;
+}
+
+[data-md-color-scheme="slate"] .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link {
+  background: #161618 !important;
+  box-shadow: 0 0 .4rem .4rem #161618 !important;
+}
+
+/* ── Right sidebar: "TABLE OF CONTENTS" label. ── */
+.md-nav--secondary .md-nav__title {
+  background: #ffffff !important;
+  box-shadow: 0 0 .4rem .4rem #ffffff !important;
+}
+
+[data-md-color-scheme="slate"] .md-nav--secondary .md-nav__title {
+  background: #161618 !important;
+  box-shadow: 0 0 .4rem .4rem #161618 !important;
+}
+
+
+/* Sidebar-specific scrollbar: narrow and subtle */
+.md-sidebar__scrollwrap::-webkit-scrollbar {
+  width: 4px;
+}
+
+.md-sidebar__scrollwrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.md-sidebar__scrollwrap::-webkit-scrollbar-thumb {
+  background: rgba(23, 88, 245, 0.25);
+  border-radius: 99px;
+}
+
+.md-sidebar__scrollwrap::-webkit-scrollbar-thumb:hover {
+  background: rgba(23, 88, 245, 0.5);
+}
+

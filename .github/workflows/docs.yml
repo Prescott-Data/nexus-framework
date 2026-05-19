@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feat/doc-site-update
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
@@ -14,6 +15,9 @@ permissions:
   contents: read
   pages: write        # deploy to GitHub Pages
   id-token: write     # OIDC token for Pages deployment
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
   group: pages
@@ -39,11 +43,15 @@ jobs:
         run: mkdocs build --clean
 
       - name: Upload Pages artifact
+        # Only upload artifact when on main (Pages deploy only runs from main)
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site/
 
   deploy:
+    # Only deploy to GitHub Pages from main
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     environment:
