@@ -93,8 +93,8 @@ func TestSOC2_CC61_EncryptionAtRest(t *testing.T) {
 	// 2. Mock database expectations — parameterized queries only
 	mock.ExpectQuery("SELECT c.id, c.provider_id").
 		WithArgs(connID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "provider_id", "status", "scopes", "return_url", "name", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params"}).
-			AddRow(connID.String(), providerID.String(), "active", "{}", "http://localhost/return", "TestProvider", "api_key", "", "", "", nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "provider_id", "status", "scopes", "return_url", "name", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "health_status"}).
+			AddRow(connID.String(), providerID.String(), "active", "{}", "http://localhost/return", "TestProvider", "api_key", "", "", "", nil, "unknown"))
 
 	mock.ExpectExec("INSERT INTO tokens").
 		WithArgs(connID, sqlmock.AnyArg(), sqlmock.AnyArg()).

@@ -95,6 +95,7 @@ nav:
       - Agent Identity: concepts/agent-identity.md
       - Security Model: concepts/security-model.md
       - Client Libraries: concepts/client-libraries.md
+      - Health Checks: healthchecks.md
   - Getting Started:
       - Deploy in Five Minutes: getting-started/quickstart.md
       - Configuration: getting-started/configuration.md
@@ -122,7 +123,7 @@ nav:
 
 
 extra:
-  version: "0.2.3"
+  version: "0.2.4"
   social:
     - icon: material/web
       link: https://developers.prescottdata.io

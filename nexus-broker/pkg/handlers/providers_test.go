@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -73,6 +74,22 @@ func (m *MockStore) ListProfiles() ([]provider.ProfileList, error) {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]provider.ProfileList), args.Error(1)
+}
+
+func (m *MockStore) GetAllProfiles() ([]provider.Profile, error) {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]provider.Profile), args.Error(1)
+}
+
+func (m *MockStore) GetAllHealthStatuses() ([]provider.ProviderHealthSummary, error) {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]provider.ProviderHealthSummary), args.Error(1)
 }
 
 func (m *MockStore) GetMetadata() (map[string]map[string]interface{}, error) {
@@ -269,4 +286,75 @@ func TestPatchProvider_AuditRedactsSecrets(t *testing.T) {
 		}
 		return true
 	}), mock.AnythingOfType("*http.Request"))
+}
+
+func TestHealth_Success(t *testing.T) {
+	mockStore := new(MockStore)
+	handler := NewProvidersHandler(mockStore, nil)
+
+	now := time.Now()
+	msg := "token_url returned 503"
+	summaries := []provider.ProviderHealthSummary{
+		{
+			ID:                uuid.New(),
+			Name:              "google",
+			HealthStatus:      "healthy",
+			LastHealthCheckAt: &now,
+			HealthMessage:     nil,
+		},
+		{
+			ID:                uuid.New(),
+			Name:              "stripe",
+			HealthStatus:      "unhealthy",
+			LastHealthCheckAt: &now,
+			HealthMessage:     &msg,
+		},
+	}
+
+	mockStore.On("GetAllHealthStatuses").Return(summaries, nil).Once()
+
+	req := httptest.NewRequest("GET", "/providers/health", nil)
+	rr := httptest.NewRecorder()
+
+	handler.Health(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), `"health_status":"healthy"`)
+	assert.Contains(t, rr.Body.String(), `"health_status":"unhealthy"`)
+	assert.Contains(t, rr.Body.String(), `"health_message":"token_url returned 503"`)
+	assert.Contains(t, rr.Body.String(), "google")
+	assert.Contains(t, rr.Body.String(), "stripe")
+	mockStore.AssertExpectations(t)
+}
+
+func TestHealth_EmptyList(t *testing.T) {
+	mockStore := new(MockStore)
+	handler := NewProvidersHandler(mockStore, nil)
+
+	mockStore.On("GetAllHealthStatuses").Return([]provider.ProviderHealthSummary{}, nil).Once()
+
+	req := httptest.NewRequest("GET", "/providers/health", nil)
+	rr := httptest.NewRecorder()
+
+	handler.Health(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "[]", rr.Body.String())
+	mockStore.AssertExpectations(t)
+}
+
+func TestHealth_StoreError(t *testing.T) {
+	mockStore := new(MockStore)
+	handler := NewProvidersHandler(mockStore, nil)
+
+	mockStore.On("GetAllHealthStatuses").Return(nil, errors.New("connection refused")).Once()
+
+	req := httptest.NewRequest("GET", "/providers/health", nil)
+	rr := httptest.NewRecorder()
+
+	handler.Health(rr, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	assert.Contains(t, rr.Body.String(), "health_failed")
+	mockStore.AssertExpectations(t)
 }

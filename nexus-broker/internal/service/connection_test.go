@@ -74,6 +74,14 @@ func (m *MockConnectionRepository) GetActiveByWorkspaceAndProvider(ctx context.C
 	return nil, args.Error(1)
 }
 
+func (m *MockConnectionRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.ConnectionSummary, error) {
+	args := m.Called(ctx, workspaceID)
+	if args.Get(0) != nil {
+		return args.Get(0).([]domain.ConnectionSummary), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 // MockTokenRepository is a mock of repository.TokenRepository
 type MockTokenRepository struct {
 	mock.Mock
@@ -145,6 +153,22 @@ func (m *MockProfileStorer) ListProfiles() ([]provider.ProfileList, error) {
 	args := m.Called()
 	if args.Get(0) != nil {
 		return args.Get(0).([]provider.ProfileList), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockProfileStorer) GetAllProfiles() ([]provider.Profile, error) {
+	args := m.Called()
+	if args.Get(0) != nil {
+		return args.Get(0).([]provider.Profile), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockProfileStorer) GetAllHealthStatuses() ([]provider.ProviderHealthSummary, error) {
+	args := m.Called()
+	if args.Get(0) != nil {
+		return args.Get(0).([]provider.ProviderHealthSummary), args.Error(1)
 	}
 	return nil, args.Error(1)
 }

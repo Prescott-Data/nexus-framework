@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus Broker API
-  version: 0.2.2
+  version: 0.2.4
   description: |
     Internal API for the Nexus Broker service. 
     This service handles OAuth 2.0 and OIDC flows, encrypts tokens, and manages provider configurations.
@@ -151,6 +151,62 @@ components:
           type: object
           description: Decrypted credentials map
           additionalProperties: true
+        health_status:
+          type: string
+          enum: [healthy, unhealthy, degraded, expired, unknown]
+          description: Current health status of the connection
+
+    ProviderHealthStatus:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        health_status:
+          type: string
+          enum: [healthy, unhealthy, degraded, unknown]
+        last_health_check_at:
+          type: string
+          format: date-time
+          nullable: true
+        health_message:
+          type: string
+          description: Human-readable detail when status is not healthy
+
+    ConnectionSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider_id:
+          type: string
+          format: uuid
+        provider_name:
+          type: string
+        auth_type:
+          type: string
+          enum: [oauth2, api_key, basic_auth]
+        status:
+          type: string
+        scopes:
+          type: array
+          items: { type: string }
+        health_status:
+          type: string
+          enum: [healthy, unhealthy, degraded, expired, unknown]
+        last_health_check_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     
     MetadataResponse:
       type: object
@@ -387,6 +443,44 @@ paths:
           description: Invalid state or credentials rejected by provider
         '404':
           description: Connection not found
+
+  /providers/health:
+    get:
+      summary: Get health status of all providers
+      description: Returns the current health status of all registered providers. No credentials are included.
+      security: [{ ApiKeyAuth: [] }]
+      responses:
+        '200':
+          description: Provider health statuses. Returns `[]` when no providers exist.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProviderHealthStatus'
+
+  /connections:
+    get:
+      summary: List connections for a workspace
+      description: Returns all non-pending connections for a workspace with their health status. No credentials or tokens are included.
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: query
+          name: workspace_id
+          required: true
+          schema: { type: string }
+          description: Workspace ID to filter connections by
+      responses:
+        '200':
+          description: List of connection summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConnectionSummary'
+        '400':
+          description: Missing workspace_id parameter
 
   /connections/resolve:
     get:

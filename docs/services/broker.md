@@ -28,7 +28,14 @@ To ensure agents never face a "cold start" due to expired tokens:
 - It performs background refreshes using stored Refresh Tokens.
 - If a refresh fails permanently (e.g., user revoked access), it transitions the connection to `attention_required`.
 
-### 5. Audit Subsystem
+### 5. Health Monitoring
+The Broker runs two background workers to continuously monitor integration health:
+- **`HealthWorker`** (5-min interval): Probes all registered OAuth2 providers using a synthetic `invalid_grant` request to their `token_url`. A `400`/`401` response confirms the provider is alive; a `5xx` marks it `unhealthy`.
+- **`ConnectionHealthWorker`** (1-min interval): Validates each active user connection by attempting a token refresh (OAuth2) or a lightweight API call (API key/basic auth). Uses **provider-shielding** to avoid falsely expiring connections during upstream outages.
+- Both workers use bounded concurrency (semaphore + WaitGroup) to prevent goroutine exhaustion.
+- In `--worker-only` mode, the binary listens for `SIGINT`/`SIGTERM` for graceful shutdown.
+
+### 6. Audit Subsystem
 Every control-plane mutation is recorded in the `audit_events` table via the `audit.Service`:
 - **`provider.created`** — logged on every successful `POST /providers` call.
 - **`provider.updated`** — logged on `PUT` and `PATCH` mutations.
@@ -41,6 +48,18 @@ Every control-plane mutation is recorded in the `audit_events` table via the `au
 Audit events capture the **caller IP** (respecting `X-Forwarded-For`), **User-Agent**, and structured **event data** (provider ID, name, etc.).
 
 See the [Audit Log Reference](../reference/audit-log.md) for how to query events.
+
+## Key API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/providers/health` | Provider health dashboard (all providers, no credentials) |
+| `GET` | `/connections?workspace_id=` | All connections for a workspace with health status |
+| `GET` | `/connections/{id}/token` | Resolve credentials + `health_status` for a specific connection |
+| `POST` | `/connections/{id}/refresh` | Force a token refresh |
+| `GET` | `/connections/resolve` | Resolve by `workspace_id` + `provider_name` |
+
+See [Health Checks Architecture](../healthchecks.md) for details on the monitoring system.
 
 ## Environment Variables
 

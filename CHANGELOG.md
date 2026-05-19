@@ -5,7 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.1] - 2026-05-10
+## [0.2.4] - 2026-05-19
+
+### Added
+- **Health Check Hardening**: Provider health cross-referencing prevents mass-expiration of connections during transient upstream outages.
+- **Bounded Concurrency**: Semaphore + WaitGroup pattern limits goroutine growth in both `HealthWorker` (max 10) and `ConnectionHealthWorker` (max 20).
+- **Graceful Shutdown**: `--worker-only` mode now handles `SIGINT`/`SIGTERM` for clean process lifecycle management.
+- **Frontend API**: New `GET /connections?workspace_id=` endpoint returns workspace-scoped connection summaries with health status.
+- **Token Health Status**: `GET /connections/{id}/token` response now includes `health_status` field.
+- **Database Index**: Partial index on `connections(status, last_health_check_at)` optimizes health check polling at scale.
+
+### Fixed
+- `GET /providers/health` returns `[]` instead of `null` for empty provider lists.
+- Standardized logging: replaced `fmt.Printf` with `log.Printf` in background workers.
+
+---
 
 ### Changed
 - **Service Layer**: Refactored `connection_part2.go` into `credential.go`, separating credential capture, token refresh, and credential validation by responsibility.

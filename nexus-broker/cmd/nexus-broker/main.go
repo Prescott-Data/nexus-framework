@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
@@ -25,9 +27,17 @@ import (
 var Version = "dev"
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "-v" || os.Args[1] == "--version") {
-		log.Printf("Nexus Broker version: %s", Version)
-		os.Exit(0)
+	isWorkerOnly := false
+	if len(os.Args) > 1 {
+		for _, arg := range os.Args[1:] {
+			if arg == "-v" || arg == "--version" {
+				log.Printf("Nexus Broker version: %s", Version)
+				os.Exit(0)
+			}
+			if arg == "--worker-only" {
+				isWorkerOnly = true
+			}
+		}
 	}
 
 	cfg, err := config.Load()
@@ -92,6 +102,7 @@ func main() {
 		Audit:   auditSvc,
 	})
 	auditHandler := handlers.NewAuditHandler(db)
+	connectionsHandler := handlers.NewConnectionsHandler(connSvc)
 
 	router := srv.Router()
 	router.Get("/auth/callback", callbackHandler.Handle)
@@ -107,6 +118,7 @@ func main() {
 	protected.Route("/providers", func(r chi.Router) {
 		r.Post("/", providersHandler.Register)
 		r.Get("/", providersHandler.List)
+		r.Get("/health", providersHandler.Health)
 		r.Get("/metadata", providersHandler.Metadata)
 		r.Get("/by-name/{name}", providersHandler.GetByName)
 		r.Delete("/by-name/{name}", providersHandler.DeleteByName)
@@ -116,6 +128,7 @@ func main() {
 		r.Delete("/{id}", providersHandler.Delete)
 	})
 	protected.Post("/auth/consent-spec", consentHandler.GetSpec)
+	protected.Get("/connections", connectionsHandler.List)
 	protected.Get("/connections/resolve", callbackHandler.ResolveToken)
 	protected.Get("/connections/{connectionID}/token", callbackHandler.GetToken)
 	protected.Post("/connections/{connectionID}/refresh", callbackHandler.Refresh)
@@ -126,14 +139,35 @@ func main() {
 	defer cleanupCancel()
 	go handlers.StartOrphanTokenCleanup(cleanupCtx, db, 1*time.Hour)
 
+	// Start provider health worker (polls every 5m)
+	healthWorker := provider.NewHealthWorker(store, 5*time.Minute)
+	go healthWorker.Start(cleanupCtx)
+
+	// Start connection health worker (polls every 1m)
+	// The store implements ProviderHealthLookup via GetHealthStatus(uuid.UUID)
+	connHealthWorker := service.NewConnectionHealthWorker(connRepo, connSvc, store, 1*time.Minute)
+	go connHealthWorker.Start(cleanupCtx)
+
 	// Start connection health gauge (polls every 30s)
 	telemetry.NewConnectionGaugeCollector(connRepo, 30*time.Second)
 
-	log.Printf("Starting OAuth Broker server on port %s", cfg.Port)
-	log.Printf("Version: %s", Version)
-	log.Printf("Base URL: %s", cfg.BaseURL)
+	if isWorkerOnly {
+		log.Printf("Starting Nexus Broker in WORKER-ONLY mode")
+		log.Printf("Version: %s", Version)
 
-	if err := srv.Start(); err != nil {
-		log.Fatal("Server failed to start:", err)
+		// Wait for OS signal for graceful shutdown
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		sig := <-sigCh
+		log.Printf("Received signal %v, shutting down workers...", sig)
+		cleanupCancel()
+	} else {
+		log.Printf("Starting OAuth Broker server on port %s", cfg.Port)
+		log.Printf("Version: %s", Version)
+		log.Printf("Base URL: %s", cfg.BaseURL)
+
+		if err := srv.Start(); err != nil {
+			log.Fatal("Server failed to start:", err)
+		}
 	}
 }
