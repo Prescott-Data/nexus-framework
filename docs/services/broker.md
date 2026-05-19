@@ -35,7 +35,7 @@ The Broker runs two background workers to continuously monitor integration healt
 - Both workers use bounded concurrency (semaphore + WaitGroup) to prevent goroutine exhaustion.
 - In `--worker-only` mode, the binary listens for `SIGINT`/`SIGTERM` for graceful shutdown.
 
-### 5. Audit Subsystem
+### 6. Audit Subsystem
 Every control-plane mutation is recorded in the `audit_events` table via the `audit.Service`:
 - **`provider.created`** — logged on every successful `POST /providers` call.
 - **`provider.updated`** — logged on `PUT` and `PATCH` mutations.

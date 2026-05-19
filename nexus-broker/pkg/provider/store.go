@@ -439,6 +439,51 @@ func (s *Store) GetHealthStatus(id uuid.UUID) (string, error) {
 	return status, nil
 }
 
+// ProviderHealthSummary is a lightweight view containing only health-related fields.
+// Used by the /providers/health endpoint to avoid loading sensitive columns.
+type ProviderHealthSummary struct {
+	ID                uuid.UUID  `json:"id"`
+	Name              string     `json:"name"`
+	HealthStatus      string     `json:"health_status"`
+	LastHealthCheckAt *time.Time `json:"last_health_check_at,omitempty"`
+	HealthMessage     *string    `json:"health_message,omitempty"`
+}
+
+// GetAllHealthStatuses returns health-only summaries for all active providers.
+// This is a narrow query that avoids selecting sensitive fields (client_secret, params, etc.).
+func (s *Store) GetAllHealthStatuses() ([]ProviderHealthSummary, error) {
+	query := `
+		SELECT id, name, COALESCE(health_status, 'unknown'), last_health_check_at, health_message
+		FROM provider_profiles
+		WHERE deleted_at IS NULL
+	`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query provider health statuses: %w", err)
+	}
+	defer rows.Close()
+
+	var summaries []ProviderHealthSummary
+	for rows.Next() {
+		var s ProviderHealthSummary
+		if err := rows.Scan(&s.ID, &s.Name, &s.HealthStatus, &s.LastHealthCheckAt, &s.HealthMessage); err != nil {
+			return nil, fmt.Errorf("failed to scan provider health summary: %w", err)
+		}
+		summaries = append(summaries, s)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating provider health statuses: %w", err)
+	}
+
+	// Return empty slice instead of nil for clean JSON serialization
+	if summaries == nil {
+		summaries = []ProviderHealthSummary{}
+	}
+
+	return summaries, nil
+}
 // GetMetadata retrieves integration metadata for all providers, grouped by auth_type
 func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
 

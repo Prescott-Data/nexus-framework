@@ -142,6 +142,10 @@ func (r *connectionRepository) GetForHealthCheck(ctx context.Context, limit int)
 		rows = append(rows, conn)
 	}
 
+	if err = dbRows.Err(); err != nil {
+		return nil, err
+	}
+
 	// Returning pointers as per interface
 	var ptrRows []*domain.ConnectionWithProvider
 	for i := range rows {

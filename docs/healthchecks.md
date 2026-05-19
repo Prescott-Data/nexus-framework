@@ -152,7 +152,7 @@ Health workers run inside the standard broker process. For deployments that need
 nexus-broker --worker-only
 ```
 
-In this mode, the HTTP server does not start. The process listens for `SIGINT`/`SIGTERM` and performs a graceful shutdown, draining any in-flight checks before exiting.
+In this mode, the HTTP server does not start. The process listens for `SIGINT`/`SIGTERM` and cancels the worker context, signalling in-flight checks to stop. Note: the current implementation does not explicitly wait for worker goroutines to complete before exiting.
 
 The same Docker image and environment variables are used — just override the container command.
 

@@ -165,6 +165,14 @@ func (m *MockProfileStorer) GetAllProfiles() ([]provider.Profile, error) {
 	return nil, args.Error(1)
 }
 
+func (m *MockProfileStorer) GetAllHealthStatuses() ([]provider.ProviderHealthSummary, error) {
+	args := m.Called()
+	if args.Get(0) != nil {
+		return args.Get(0).([]provider.ProviderHealthSummary), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *MockProfileStorer) GetMetadata() (map[string]map[string]interface{}, error) {
 	args := m.Called()
 	if args.Get(0) != nil {

@@ -417,3 +417,58 @@ func TestGetHealthStatus_NotFound(t *testing.T) {
 
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestGetAllHealthStatuses_Success(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	store := NewStore(sqlxDB)
+
+	id1 := uuid.New()
+	id2 := uuid.New()
+	now := time.Now()
+	msg := "503 from token_url"
+
+	rows := sqlmock.NewRows([]string{"id", "name", "health_status", "last_health_check_at", "health_message"}).
+		AddRow(id1.String(), "google", "healthy", now, nil).
+		AddRow(id2.String(), "stripe", "unhealthy", now, &msg)
+
+	mock.ExpectQuery(`SELECT id, name, COALESCE\(health_status, 'unknown'\), last_health_check_at, health_message FROM provider_profiles`).
+		WillReturnRows(rows)
+
+	summaries, err := store.GetAllHealthStatuses()
+	assert.NoError(t, err)
+	assert.Len(t, summaries, 2)
+
+	assert.Equal(t, "google", summaries[0].Name)
+	assert.Equal(t, "healthy", summaries[0].HealthStatus)
+	assert.Nil(t, summaries[0].HealthMessage)
+
+	assert.Equal(t, "stripe", summaries[1].Name)
+	assert.Equal(t, "unhealthy", summaries[1].HealthStatus)
+	assert.Equal(t, "503 from token_url", *summaries[1].HealthMessage)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetAllHealthStatuses_Empty(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	store := NewStore(sqlxDB)
+
+	rows := sqlmock.NewRows([]string{"id", "name", "health_status", "last_health_check_at", "health_message"})
+	mock.ExpectQuery(`SELECT id, name, COALESCE\(health_status, 'unknown'\), last_health_check_at, health_message FROM provider_profiles`).
+		WillReturnRows(rows)
+
+	summaries, err := store.GetAllHealthStatuses()
+	assert.NoError(t, err)
+	assert.NotNil(t, summaries) // Should return [] not nil
+	assert.Len(t, summaries, 0)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
