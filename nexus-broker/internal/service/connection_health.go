@@ -4,26 +4,44 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 )
+
+// ProviderHealthLookup provides read-only access to provider health status.
+// This avoids importing the full Store and keeps the dependency narrow.
+type ProviderHealthLookup interface {
+	GetProfile(id uuid.UUID) (*provider.Profile, error)
+}
 
 // ConnectionHealthWorker polls for active connections and verifies their health
 type ConnectionHealthWorker struct {
-	connRepo  repository.ConnectionRepository
-	connSvc   ConnectionService
-	interval  time.Duration
-	batchSize int
+	connRepo       repository.ConnectionRepository
+	connSvc        ConnectionService
+	providerHealth ProviderHealthLookup
+	interval       time.Duration
+	batchSize      int
+	maxConcurrency int
 }
 
-func NewConnectionHealthWorker(connRepo repository.ConnectionRepository, connSvc ConnectionService, interval time.Duration) *ConnectionHealthWorker {
+func NewConnectionHealthWorker(
+	connRepo repository.ConnectionRepository,
+	connSvc ConnectionService,
+	providerHealth ProviderHealthLookup,
+	interval time.Duration,
+) *ConnectionHealthWorker {
 	return &ConnectionHealthWorker{
-		connRepo:  connRepo,
-		connSvc:   connSvc,
-		interval:  interval,
-		batchSize: 100, // Process 100 connections per interval
+		connRepo:       connRepo,
+		connSvc:        connSvc,
+		providerHealth: providerHealth,
+		interval:       interval,
+		batchSize:      100, // Process 100 connections per interval
+		maxConcurrency: 20,  // Limit to 20 concurrent health checks
 	}
 }
 
@@ -55,19 +73,36 @@ func (w *ConnectionHealthWorker) runChecks(ctx context.Context) {
 		return
 	}
 
+	// Use a semaphore to bound concurrency
+	sem := make(chan struct{}, w.maxConcurrency)
+	var wg sync.WaitGroup
+
 	for _, conn := range conns {
-		// Run in a goroutine so slow providers don't block the batch
+		wg.Add(1)
+		sem <- struct{}{} // Acquire semaphore slot
+
 		go func(c *domain.ConnectionWithProvider) {
+			defer wg.Done()
+			defer func() { <-sem }() // Release semaphore slot
+
 			// A simple timeout context per check
 			checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 			defer cancel()
 
 			status := w.checkConnection(checkCtx, c)
-			
+
+			// Before expiring a connection, cross-reference provider health.
+			// If the provider itself is unhealthy, the refresh failure is likely
+			// a transient upstream issue, not a revoked credential.
 			if status == "expired" || status == "revoked" {
-				log.Printf("ConnectionHealthWorker: Connection %s for provider %s is %s", c.ID, c.ProviderName, status)
-				// Note: In a full implementation we should also write to the audit log here
-				_ = w.connRepo.UpdateStatus(checkCtx, c.ID, "expired")
+				if w.isProviderDown(c.ProviderID) {
+					log.Printf("ConnectionHealthWorker: Connection %s refresh failed but provider %s is unhealthy — marking as unhealthy instead of expired", c.ID, c.ProviderName)
+					status = "unhealthy"
+				} else {
+					log.Printf("ConnectionHealthWorker: Connection %s for provider %s is %s", c.ID, c.ProviderName, status)
+					// Note: In a full implementation we should also write to the audit log here
+					_ = w.connRepo.UpdateStatus(checkCtx, c.ID, "expired")
+				}
 			}
 
 			if err := w.connRepo.UpdateHealthStatus(checkCtx, c.ID, status); err != nil {
@@ -75,6 +110,23 @@ func (w *ConnectionHealthWorker) runChecks(ctx context.Context) {
 			}
 		}(conn)
 	}
+
+	wg.Wait()
+}
+
+// isProviderDown checks whether the upstream provider is currently experiencing issues.
+// Returns true if the provider's health status is "unhealthy" or "degraded".
+func (w *ConnectionHealthWorker) isProviderDown(providerID uuid.UUID) bool {
+	if w.providerHealth == nil {
+		return false // No lookup available, assume provider is fine
+	}
+
+	profile, err := w.providerHealth.GetProfile(providerID)
+	if err != nil {
+		return false // Can't look up, assume provider is fine
+	}
+
+	return profile.HealthStatus == "unhealthy" || profile.HealthStatus == "degraded"
 }
 
 func (w *ConnectionHealthWorker) checkConnection(ctx context.Context, c *domain.ConnectionWithProvider) string {
@@ -84,9 +136,8 @@ func (w *ConnectionHealthWorker) checkConnection(ctx context.Context, c *domain.
 		// If it fails with invalid_grant, it's expired.
 		_, err := w.connSvc.Refresh(ctx, c.ID)
 		if err != nil {
-			// Determine if it's a hard rejection or just a network timeout
-			// A true implementation would inspect the err type to differentiate 500s vs 400s
-			// For now, assume any refresh failure means the credential is dead
+			// The caller (runChecks) will cross-reference provider health
+			// before committing an "expired" status to the database.
 			return "expired"
 		}
 		return "healthy"

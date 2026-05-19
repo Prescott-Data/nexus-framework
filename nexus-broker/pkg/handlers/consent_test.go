@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/service"
 )
 
@@ -65,6 +66,14 @@ func (m *MockConnectionService) Refresh(ctx context.Context, connectionID uuid.U
 	args := m.Called(ctx, connectionID)
 	if args.Get(0) != nil {
 		return args.Get(0).(*service.RefreshResponse), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockConnectionService) ListConnections(ctx context.Context, workspaceID string) ([]domain.ConnectionSummary, error) {
+	args := m.Called(ctx, workspaceID)
+	if args.Get(0) != nil {
+		return args.Get(0).([]domain.ConnectionSummary), args.Error(1)
 	}
 	return nil, args.Error(1)
 }

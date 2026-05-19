@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
@@ -100,6 +102,7 @@ func main() {
 		Audit:   auditSvc,
 	})
 	auditHandler := handlers.NewAuditHandler(db)
+	connectionsHandler := handlers.NewConnectionsHandler(connSvc)
 
 	router := srv.Router()
 	router.Get("/auth/callback", callbackHandler.Handle)
@@ -125,6 +128,7 @@ func main() {
 		r.Delete("/{id}", providersHandler.Delete)
 	})
 	protected.Post("/auth/consent-spec", consentHandler.GetSpec)
+	protected.Get("/connections", connectionsHandler.List)
 	protected.Get("/connections/resolve", callbackHandler.ResolveToken)
 	protected.Get("/connections/{connectionID}/token", callbackHandler.GetToken)
 	protected.Post("/connections/{connectionID}/refresh", callbackHandler.Refresh)
@@ -140,7 +144,8 @@ func main() {
 	go healthWorker.Start(cleanupCtx)
 
 	// Start connection health worker (polls every 1m)
-	connHealthWorker := service.NewConnectionHealthWorker(connRepo, connSvc, 1*time.Minute)
+	// The store implements ProviderHealthLookup via GetProfile(uuid.UUID)
+	connHealthWorker := service.NewConnectionHealthWorker(connRepo, connSvc, store, 1*time.Minute)
 	go connHealthWorker.Start(cleanupCtx)
 
 	// Start connection health gauge (polls every 30s)
@@ -149,8 +154,13 @@ func main() {
 	if isWorkerOnly {
 		log.Printf("Starting Nexus Broker in WORKER-ONLY mode")
 		log.Printf("Version: %s", Version)
-		// Block forever
-		select {}
+
+		// Wait for OS signal for graceful shutdown
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		sig := <-sigCh
+		log.Printf("Received signal %v, shutting down workers...", sig)
+		cleanupCancel()
 	} else {
 		log.Printf("Starting OAuth Broker server on port %s", cfg.Port)
 		log.Printf("Version: %s", Version)

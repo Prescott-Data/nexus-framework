@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/discovery"
@@ -14,9 +16,10 @@ import (
 
 // HealthWorker periodically checks the health of all registered providers
 type HealthWorker struct {
-	store    *Store
-	client   *http.Client
-	interval time.Duration
+	store          *Store
+	client         *http.Client
+	interval       time.Duration
+	maxConcurrency int
 }
 
 func NewHealthWorker(store *Store, interval time.Duration) *HealthWorker {
@@ -25,7 +28,8 @@ func NewHealthWorker(store *Store, interval time.Duration) *HealthWorker {
 		client: &http.Client{
 			Timeout: 10 * time.Second, // Prevent hanging requests
 		},
-		interval: interval,
+		interval:       interval,
+		maxConcurrency: 10, // Limit to 10 concurrent provider checks
 	}
 }
 
@@ -49,13 +53,23 @@ func (w *HealthWorker) Start(ctx context.Context) {
 func (w *HealthWorker) runChecks(ctx context.Context) {
 	profiles, err := w.store.GetAllProfiles()
 	if err != nil {
-		fmt.Printf("HealthWorker: failed to get profiles: %v\n", err)
+		log.Printf("HealthWorker: failed to get profiles: %v", err)
 		return
 	}
 
+	// Use a semaphore to bound concurrency
+	sem := make(chan struct{}, w.maxConcurrency)
+	var wg sync.WaitGroup
+
 	for _, p := range profiles {
+		wg.Add(1)
+		sem <- struct{}{} // Acquire semaphore slot
+
 		// Run each check in a goroutine to prevent one slow provider from blocking others
 		go func(profile Profile) {
+			defer wg.Done()
+			defer func() { <-sem }() // Release semaphore slot
+
 			status, message := w.checkProvider(ctx, profile)
 			
 			var msgPtr *string
@@ -64,10 +78,12 @@ func (w *HealthWorker) runChecks(ctx context.Context) {
 			}
 
 			if err := w.store.UpdateHealthStatus(profile.ID, status, msgPtr); err != nil {
-				fmt.Printf("HealthWorker: failed to update status for %s: %v\n", profile.Name, err)
+				log.Printf("HealthWorker: failed to update status for %s: %v", profile.Name, err)
 			}
 		}(p)
 	}
+
+	wg.Wait()
 }
 
 func (w *HealthWorker) checkProvider(ctx context.Context, p Profile) (string, string) {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/service"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 )
 
 // Add missing mock methods to MockConnectionRepository
@@ -86,9 +87,31 @@ func (m *MockConnectionService) Refresh(ctx context.Context, connectionID uuid.U
 	return nil, args.Error(1)
 }
 
+func (m *MockConnectionService) ListConnections(ctx context.Context, workspaceID string) ([]domain.ConnectionSummary, error) {
+	args := m.Called(ctx, workspaceID)
+	if args.Get(0) != nil {
+		return args.Get(0).([]domain.ConnectionSummary), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+// MockProviderHealthLookup mocks the ProviderHealthLookup interface
+type MockProviderHealthLookup struct {
+	mock.Mock
+}
+
+func (m *MockProviderHealthLookup) GetProfile(id uuid.UUID) (*provider.Profile, error) {
+	args := m.Called(id)
+	if args.Get(0) != nil {
+		return args.Get(0).(*provider.Profile), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func TestConnectionHealthWorker_OAuth2_Healthy(t *testing.T) {
 	mockRepo := new(MockConnectionRepository)
 	mockSvc := new(MockConnectionService)
+	mockHealth := new(MockProviderHealthLookup)
 
 	connID := uuid.New()
 	conn := &domain.ConnectionWithProvider{
@@ -109,7 +132,7 @@ func TestConnectionHealthWorker_OAuth2_Healthy(t *testing.T) {
 	// Should update health to healthy
 	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "healthy").Return(nil).Once()
 
-	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, 10*time.Millisecond)
+	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
 	
 	ctx, cancel := context.WithCancel(context.Background())
 	go worker.Start(ctx)
@@ -124,12 +147,15 @@ func TestConnectionHealthWorker_OAuth2_Healthy(t *testing.T) {
 func TestConnectionHealthWorker_OAuth2_Expired(t *testing.T) {
 	mockRepo := new(MockConnectionRepository)
 	mockSvc := new(MockConnectionService)
+	mockHealth := new(MockProviderHealthLookup)
 
 	connID := uuid.New()
+	providerID := uuid.New()
 	conn := &domain.ConnectionWithProvider{
 		Connection: domain.Connection{
-			ID:     connID,
-			Status: "active",
+			ID:         connID,
+			ProviderID: providerID,
+			Status:     "active",
 		},
 		AuthType: "oauth2",
 	}
@@ -140,13 +166,16 @@ func TestConnectionHealthWorker_OAuth2_Expired(t *testing.T) {
 	// Mock failed refresh
 	mockSvc.On("Refresh", mock.Anything, connID).Return((*service.RefreshResponse)(nil), errors.New("invalid_grant")).Once()
 
+	// Provider is healthy, so the connection should be expired (not shielded)
+	mockHealth.On("GetProfile", providerID).Return(&provider.Profile{HealthStatus: "healthy"}, nil).Once()
+
 	// Should update connection status to expired
 	mockRepo.On("UpdateStatus", mock.Anything, connID, "expired").Return(nil).Once()
 
 	// Should update health to expired
 	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "expired").Return(nil).Once()
 
-	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, 10*time.Millisecond)
+	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
 	
 	ctx, cancel := context.WithCancel(context.Background())
 	go worker.Start(ctx)
@@ -156,11 +185,58 @@ func TestConnectionHealthWorker_OAuth2_Expired(t *testing.T) {
 
 	mockRepo.AssertExpectations(t)
 	mockSvc.AssertExpectations(t)
+	mockHealth.AssertExpectations(t)
+}
+
+func TestConnectionHealthWorker_OAuth2_ProviderDown_ShieldsExpiration(t *testing.T) {
+	mockRepo := new(MockConnectionRepository)
+	mockSvc := new(MockConnectionService)
+	mockHealth := new(MockProviderHealthLookup)
+
+	connID := uuid.New()
+	providerID := uuid.New()
+	conn := &domain.ConnectionWithProvider{
+		Connection: domain.Connection{
+			ID:         connID,
+			ProviderID: providerID,
+			Status:     "active",
+		},
+		ProviderName: "google",
+		AuthType:     "oauth2",
+	}
+
+	mockRepo.On("GetForHealthCheck", mock.Anything, 100).Return([]*domain.ConnectionWithProvider{conn}, nil).Once()
+	mockRepo.On("GetForHealthCheck", mock.Anything, 100).Return([]*domain.ConnectionWithProvider{}, nil)
+
+	// Mock failed refresh
+	mockSvc.On("Refresh", mock.Anything, connID).Return((*service.RefreshResponse)(nil), errors.New("connection refused")).Once()
+
+	// Provider is unhealthy → should shield the connection from being expired
+	mockHealth.On("GetProfile", providerID).Return(&provider.Profile{HealthStatus: "unhealthy"}, nil).Once()
+
+	// Should NOT call UpdateStatus (no expiration)
+	// Should update health to "unhealthy" instead of "expired"
+	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "unhealthy").Return(nil).Once()
+
+	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go worker.Start(ctx)
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	mockRepo.AssertExpectations(t)
+	mockSvc.AssertExpectations(t)
+	mockHealth.AssertExpectations(t)
+	// Verify UpdateStatus was NOT called — connection should not be expired
+	mockRepo.AssertNotCalled(t, "UpdateStatus", mock.Anything, connID, "expired")
 }
 
 func TestConnectionHealthWorker_APIKey_Expired(t *testing.T) {
 	mockRepo := new(MockConnectionRepository)
 	mockSvc := new(MockConnectionService)
+	mockHealth := new(MockProviderHealthLookup)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "Bearer secret-key", r.Header.Get("Authorization"))
@@ -169,12 +245,14 @@ func TestConnectionHealthWorker_APIKey_Expired(t *testing.T) {
 	defer server.Close()
 
 	connID := uuid.New()
+	providerID := uuid.New()
 	conn := &domain.ConnectionWithProvider{
 		Connection: domain.Connection{
-			ID:     connID,
-			Status: "active",
+			ID:         connID,
+			ProviderID: providerID,
+			Status:     "active",
 		},
-		AuthType: "api_key",
+		AuthType:         "api_key",
 		UserInfoEndpoint: server.URL,
 	}
 
@@ -185,13 +263,16 @@ func TestConnectionHealthWorker_APIKey_Expired(t *testing.T) {
 	creds := map[string]interface{}{"api_key": "secret-key"}
 	mockSvc.On("GetToken", mock.Anything, connID).Return(creds, "api_key_strategy", nil).Once()
 
+	// Provider is healthy, so expiration should proceed
+	mockHealth.On("GetProfile", providerID).Return(&provider.Profile{HealthStatus: "healthy"}, nil).Once()
+
 	// Should update connection status to expired
 	mockRepo.On("UpdateStatus", mock.Anything, connID, "expired").Return(nil).Once()
 
 	// Should update health to expired
 	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "expired").Return(nil).Once()
 
-	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, 10*time.Millisecond)
+	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
 	
 	ctx, cancel := context.WithCancel(context.Background())
 	go worker.Start(ctx)
@@ -201,4 +282,5 @@ func TestConnectionHealthWorker_APIKey_Expired(t *testing.T) {
 
 	mockRepo.AssertExpectations(t)
 	mockSvc.AssertExpectations(t)
+	mockHealth.AssertExpectations(t)
 }

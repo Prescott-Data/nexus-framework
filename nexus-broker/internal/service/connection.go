@@ -31,6 +31,7 @@ type ConnectionService interface {
 	GetCaptureSchema(ctx context.Context, state string) (string, json.RawMessage, error)
 	SaveCredential(ctx context.Context, state string, credentials map[string]interface{}) (string, error)
 	Refresh(ctx context.Context, connectionID uuid.UUID) (*RefreshResponse, error)
+	ListConnections(ctx context.Context, workspaceID string) ([]domain.ConnectionSummary, error)
 }
 
 type connectionService struct {
@@ -410,8 +411,16 @@ func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID
 
 	response["strategy"] = strategy
 	response["credentials"] = credentials
+	response["health_status"] = conn.HealthStatus
 
 	return response, conn.ProviderName, nil
+}
+
+func (s *connectionService) ListConnections(ctx context.Context, workspaceID string) ([]domain.ConnectionSummary, error) {
+	if workspaceID == "" {
+		return nil, ErrBadRequest("missing_workspace_id", "workspace_id is required")
+	}
+	return s.connRepo.ListByWorkspace(ctx, workspaceID)
 }
 
 // Helpers

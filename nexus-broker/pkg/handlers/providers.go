@@ -211,7 +211,7 @@ func (h *ProvidersHandler) Health(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	var healthData []map[string]interface{}
+	healthData := make([]map[string]interface{}, 0, len(profiles))
 	for _, p := range profiles {
 		healthData = append(healthData, map[string]interface{}{
 			"id": p.ID.String(),

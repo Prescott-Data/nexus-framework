@@ -84,6 +84,11 @@ func (r *ConnectionRepository) UpdateHealthStatus(ctx context.Context, id uuid.U
 	return r.inner.UpdateHealthStatus(ctx, id, status)
 }
 
+func (r *ConnectionRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.ConnectionSummary, error) {
+	defer observe("connection", "ListByWorkspace", time.Now())
+	return r.inner.ListByWorkspace(ctx, workspaceID)
+}
+
 // --- TokenRepository decorator ---
 
 // TokenRepository wraps repository.TokenRepository with latency instrumentation.
