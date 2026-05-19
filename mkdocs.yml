@@ -67,6 +67,7 @@ nav:
       - Nexus Broker: services/broker.md
       - Nexus Gateway: services/gateway.md
       - Nexus Bridge: services/bridge.md
+      - Health Checks: healthchecks.md
   - SDKs:
       - Overview: sdks/index.md
       - Go SDK: sdks/go.md
