@@ -95,7 +95,6 @@ nav:
       - Agent Identity: concepts/agent-identity.md
       - Security Model: concepts/security-model.md
       - Client Libraries: concepts/client-libraries.md
-      - Health Checks: healthchecks.md
   - Getting Started:
       - Deploy in Five Minutes: getting-started/quickstart.md
       - Configuration: getting-started/configuration.md
@@ -112,6 +111,7 @@ nav:
       - MCP Server Integration: guides/mcp-integration.md
       - Handling Attention State: guides/attention-state.md
       - Troubleshooting: guides/troubleshooting.md
+      - Health Checks: guides/healthchecks.md
       - Security-as-Code: guides/security-as-code.md
       - Deploying Nexus: infrastructure/deploying-nexus.md
   - Reference:
