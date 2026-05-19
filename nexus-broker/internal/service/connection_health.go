@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +26,7 @@ type ConnectionHealthWorker struct {
 	connRepo       repository.ConnectionRepository
 	connSvc        ConnectionService
 	providerHealth ProviderHealthLookup
+	httpClient     *http.Client
 	interval       time.Duration
 	batchSize      int
 	maxConcurrency int
@@ -39,6 +42,7 @@ func NewConnectionHealthWorker(
 		connRepo:       connRepo,
 		connSvc:        connSvc,
 		providerHealth: providerHealth,
+		httpClient:     &http.Client{Timeout: 10 * time.Second},
 		interval:       interval,
 		batchSize:      100, // Process 100 connections per interval
 		maxConcurrency: 20,  // Limit to 20 concurrent health checks
@@ -91,17 +95,21 @@ func (w *ConnectionHealthWorker) runChecks(ctx context.Context) {
 
 			status := w.checkConnection(checkCtx, c)
 
-			// Before expiring a connection, cross-reference provider health.
-			// If the provider itself is unhealthy, the refresh failure is likely
-			// a transient upstream issue, not a revoked credential.
-			if status == "expired" || status == "revoked" {
+			// Only flip the connection's primary status to "expired" when we have
+			// a definitive credential error AND the upstream provider is healthy.
+			// For all other negative outcomes (unhealthy, degraded), we update
+			// health_status but leave the connection's primary status untouched
+			// to avoid overwriting states like "attention" set by the service layer.
+			if status == "expired" {
 				if w.isProviderDown(c.ProviderID) {
 					log.Printf("ConnectionHealthWorker: Connection %s refresh failed but provider %s is unhealthy — marking as unhealthy instead of expired", c.ID, c.ProviderName)
 					status = "unhealthy"
 				} else {
-					log.Printf("ConnectionHealthWorker: Connection %s for provider %s is %s", c.ID, c.ProviderName, status)
-					// Note: In a full implementation we should also write to the audit log here
-					_ = w.connRepo.UpdateStatus(checkCtx, c.ID, "expired")
+					log.Printf("ConnectionHealthWorker: Connection %s for provider %s — credential definitively invalid, expiring", c.ID, c.ProviderName)
+					if err := w.connRepo.UpdateStatus(checkCtx, c.ID, "expired"); err != nil {
+						log.Printf("ConnectionHealthWorker: failed to expire connection %s — skipping health update to avoid inconsistent state: %v", c.ID, err)
+						return
+					}
 				}
 			}
 
@@ -131,16 +139,7 @@ func (w *ConnectionHealthWorker) isProviderDown(providerID uuid.UUID) bool {
 
 func (w *ConnectionHealthWorker) checkConnection(ctx context.Context, c *domain.ConnectionWithProvider) string {
 	if c.AuthType == "oauth2" {
-		// For OAuth2, attempt a token refresh. The service layer already has this logic.
-		// If it succeeds, the refresh token is valid (healthy). 
-		// If it fails with invalid_grant, it's expired.
-		_, err := w.connSvc.Refresh(ctx, c.ID)
-		if err != nil {
-			// The caller (runChecks) will cross-reference provider health
-			// before committing an "expired" status to the database.
-			return "expired"
-		}
-		return "healthy"
+		return w.checkOAuth2Connection(ctx, c)
 	}
 
 	// For non-OAuth2 (API keys), we need a UserInfoEndpoint to test against
@@ -151,7 +150,10 @@ func (w *ConnectionHealthWorker) checkConnection(ctx context.Context, c *domain.
 	// Fetch and decrypt the credentials
 	credentials, _, err := w.connSvc.GetToken(ctx, c.ID)
 	if err != nil {
-		return "expired" // Lost or corrupted token
+		// GetToken can fail for internal reasons (decryption error, DB error).
+		// Don't mark as expired — the credential might still be valid.
+		log.Printf("ConnectionHealthWorker: Connection %s — failed to fetch token: %v", c.ID, err)
+		return "degraded"
 	}
 
 	// Make a test request to the user_info_endpoint
@@ -160,23 +162,38 @@ func (w *ConnectionHealthWorker) checkConnection(ctx context.Context, c *domain.
 		return "unhealthy"
 	}
 
-	// This is a simplified application of the strategy. A full implementation would 
-	// use the bridge's `auth.ApplyAuthentication` but we are inside the broker here.
-	// For API Key / Bearer, it's usually just a header.
-	if c.AuthType == "api_key" || c.AuthType == "basic_auth" {
-		// Assuming the token service returned it as a flat map
-		for _, v := range credentials {
-			if strVal, ok := v.(string); ok {
-				// Very naive injection just for the health check.
-				// In reality, this requires interpreting the provider's strategy config.
-				req.Header.Set("Authorization", "Bearer "+strVal)
-				req.Header.Set("X-API-Key", strVal)
-			}
+	// Apply authentication using the same key extraction as validateCredentials
+	// in credential.go. We use explicit credential keys to avoid accidentally
+	// injecting unrelated map values (e.g., expires_at) as auth headers.
+	switch c.AuthType {
+	case "api_key":
+		apiKey, _ := credentials["api_key"].(string)
+		if apiKey == "" {
+			log.Printf("ConnectionHealthWorker: Connection %s — api_key field missing from credentials", c.ID)
+			return "degraded"
 		}
+		headerName := c.AuthHeader
+		if headerName == "" {
+			headerName = "Authorization"
+		}
+		if strings.ToLower(headerName) == "authorization" {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		} else {
+			req.Header.Set(headerName, apiKey)
+		}
+
+	case "basic_auth":
+		username, _ := credentials["username"].(string)
+		password, _ := credentials["password"].(string)
+		if username == "" {
+			log.Printf("ConnectionHealthWorker: Connection %s — username field missing from credentials", c.ID)
+			return "degraded"
+		}
+		encoded := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+		req.Header.Set("Authorization", "Basic "+encoded)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := w.httpClient.Do(req)
 	if err != nil {
 		return "unhealthy" // Network failure
 	}
@@ -185,10 +202,56 @@ func (w *ConnectionHealthWorker) checkConnection(ctx context.Context, c *domain.
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return "expired" // The key is dead
 	}
-	
+
 	if resp.StatusCode >= 500 {
 		return "unhealthy" // Provider is having issues, don't mark as expired yet
 	}
 
 	return "healthy"
+}
+
+// checkOAuth2Connection inspects the RefreshResponse from the service layer to
+// distinguish definitive credential errors from transient/internal failures.
+//
+// Status code mapping:
+//
+//	Success           → "healthy"
+//	400/401           → "expired"  (invalid_grant, token revoked — definitive)
+//	403               → "degraded" (scope issues — credential exists but limited)
+//	5xx               → "unhealthy" (upstream issue — don't touch connection status)
+//	Network/internal  → "degraded" (can't determine — don't touch connection status)
+func (w *ConnectionHealthWorker) checkOAuth2Connection(ctx context.Context, c *domain.ConnectionWithProvider) string {
+	resp, err := w.connSvc.Refresh(ctx, c.ID)
+	if err == nil {
+		return "healthy"
+	}
+
+	// Refresh returns a *RefreshResponse even on error, containing the upstream
+	// status code. Use it to make a precise determination.
+	if resp != nil && resp.StatusCode > 0 {
+		switch {
+		case resp.StatusCode == 400 || resp.StatusCode == 401:
+			// Definitive: invalid_grant, token revoked, client deauthorized.
+			// The service layer already set connection.status = "attention" for 4xx.
+			// We return "expired" so runChecks can flip to "expired" if provider is healthy.
+			return "expired"
+		case resp.StatusCode == 403:
+			// Partial revocation or scope downgrade. The refresh token may still be
+			// valid but scopes are reduced. Don't expire the connection.
+			return "degraded"
+		case resp.StatusCode >= 500:
+			// Upstream server error — transient. Don't touch the connection.
+			return "unhealthy"
+		default:
+			// Unexpected status (e.g., 429 rate limit). Treat as transient.
+			log.Printf("ConnectionHealthWorker: Connection %s — unexpected refresh status %d", c.ID, resp.StatusCode)
+			return "degraded"
+		}
+	}
+
+	// No response at all — network error, DNS failure, timeout, or internal service
+	// error (decryption failure, missing provider, etc.). We can't determine whether
+	// the credential is valid, so mark degraded and leave connection.status untouched.
+	log.Printf("ConnectionHealthWorker: Connection %s — refresh error with no status code: %v", c.ID, err)
+	return "degraded"
 }

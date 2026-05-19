@@ -163,8 +163,8 @@ func TestConnectionHealthWorker_OAuth2_Expired(t *testing.T) {
 	mockRepo.On("GetForHealthCheck", mock.Anything, 100).Return([]*domain.ConnectionWithProvider{conn}, nil).Once()
 	mockRepo.On("GetForHealthCheck", mock.Anything, 100).Return([]*domain.ConnectionWithProvider{}, nil)
 
-	// Mock failed refresh
-	mockSvc.On("Refresh", mock.Anything, connID).Return((*service.RefreshResponse)(nil), errors.New("invalid_grant")).Once()
+	// Mock failed refresh — 400 indicates definitive credential rejection
+	mockSvc.On("Refresh", mock.Anything, connID).Return(&service.RefreshResponse{StatusCode: 400}, errors.New("invalid_grant")).Once()
 
 	// Provider is healthy, so the connection should be expired (not shielded)
 	mockHealth.On("GetProfile", providerID).Return(&provider.Profile{HealthStatus: "healthy"}, nil).Once()
@@ -208,8 +208,9 @@ func TestConnectionHealthWorker_OAuth2_ProviderDown_ShieldsExpiration(t *testing
 	mockRepo.On("GetForHealthCheck", mock.Anything, 100).Return([]*domain.ConnectionWithProvider{conn}, nil).Once()
 	mockRepo.On("GetForHealthCheck", mock.Anything, 100).Return([]*domain.ConnectionWithProvider{}, nil)
 
-	// Mock failed refresh
-	mockSvc.On("Refresh", mock.Anything, connID).Return((*service.RefreshResponse)(nil), errors.New("connection refused")).Once()
+	// Mock failed refresh — 401 is a definitive credential error, but should be
+	// shielded because the provider is unhealthy
+	mockSvc.On("Refresh", mock.Anything, connID).Return(&service.RefreshResponse{StatusCode: 401}, errors.New("token revoked")).Once()
 
 	// Provider is unhealthy → should shield the connection from being expired
 	mockHealth.On("GetProfile", providerID).Return(&provider.Profile{HealthStatus: "unhealthy"}, nil).Once()
@@ -283,4 +284,113 @@ func TestConnectionHealthWorker_APIKey_Expired(t *testing.T) {
 	mockRepo.AssertExpectations(t)
 	mockSvc.AssertExpectations(t)
 	mockHealth.AssertExpectations(t)
+}
+
+func TestConnectionHealthWorker_OAuth2_Upstream5xx_MarksUnhealthy(t *testing.T) {
+	mockRepo := new(MockConnectionRepository)
+	mockSvc := new(MockConnectionService)
+	mockHealth := new(MockProviderHealthLookup)
+
+	connID := uuid.New()
+	conn := &domain.ConnectionWithProvider{
+		Connection: domain.Connection{
+			ID:     connID,
+			Status: "active",
+		},
+		AuthType: "oauth2",
+	}
+
+	mockRepo.On("GetForHealthCheck", mock.Anything, 100).Return([]*domain.ConnectionWithProvider{conn}, nil).Once()
+	mockRepo.On("GetForHealthCheck", mock.Anything, 100).Return([]*domain.ConnectionWithProvider{}, nil)
+
+	// 502 from upstream — transient server error, not a credential issue
+	mockSvc.On("Refresh", mock.Anything, connID).Return(&service.RefreshResponse{StatusCode: 502}, errors.New("bad gateway")).Once()
+
+	// Should set health_status to "unhealthy", NOT "expired"
+	// Should NOT call UpdateStatus — connection status stays "active"
+	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "unhealthy").Return(nil).Once()
+
+	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go worker.Start(ctx)
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	mockRepo.AssertExpectations(t)
+	mockSvc.AssertExpectations(t)
+	mockRepo.AssertNotCalled(t, "UpdateStatus", mock.Anything, connID, "expired")
+}
+
+func TestConnectionHealthWorker_OAuth2_403_MarksDegraded(t *testing.T) {
+	mockRepo := new(MockConnectionRepository)
+	mockSvc := new(MockConnectionService)
+	mockHealth := new(MockProviderHealthLookup)
+
+	connID := uuid.New()
+	conn := &domain.ConnectionWithProvider{
+		Connection: domain.Connection{
+			ID:     connID,
+			Status: "active",
+		},
+		AuthType: "oauth2",
+	}
+
+	mockRepo.On("GetForHealthCheck", mock.Anything, 100).Return([]*domain.ConnectionWithProvider{conn}, nil).Once()
+	mockRepo.On("GetForHealthCheck", mock.Anything, 100).Return([]*domain.ConnectionWithProvider{}, nil)
+
+	// 403 — scope issue, credential exists but limited
+	mockSvc.On("Refresh", mock.Anything, connID).Return(&service.RefreshResponse{StatusCode: 403}, errors.New("forbidden")).Once()
+
+	// Should set health_status to "degraded", NOT "expired"
+	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "degraded").Return(nil).Once()
+
+	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go worker.Start(ctx)
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	mockRepo.AssertExpectations(t)
+	mockSvc.AssertExpectations(t)
+	mockRepo.AssertNotCalled(t, "UpdateStatus", mock.Anything, connID, "expired")
+}
+
+func TestConnectionHealthWorker_OAuth2_NetworkError_MarksDegraded(t *testing.T) {
+	mockRepo := new(MockConnectionRepository)
+	mockSvc := new(MockConnectionService)
+	mockHealth := new(MockProviderHealthLookup)
+
+	connID := uuid.New()
+	conn := &domain.ConnectionWithProvider{
+		Connection: domain.Connection{
+			ID:     connID,
+			Status: "active",
+		},
+		AuthType: "oauth2",
+	}
+
+	mockRepo.On("GetForHealthCheck", mock.Anything, 100).Return([]*domain.ConnectionWithProvider{conn}, nil).Once()
+	mockRepo.On("GetForHealthCheck", mock.Anything, 100).Return([]*domain.ConnectionWithProvider{}, nil)
+
+	// Nil response — network error, timeout, DNS failure etc.
+	mockSvc.On("Refresh", mock.Anything, connID).Return((*service.RefreshResponse)(nil), errors.New("connection refused")).Once()
+
+	// Should set health_status to "degraded" (we don't know if credential is valid)
+	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "degraded").Return(nil).Once()
+
+	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go worker.Start(ctx)
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	mockRepo.AssertExpectations(t)
+	mockSvc.AssertExpectations(t)
+	mockRepo.AssertNotCalled(t, "UpdateStatus", mock.Anything, connID, "expired")
 }
