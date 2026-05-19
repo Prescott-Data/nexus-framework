@@ -1,3 +1,7 @@
+---
+icon: material/heart-pulse
+---
+
 # Health Checks
 
 The Nexus Broker continuously monitors integration health across two dimensions: **provider-level** (is the upstream API alive?) and **connection-level** (is this user's credential still valid?). Both run as background workers inside the broker process.
@@ -158,24 +162,12 @@ The same Docker image and environment variables are used — just override the c
 
 ---
 
-## Database Schema
+## Database Migrations
 
-```sql
--- provider_profiles
-ALTER TABLE provider_profiles
-  ADD COLUMN last_health_check_at TIMESTAMP WITH TIME ZONE,
-  ADD COLUMN health_status        VARCHAR(50) DEFAULT 'unknown',
-  ADD COLUMN health_message       TEXT;
+Health check columns are added automatically by the incremental migration scripts. Run:
 
--- connections
-ALTER TABLE connections
-  ADD COLUMN last_health_check_at TIMESTAMP WITH TIME ZONE,
-  ADD COLUMN health_status        VARCHAR(50) DEFAULT 'unknown';
-
--- Performance index for GetForHealthCheck query
-CREATE INDEX IF NOT EXISTS idx_connections_health_check
-  ON connections (status, last_health_check_at ASC NULLS FIRST)
-  WHERE status = 'active';
+```bash
+nexus-broker migrate up
 ```
 
-Migrations: `13_add_provider_health.sql`, `14_add_connection_health.sql`, `15_add_connection_health_index.sql`.
+This applies all pending migrations in order (`13_add_provider_health.sql`, `14_add_connection_health.sql`, `15_add_connection_health_index.sql`, etc.). There is no need to run individual scripts — the migrator tracks which have already been applied.
