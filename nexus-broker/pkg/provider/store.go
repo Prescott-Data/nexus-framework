@@ -424,6 +424,21 @@ func (s *Store) UpdateHealthStatus(id uuid.UUID, status string, message *string)
 	return nil
 }
 
+// GetHealthStatus returns only the health_status for a provider.
+// This is a narrow query intended for background workers that need to
+// cross-reference provider health without loading sensitive fields.
+func (s *Store) GetHealthStatus(id uuid.UUID) (string, error) {
+	var status string
+	err := s.db.QueryRow(
+		`SELECT COALESCE(health_status, 'unknown') FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`,
+		id,
+	).Scan(&status)
+	if err != nil {
+		return "", fmt.Errorf("failed to get provider health status: %w", err)
+	}
+	return status, nil
+}
+
 // GetMetadata retrieves integration metadata for all providers, grouped by auth_type
 func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
 

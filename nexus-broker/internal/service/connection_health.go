@@ -12,13 +12,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 )
 
 // ProviderHealthLookup provides read-only access to provider health status.
-// This avoids importing the full Store and keeps the dependency narrow.
+// Uses a narrow query that only fetches health_status, avoiding loading
+// sensitive fields (client_secret, params, etc.) into worker memory.
 type ProviderHealthLookup interface {
-	GetProfile(id uuid.UUID) (*provider.Profile, error)
+	GetHealthStatus(id uuid.UUID) (string, error)
 }
 
 // ConnectionHealthWorker polls for active connections and verifies their health
@@ -129,12 +129,12 @@ func (w *ConnectionHealthWorker) isProviderDown(providerID uuid.UUID) bool {
 		return false // No lookup available, assume provider is fine
 	}
 
-	profile, err := w.providerHealth.GetProfile(providerID)
+	status, err := w.providerHealth.GetHealthStatus(providerID)
 	if err != nil {
 		return false // Can't look up, assume provider is fine
 	}
 
-	return profile.HealthStatus == "unhealthy" || profile.HealthStatus == "degraded"
+	return status == "unhealthy" || status == "degraded"
 }
 
 func (w *ConnectionHealthWorker) checkConnection(ctx context.Context, c *domain.ConnectionWithProvider) string {

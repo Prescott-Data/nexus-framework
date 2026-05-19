@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -207,4 +208,212 @@ func TestGetProfile_NullValues(t *testing.T) {
 	if profile != nil {
 		assert.Equal(t, "null-provider", profile.Name)
 	}
+}
+
+func TestGetAllProfiles_Success(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	store := NewStore(sqlxDB)
+
+	id1 := uuid.New()
+	id2 := uuid.New()
+	now := time.Now()
+	msg := "timeout reaching token_endpoint"
+
+	// Must match the exact 19-column order in GetAllProfiles SELECT:
+	// id, name, client_id, client_secret, auth_url, token_url, issuer,
+	// enable_discovery, scopes, auth_type, auth_header,
+	// api_base_url, user_info_endpoint, params, description, category,
+	// last_health_check_at, health_status, health_message
+	rows := sqlmock.NewRows([]string{
+		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
+		"enable_discovery", "scopes", "auth_type", "auth_header",
+		"api_base_url", "user_info_endpoint", "params", "description", "category",
+		"last_health_check_at", "health_status", "health_message",
+	}).AddRow(
+		id1.String(), "google", ptr("cid"), ptr("csec"), ptr("https://auth"), ptr("https://token"), nil,
+		true, []byte("{email,profile}"), "oauth2", "",
+		"https://api.google.com", "/userinfo", nil, "Google OAuth", "Identity",
+		now, "healthy", nil,
+	).AddRow(
+		id2.String(), "stripe", nil, nil, nil, nil, nil,
+		false, []byte("{}"), "api_key", "Authorization",
+		"https://api.stripe.com", "/v1/account", nil, "Stripe API", "Payments",
+		now, "unhealthy", &msg,
+	)
+
+	mock.ExpectQuery(`SELECT .* FROM provider_profiles`).WillReturnRows(rows)
+
+	profiles, err := store.GetAllProfiles()
+	assert.NoError(t, err)
+	assert.Len(t, profiles, 2)
+
+	// Verify first profile health fields
+	assert.Equal(t, id1, profiles[0].ID)
+	assert.Equal(t, "google", profiles[0].Name)
+	assert.Equal(t, "healthy", profiles[0].HealthStatus)
+	assert.NotNil(t, profiles[0].LastHealthCheckAt)
+	assert.Nil(t, profiles[0].HealthMessage)
+
+	// Verify second profile health fields
+	assert.Equal(t, id2, profiles[1].ID)
+	assert.Equal(t, "stripe", profiles[1].Name)
+	assert.Equal(t, "unhealthy", profiles[1].HealthStatus)
+	assert.NotNil(t, profiles[1].HealthMessage)
+	assert.Equal(t, "timeout reaching token_endpoint", *profiles[1].HealthMessage)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetAllProfiles_Empty(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	store := NewStore(sqlxDB)
+
+	rows := sqlmock.NewRows([]string{
+		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
+		"enable_discovery", "scopes", "auth_type", "auth_header",
+		"api_base_url", "user_info_endpoint", "params", "description", "category",
+		"last_health_check_at", "health_status", "health_message",
+	})
+
+	mock.ExpectQuery(`SELECT .* FROM provider_profiles`).WillReturnRows(rows)
+
+	profiles, err := store.GetAllProfiles()
+	assert.NoError(t, err)
+	assert.Nil(t, profiles) // append to nil slice returns nil
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetAllProfiles_QueryError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	store := NewStore(sqlxDB)
+
+	mock.ExpectQuery(`SELECT .* FROM provider_profiles`).
+		WillReturnError(sql.ErrConnDone)
+
+	profiles, err := store.GetAllProfiles()
+	assert.Error(t, err)
+	assert.Nil(t, profiles)
+	assert.Contains(t, err.Error(), "failed to query all profiles")
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUpdateHealthStatus_Success(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	store := NewStore(sqlxDB)
+
+	providerID := uuid.New()
+	msg := "token_url 503"
+
+	// Verify the UPDATE is called with (status, message, id) in correct order
+	mock.ExpectExec(`UPDATE provider_profiles SET health_status = \$1, health_message = \$2, last_health_check_at = NOW\(\) WHERE id = \$3`).
+		WithArgs("unhealthy", &msg, providerID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err = store.UpdateHealthStatus(providerID, "unhealthy", &msg)
+	assert.NoError(t, err)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUpdateHealthStatus_NilMessage(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	store := NewStore(sqlxDB)
+
+	providerID := uuid.New()
+
+	mock.ExpectExec(`UPDATE provider_profiles SET health_status = \$1, health_message = \$2, last_health_check_at = NOW\(\) WHERE id = \$3`).
+		WithArgs("healthy", nil, providerID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err = store.UpdateHealthStatus(providerID, "healthy", nil)
+	assert.NoError(t, err)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUpdateHealthStatus_DBError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	store := NewStore(sqlxDB)
+
+	providerID := uuid.New()
+
+	mock.ExpectExec(`UPDATE provider_profiles SET health_status`).
+		WithArgs("unhealthy", nil, providerID).
+		WillReturnError(sql.ErrConnDone)
+
+	err = store.UpdateHealthStatus(providerID, "unhealthy", nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to update provider health status")
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetHealthStatus_Success(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	store := NewStore(sqlxDB)
+
+	providerID := uuid.New()
+	rows := sqlmock.NewRows([]string{"health_status"}).AddRow("unhealthy")
+
+	mock.ExpectQuery(`SELECT COALESCE\(health_status, 'unknown'\) FROM provider_profiles WHERE id = \$1`).
+		WithArgs(providerID).
+		WillReturnRows(rows)
+
+	status, err := store.GetHealthStatus(providerID)
+	assert.NoError(t, err)
+	assert.Equal(t, "unhealthy", status)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetHealthStatus_NotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	store := NewStore(sqlxDB)
+
+	providerID := uuid.New()
+
+	mock.ExpectQuery(`SELECT COALESCE\(health_status, 'unknown'\) FROM provider_profiles WHERE id = \$1`).
+		WithArgs(providerID).
+		WillReturnError(sql.ErrNoRows)
+
+	status, err := store.GetHealthStatus(providerID)
+	assert.Error(t, err)
+	assert.Equal(t, "", status)
+	assert.Contains(t, err.Error(), "failed to get provider health status")
+
+	assert.NoError(t, mock.ExpectationsWereMet())
 }

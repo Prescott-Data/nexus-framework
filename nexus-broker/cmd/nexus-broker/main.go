@@ -144,7 +144,7 @@ func main() {
 	go healthWorker.Start(cleanupCtx)
 
 	// Start connection health worker (polls every 1m)
-	// The store implements ProviderHealthLookup via GetProfile(uuid.UUID)
+	// The store implements ProviderHealthLookup via GetHealthStatus(uuid.UUID)
 	connHealthWorker := service.NewConnectionHealthWorker(connRepo, connSvc, store, 1*time.Minute)
 	go connHealthWorker.Start(cleanupCtx)
 

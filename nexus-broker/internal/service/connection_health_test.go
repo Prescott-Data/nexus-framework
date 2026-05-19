@@ -15,7 +15,6 @@ import (
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/service"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 )
 
 // Add missing mock methods to MockConnectionRepository
@@ -100,12 +99,9 @@ type MockProviderHealthLookup struct {
 	mock.Mock
 }
 
-func (m *MockProviderHealthLookup) GetProfile(id uuid.UUID) (*provider.Profile, error) {
+func (m *MockProviderHealthLookup) GetHealthStatus(id uuid.UUID) (string, error) {
 	args := m.Called(id)
-	if args.Get(0) != nil {
-		return args.Get(0).(*provider.Profile), args.Error(1)
-	}
-	return nil, args.Error(1)
+	return args.String(0), args.Error(1)
 }
 
 func TestConnectionHealthWorker_OAuth2_Healthy(t *testing.T) {
@@ -167,7 +163,7 @@ func TestConnectionHealthWorker_OAuth2_Expired(t *testing.T) {
 	mockSvc.On("Refresh", mock.Anything, connID).Return(&service.RefreshResponse{StatusCode: 400}, errors.New("invalid_grant")).Once()
 
 	// Provider is healthy, so the connection should be expired (not shielded)
-	mockHealth.On("GetProfile", providerID).Return(&provider.Profile{HealthStatus: "healthy"}, nil).Once()
+	mockHealth.On("GetHealthStatus", providerID).Return("healthy", nil).Once()
 
 	// Should update connection status to expired
 	mockRepo.On("UpdateStatus", mock.Anything, connID, "expired").Return(nil).Once()
@@ -213,7 +209,7 @@ func TestConnectionHealthWorker_OAuth2_ProviderDown_ShieldsExpiration(t *testing
 	mockSvc.On("Refresh", mock.Anything, connID).Return(&service.RefreshResponse{StatusCode: 401}, errors.New("token revoked")).Once()
 
 	// Provider is unhealthy → should shield the connection from being expired
-	mockHealth.On("GetProfile", providerID).Return(&provider.Profile{HealthStatus: "unhealthy"}, nil).Once()
+	mockHealth.On("GetHealthStatus", providerID).Return("unhealthy", nil).Once()
 
 	// Should NOT call UpdateStatus (no expiration)
 	// Should update health to "unhealthy" instead of "expired"
@@ -265,7 +261,7 @@ func TestConnectionHealthWorker_APIKey_Expired(t *testing.T) {
 	mockSvc.On("GetToken", mock.Anything, connID).Return(creds, "api_key_strategy", nil).Once()
 
 	// Provider is healthy, so expiration should proceed
-	mockHealth.On("GetProfile", providerID).Return(&provider.Profile{HealthStatus: "healthy"}, nil).Once()
+	mockHealth.On("GetHealthStatus", providerID).Return("healthy", nil).Once()
 
 	// Should update connection status to expired
 	mockRepo.On("UpdateStatus", mock.Anything, connID, "expired").Return(nil).Once()
