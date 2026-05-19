@@ -26,22 +26,28 @@ For non-OAuth2 providers (API key, basic auth), the worker makes a `HEAD` reques
 
 ### ConnectionHealthWorker — Connection-Level (1-minute interval)
 
-Validates individual user connections in batches of 100, prioritising those never checked or longest overdue. Each check has a 15-second timeout.
+Validates individual user connections in batches of 100 on a fixed ticker, prioritising those never checked or longest overdue. Each check has a 15-second timeout. A shared `http.Client` is reused across checks for connection pooling.
 
 | Auth Type | Check Method |
 |-----------|-------------|
-| `oauth2` | Attempt a background token refresh |
-| `api_key` / `basic_auth` | Decrypt credential, make a `GET` to `user_info_endpoint` |
+| `oauth2` | Attempt a background token refresh via `ConnectionService.Refresh` |
+| `api_key` | Decrypt credential, extract `api_key` field, `GET` to `user_info_endpoint` using provider's configured `AuthHeader` |
+| `basic_auth` | Decrypt credential, extract `username`/`password`, `GET` to `user_info_endpoint` with `Authorization: Basic` |
 | No endpoint configured | Mark `unknown` |
 
-**Provider shielding:** if a refresh or API call fails, the worker cross-references the upstream provider's `health_status` before taking action. If the provider is `unhealthy` or `degraded`, the connection is marked `unhealthy` (retriable) rather than `expired` (terminal). This prevents mass-expiration of valid connections during transient upstream outages.
+**OAuth2 status code handling:** The worker inspects `RefreshResponse.StatusCode` to distinguish definitive credential errors from transient failures:
 
-| Outcome | `health_status` set | `status` changed? |
-|---------|--------------------|--------------------|
-| Check succeeds | `healthy` | No |
-| Fails + provider healthy | `expired` | Yes → `expired` |
-| Fails + provider unhealthy/degraded | `unhealthy` | No |
-| No endpoint | `unknown` | No |
+| Upstream Status | `health_status` set | `connection.status` changed? |
+|-----------------|--------------------|-----------------------------|
+| Refresh succeeds | `healthy` | No |
+| 400 / 401 (invalid_grant, revoked) | `expired` | Yes → `expired` (if provider healthy) |
+| 403 (scope issue) | `degraded` | No |
+| 5xx (upstream error) | `unhealthy` | No |
+| Network error / nil response | `degraded` | No |
+
+**Provider shielding:** Before expiring a connection, the worker cross-references the upstream provider's `health_status`. If the provider is `unhealthy` or `degraded`, the connection is marked `unhealthy` (retriable) instead of `expired` (terminal). This prevents mass-expiration during transient upstream outages.
+
+**Error handling:** If `UpdateStatus` fails when expiring a connection, the worker logs the error and skips the `health_status` write to avoid leaving the connection in an inconsistent state.
 
 **Concurrency:** max 20 connections checked concurrently (semaphore + WaitGroup).
 
@@ -54,9 +60,9 @@ Both `provider_profiles` and `connections` share the same status vocabulary:
 | Value | Meaning |
 |-------|---------|
 | `healthy` | Last check passed |
-| `unhealthy` | Last check failed — retriable |
-| `degraded` | Check passed but with unexpected behavior |
-| `expired` | Credential confirmed invalid — user must re-authenticate |
+| `unhealthy` | Last check failed — retriable (transient upstream or provider-shielded) |
+| `degraded` | Partial failure — scope issues, network errors, or internal errors where credential validity is unknown |
+| `expired` | Credential confirmed invalid (400/401) — user must re-authenticate |
 | `unknown` | Not yet checked, or not enough information to check |
 
 ---
