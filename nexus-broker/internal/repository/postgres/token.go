@@ -3,10 +3,10 @@ package postgres
 import (
 	"context"
 
-	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
+	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 )
 
 type tokenRepository struct {
@@ -19,7 +19,7 @@ func NewTokenRepository(db *sqlx.DB) repository.TokenRepository {
 }
 
 func (r *tokenRepository) Upsert(ctx context.Context, token *domain.Token) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := execerFromContext(ctx, r.db).ExecContext(ctx, `
 		INSERT INTO tokens (connection_id, encrypted_data, expires_at)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (connection_id)

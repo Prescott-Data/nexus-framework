@@ -11,6 +11,10 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
 )
 
+type txRunner interface {
+	InTx(ctx context.Context, fn func(context.Context) error) error
+}
+
 var (
 	dbOpDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "nexus_db_operation_duration_seconds",
@@ -65,13 +69,13 @@ func (r *ConnectionRepository) UpdateStatus(ctx context.Context, id uuid.UUID, s
 }
 
 func (r *ConnectionRepository) CountByStatus(ctx context.Context) (map[string]int64, error) {
-        defer observe("connection", "CountByStatus", time.Now())
-        return r.inner.CountByStatus(ctx)
+	defer observe("connection", "CountByStatus", time.Now())
+	return r.inner.CountByStatus(ctx)
 }
 
 func (r *ConnectionRepository) GetActiveByWorkspaceAndProvider(ctx context.Context, workspaceID, providerName string) (*domain.ConnectionWithProvider, error) {
-        defer observe("connection", "GetActiveByWorkspaceAndProvider", time.Now())
-        return r.inner.GetActiveByWorkspaceAndProvider(ctx, workspaceID, providerName)
+	defer observe("connection", "GetActiveByWorkspaceAndProvider", time.Now())
+	return r.inner.GetActiveByWorkspaceAndProvider(ctx, workspaceID, providerName)
 }
 
 func (r *ConnectionRepository) GetForHealthCheck(ctx context.Context, limit int) ([]*domain.ConnectionWithProvider, error) {
@@ -87,6 +91,15 @@ func (r *ConnectionRepository) UpdateHealthStatus(ctx context.Context, id uuid.U
 func (r *ConnectionRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.ConnectionSummary, error) {
 	defer observe("connection", "ListByWorkspace", time.Now())
 	return r.inner.ListByWorkspace(ctx, workspaceID)
+}
+
+// InTx forwards transactional execution when the wrapped repository supports it.
+func (r *ConnectionRepository) InTx(ctx context.Context, fn func(context.Context) error) error {
+	if runner, ok := r.inner.(txRunner); ok {
+		defer observe("connection", "InTx", time.Now())
+		return runner.InTx(ctx, fn)
+	}
+	return fn(ctx)
 }
 
 // --- TokenRepository decorator ---

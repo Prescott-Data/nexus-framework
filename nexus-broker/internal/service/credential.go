@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	"github.com/google/uuid"
 )
 
 type RefreshResponse struct {
@@ -84,16 +84,19 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 		return "", ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt credentials")
 	}
 
-	err = s.tokenRepo.Upsert(ctx, &domain.Token{
-		ConnectionID:  connID,
-		EncryptedData: encryptedData,
-	})
-	if err != nil {
-		return "", ErrInternalWithErr(err, "credential_store_failed", "Failed to store credentials")
-	}
-
-	if err := s.connRepo.UpdateStatus(ctx, connID, "active"); err != nil {
-		return "", ErrInternalWithErr(err, "status_update_failed", "Failed to update status")
+	if err := s.inTx(ctx, func(txCtx context.Context) error {
+		if err := s.tokenRepo.Upsert(txCtx, &domain.Token{
+			ConnectionID:  connID,
+			EncryptedData: encryptedData,
+		}); err != nil {
+			return ErrInternalWithErr(err, "credential_store_failed", "Failed to store credentials")
+		}
+		if err := s.connRepo.UpdateStatus(txCtx, connID, "active"); err != nil {
+			return ErrInternalWithErr(err, "status_update_failed", "Failed to update status")
+		}
+		return nil
+	}); err != nil {
+		return "", err
 	}
 
 	returnURL, err := url.Parse(conn.ReturnURL)

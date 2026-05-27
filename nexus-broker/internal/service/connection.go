@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
@@ -21,6 +20,7 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/server"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	"github.com/google/uuid"
 )
 
 type ConnectionService interface {
@@ -46,6 +46,10 @@ type connectionService struct {
 	httpClient           *http.Client
 	enforceReturnURL     bool
 	allowedReturnDomains []string
+}
+
+type txRunner interface {
+	InTx(ctx context.Context, fn func(context.Context) error) error
 }
 
 type CreateConsentRequest struct {
@@ -305,16 +309,21 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 		expiresAt = &expiry
 	}
 
-	err = s.tokenRepo.Upsert(ctx, &domain.Token{
-		ConnectionID:  connID,
-		EncryptedData: encryptedData,
-		ExpiresAt:     expiresAt,
-	})
-	if err != nil {
-		return "", false, ErrInternalWithErr(err, "token_store_failed", "Failed to store tokens")
+	if err := s.inTx(ctx, func(txCtx context.Context) error {
+		if err := s.tokenRepo.Upsert(txCtx, &domain.Token{
+			ConnectionID:  connID,
+			EncryptedData: encryptedData,
+			ExpiresAt:     expiresAt,
+		}); err != nil {
+			return ErrInternalWithErr(err, "token_store_failed", "Failed to store tokens")
+		}
+		if err := s.connRepo.UpdateStatus(txCtx, connID, "active"); err != nil {
+			return ErrInternalWithErr(err, "status_update_failed", "Failed to update status")
+		}
+		return nil
+	}); err != nil {
+		return "", false, err
 	}
-
-	s.connRepo.UpdateStatus(ctx, connID, "active")
 
 	if !server.IsReturnURLAllowed(conn.ReturnURL, s.enforceReturnURL, s.allowedReturnDomains) {
 		return "", false, ErrBadRequest("return_url_not_allowed", "return_url not allowed")
@@ -332,6 +341,13 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	returnURL.RawQuery = query.Encode()
 
 	return returnURL.String(), hasIDToken, nil
+}
+
+func (s *connectionService) inTx(ctx context.Context, fn func(context.Context) error) error {
+	if runner, ok := s.connRepo.(txRunner); ok {
+		return runner.InTx(ctx, fn)
+	}
+	return fn(ctx)
 }
 
 func (s *connectionService) GetTokenByWorkspaceAndProvider(ctx context.Context, workspaceID, providerName string) (map[string]interface{}, string, error) {

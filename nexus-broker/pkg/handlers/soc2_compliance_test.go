@@ -96,6 +96,7 @@ func TestSOC2_CC61_EncryptionAtRest(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "provider_id", "status", "scopes", "return_url", "name", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "health_status"}).
 			AddRow(connID.String(), providerID.String(), "active", "{}", "http://localhost/return", "TestProvider", "api_key", "", "", "", nil, "unknown"))
 
+	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO tokens").
 		WithArgs(connID, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -103,6 +104,7 @@ func TestSOC2_CC61_EncryptionAtRest(t *testing.T) {
 	mock.ExpectExec("UPDATE connections SET status").
 		WithArgs("active", connID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
 	// 3. Fire the request
 	creds := map[string]interface{}{"api_key": plainTextKey}
