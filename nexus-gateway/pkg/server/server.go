@@ -29,7 +29,7 @@ func New(port, brokerBaseURL string, stateKey []byte, httpClient *http.Client, r
 	// CORS Setup
 	mux.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   config.GetAllowedOrigins(),
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
