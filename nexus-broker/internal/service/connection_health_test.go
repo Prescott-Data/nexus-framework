@@ -29,6 +29,8 @@ func runWorkerUntilSignal(t *testing.T, worker *service.ConnectionHealthWorker, 
 
 	select {
 	case <-done:
+	case <-workerDone:
+		t.Fatal("worker exited before signal was received")
 	case <-time.After(2 * time.Second):
 		cancel()
 		select {
@@ -157,9 +159,14 @@ func TestConnectionHealthWorker_OAuth2_Healthy(t *testing.T) {
 	mockSvc.On("Refresh", mock.Anything, connID).Return(&service.RefreshResponse{}, nil).Once()
 
 	// Should update health to healthy
-	done := make(chan struct{})
+	done := make(chan struct{}, 1)
 	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "healthy").
-		Run(func(args mock.Arguments) { close(done) }).
+		Run(func(args mock.Arguments) {
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		}).
 		Return(nil).Once()
 
 	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
@@ -199,9 +206,14 @@ func TestConnectionHealthWorker_OAuth2_Expired(t *testing.T) {
 	mockRepo.On("UpdateStatus", mock.Anything, connID, "expired").Return(nil).Once()
 
 	// Should update health to expired
-	done := make(chan struct{})
+	done := make(chan struct{}, 1)
 	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "expired").
-		Run(func(args mock.Arguments) { close(done) }).
+		Run(func(args mock.Arguments) {
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		}).
 		Return(nil).Once()
 
 	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
@@ -242,9 +254,14 @@ func TestConnectionHealthWorker_OAuth2_ProviderDown_ShieldsExpiration(t *testing
 
 	// Should NOT call UpdateStatus (no expiration)
 	// Should update health to "unhealthy" instead of "expired"
-	done := make(chan struct{})
+	done := make(chan struct{}, 1)
 	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "unhealthy").
-		Run(func(args mock.Arguments) { close(done) }).
+		Run(func(args mock.Arguments) {
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		}).
 		Return(nil).Once()
 
 	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
@@ -295,9 +312,14 @@ func TestConnectionHealthWorker_APIKey_Expired(t *testing.T) {
 	mockRepo.On("UpdateStatus", mock.Anything, connID, "expired").Return(nil).Once()
 
 	// Should update health to expired
-	done := make(chan struct{})
+	done := make(chan struct{}, 1)
 	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "expired").
-		Run(func(args mock.Arguments) { close(done) }).
+		Run(func(args mock.Arguments) {
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		}).
 		Return(nil).Once()
 
 	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
@@ -331,9 +353,14 @@ func TestConnectionHealthWorker_OAuth2_Upstream5xx_MarksUnhealthy(t *testing.T) 
 
 	// Should set health_status to "unhealthy", NOT "expired"
 	// Should NOT call UpdateStatus — connection status stays "active"
-	done := make(chan struct{})
+	done := make(chan struct{}, 1)
 	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "unhealthy").
-		Run(func(args mock.Arguments) { close(done) }).
+		Run(func(args mock.Arguments) {
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		}).
 		Return(nil).Once()
 
 	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
@@ -366,9 +393,14 @@ func TestConnectionHealthWorker_OAuth2_403_MarksDegraded(t *testing.T) {
 	mockSvc.On("Refresh", mock.Anything, connID).Return(&service.RefreshResponse{StatusCode: 403}, errors.New("forbidden")).Once()
 
 	// Should set health_status to "degraded", NOT "expired"
-	done := make(chan struct{})
+	done := make(chan struct{}, 1)
 	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "degraded").
-		Run(func(args mock.Arguments) { close(done) }).
+		Run(func(args mock.Arguments) {
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		}).
 		Return(nil).Once()
 
 	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
@@ -401,9 +433,14 @@ func TestConnectionHealthWorker_OAuth2_NetworkError_MarksDegraded(t *testing.T) 
 	mockSvc.On("Refresh", mock.Anything, connID).Return((*service.RefreshResponse)(nil), errors.New("connection refused")).Once()
 
 	// Should set health_status to "degraded" (we don't know if credential is valid)
-	done := make(chan struct{})
+	done := make(chan struct{}, 1)
 	mockRepo.On("UpdateHealthStatus", mock.Anything, connID, "degraded").
-		Run(func(args mock.Arguments) { close(done) }).
+		Run(func(args mock.Arguments) {
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		}).
 		Return(nil).Once()
 
 	worker := service.NewConnectionHealthWorker(mockRepo, mockSvc, mockHealth, 10*time.Millisecond)
