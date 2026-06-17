@@ -20,14 +20,31 @@ import (
 func runWorkerUntilSignal(t *testing.T, worker *service.ConnectionHealthWorker, done <-chan struct{}) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	workerDone := make(chan struct{})
 
-	go worker.Start(ctx)
+	go func() {
+		defer close(workerDone)
+		worker.Start(ctx)
+	}()
 
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
+		cancel()
+		select {
+		case <-workerDone:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for health worker to stop after signal timeout")
+		}
 		t.Fatal("timed out waiting for health worker signal")
+	}
+
+	cancel()
+
+	select {
+	case <-workerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for health worker to stop")
 	}
 }
 
