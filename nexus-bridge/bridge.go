@@ -179,7 +179,10 @@ func (b *Bridge) MaintainGRPCConnection(
 }
 
 // manageConnection handles a single connection lifecycle: get token, connect, and operate.
-func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endpointURL string, handler Handler) error {
+func (b *Bridge) manageConnection(parentCtx context.Context, connectionID string, endpointURL string, handler Handler) error {
+	ctx, cancel := context.WithCancel(parentCtx)
+	defer cancel()
+
 	token, err := b.getInitialToken(ctx, connectionID)
 	if err != nil {
 		return err
@@ -375,9 +378,15 @@ func (b *Bridge) runEventLoop(ctx context.Context, connectionID string, token *a
 			go func() {
 				refreshedToken, refreshErr := b.oauthClient.RefreshConnection(ctx, connectionID)
 				if refreshErr != nil {
-					refreshErrChan <- refreshErr
+					select {
+					case refreshErrChan <- refreshErr:
+					case <-ctx.Done():
+					}
 				} else {
-					refreshResultChan <- refreshedToken
+					select {
+					case refreshResultChan <- refreshedToken:
+					case <-ctx.Done():
+					}
 				}
 			}()
 
