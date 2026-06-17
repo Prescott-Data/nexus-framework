@@ -3,11 +3,11 @@ package postgres
 import (
 	"context"
 
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
 )
 
 type connectionRepository struct {
@@ -19,8 +19,23 @@ func NewConnectionRepository(db *sqlx.DB) repository.ConnectionRepository {
 	return &connectionRepository{db: db}
 }
 
+// InTx executes fn inside a database transaction. The transaction is stored in
+// context so token/connection repository writes in the same request are atomic.
+func (r *connectionRepository) InTx(ctx context.Context, fn func(context.Context) error) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	ctxWithTx := withTx(ctx, tx)
+	if err := fn(ctxWithTx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
 func (r *connectionRepository) Create(ctx context.Context, conn *domain.Connection) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := execerFromContext(ctx, r.db).ExecContext(ctx, `
 		INSERT INTO connections (id, workspace_id, provider_id, code_verifier, scopes, return_url, expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		conn.ID, conn.WorkspaceID, conn.ProviderID, conn.CodeVerifier, pq.Array(conn.Scopes), conn.ReturnURL, conn.ExpiresAt)
@@ -85,7 +100,7 @@ func (r *connectionRepository) GetReturnURL(ctx context.Context, id uuid.UUID) (
 }
 
 func (r *connectionRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
-	_, err := r.db.ExecContext(ctx, "UPDATE connections SET status = $1, updated_at = NOW() WHERE id = $2", status, id)
+	_, err := execerFromContext(ctx, r.db).ExecContext(ctx, "UPDATE connections SET status = $1, updated_at = NOW() WHERE id = $2", status, id)
 	return err
 }
 
@@ -156,7 +171,7 @@ func (r *connectionRepository) GetForHealthCheck(ctx context.Context, limit int)
 }
 
 func (r *connectionRepository) UpdateHealthStatus(ctx context.Context, id uuid.UUID, status string) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := execerFromContext(ctx, r.db).ExecContext(ctx, `
 		UPDATE connections 
 		SET health_status = $1, last_health_check_at = NOW(), updated_at = NOW()
 		WHERE id = $2`, status, id)
