@@ -49,6 +49,10 @@ func TestRegisterProfile_OAuth2(t *testing.T) {
 			sqlmock.AnyArg(),            // params
 			"",                          // description
 			"",                          // category
+			nil,                         // saml_idp_entity_id
+			nil,                         // saml_idp_sso_url
+			nil,                         // saml_idp_x509_cert
+			nil,                         // saml_sp_entity_id
 		).
 		WillReturnRows(rows)
 
@@ -108,6 +112,10 @@ func TestRegisterProfile_StaticKey(t *testing.T) {
 			sqlmock.AnyArg(),        // params
 			"",                      // description
 			"",                      // category
+			nil,                     // saml_idp_entity_id
+			nil,                     // saml_idp_sso_url
+			nil,                     // saml_idp_x509_cert
+			nil,                     // saml_sp_entity_id
 		).
 		WillReturnRows(rows)
 
@@ -192,10 +200,10 @@ func TestGetProfile_NullValues(t *testing.T) {
 	providerID := uuid.New()
 	rows := sqlmock.NewRows([]string{
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
-		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category", "last_health_check_at", "health_status", "health_message",
+		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category", "last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id",
 	}).AddRow(
 		providerID.String(), "null-provider", nil, nil, nil, nil, nil,
-		false, []byte("{}"), "api_key", "", "", "", nil, "", "", nil, "unknown", nil,
+		false, []byte("{}"), "api_key", "", "", "", nil, "", "", nil, "unknown", nil, nil, nil, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles WHERE id = \$1`).
@@ -223,26 +231,28 @@ func TestGetAllProfiles_Success(t *testing.T) {
 	now := time.Now()
 	msg := "timeout reaching token_endpoint"
 
-	// Must match the exact 19-column order in GetAllProfiles SELECT:
+	// Must match the exact column order in GetAllProfiles SELECT:
 	// id, name, client_id, client_secret, auth_url, token_url, issuer,
 	// enable_discovery, scopes, auth_type, auth_header,
 	// api_base_url, user_info_endpoint, params, description, category,
-	// last_health_check_at, health_status, health_message
+	// last_health_check_at, health_status, health_message,
+	// saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id
 	rows := sqlmock.NewRows([]string{
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
 		"enable_discovery", "scopes", "auth_type", "auth_header",
 		"api_base_url", "user_info_endpoint", "params", "description", "category",
 		"last_health_check_at", "health_status", "health_message",
+		"saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id",
 	}).AddRow(
 		id1.String(), "google", ptr("cid"), ptr("csec"), ptr("https://auth"), ptr("https://token"), nil,
 		true, []byte("{email,profile}"), "oauth2", "",
 		"https://api.google.com", "/userinfo", nil, "Google OAuth", "Identity",
-		now, "healthy", nil,
+		now, "healthy", nil, nil, nil, nil, nil,
 	).AddRow(
 		id2.String(), "stripe", nil, nil, nil, nil, nil,
 		false, []byte("{}"), "api_key", "Authorization",
 		"https://api.stripe.com", "/v1/account", nil, "Stripe API", "Payments",
-		now, "unhealthy", &msg,
+		now, "unhealthy", &msg, nil, nil, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles`).WillReturnRows(rows)
@@ -281,6 +291,7 @@ func TestGetAllProfiles_Empty(t *testing.T) {
 		"enable_discovery", "scopes", "auth_type", "auth_header",
 		"api_base_url", "user_info_endpoint", "params", "description", "category",
 		"last_health_check_at", "health_status", "health_message",
+		"saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id",
 	})
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles`).WillReturnRows(rows)
