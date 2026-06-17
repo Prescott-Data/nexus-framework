@@ -213,7 +213,8 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 			return nil, ErrInternalWithErr(err, "saml_sp_build_failed", "Failed to build SAML SP")
 		}
 
-		authReq, err := sp.MakeAuthenticationRequest(sp.AcsURL.String(), saml.HTTPRedirectBinding, saml.HTTPPostBinding)
+		idpURL := sp.GetSSOBindingLocation(saml.HTTPRedirectBinding)
+		authReq, err := sp.MakeAuthenticationRequest(idpURL, saml.HTTPRedirectBinding, saml.HTTPPostBinding)
 		if err != nil {
 			return nil, ErrInternalWithErr(err, "saml_req_failed", "Failed to create SAML request")
 		}

@@ -11,7 +11,7 @@ echo "Generating links for all OAuth2 providers..."
 echo ""
 
 # 1. Fetch provider names
-PROVIDERS=$(curl -s "$GATEWAY_URL/v1/providers" | jq -r '.oauth2 | keys[]')
+PROVIDERS=$(curl -s "$GATEWAY_URL/v1/providers" | jq -r '(.oauth2 // {} | keys[]), (.saml // {} | keys[])')
 
 for name in $PROVIDERS; do
     if [ -z "$name" ]; then continue; fi
@@ -19,7 +19,7 @@ for name in $PROVIDERS; do
     echo -n "[...] $name: "
     
     # 2. Get registered scopes
-    SCOPES=$(curl -s "$GATEWAY_URL/v1/providers" | jq -r ".oauth2[\"$name\"] .scopes | join(" ")")
+    SCOPES=$(curl -s "$GATEWAY_URL/v1/providers" | jq -r ".oauth2[\"$name\"] .scopes // .saml[\"$name\"] .scopes | join(\" \")")
     
     # Fallback to openid if no scopes
     if [ -z "$SCOPES" ]; then
