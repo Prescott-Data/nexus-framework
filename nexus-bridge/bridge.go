@@ -179,45 +179,88 @@ func (b *Bridge) MaintainGRPCConnection(
 }
 
 // manageConnection handles a single connection lifecycle: get token, connect, and operate.
-func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endpointURL string, handler Handler) error {
-	// Step 1: Get an initial token.
-	token, err := b.oauthClient.GetToken(ctx, connectionID)
-	if err != nil {
-		// Check if the gateway returned a 429 (rate limited) — treat as recoverable
-		// so the run loop retries with backoff.
-		var envErr oauthsdk.ErrorEnvelope
-		if errors.As(err, &envErr) && envErr.StatusCode == 429 {
-			b.logger.Error(err, "Rate limited getting initial token; will retry", "connectionID", connectionID)
-			return err
-		}
-		// Any other error during the initial token acquisition is considered permanent.
-		return NewPermanentError(fmt.Errorf("failed to get initial token: %w", err))
-	}
-	b.logger.Info("Successfully obtained initial token", "connectionID", connectionID)
+func (b *Bridge) manageConnection(parentCtx context.Context, connectionID string, endpointURL string, handler Handler) error {
+	ctx, cancel := context.WithCancel(parentCtx)
+	defer cancel()
 
-	// Step 2: Establish the WebSocket connection.
-	// We create a dummy request to let the auth package inject the credentials.
-	req, err := http.NewRequest("GET", endpointURL, nil)
+	token, err := b.getInitialToken(ctx, connectionID)
 	if err != nil {
-		return fmt.Errorf("failed to create request for auth injection: %w", err)
+		return err
 	}
 
-	// Apply the authentication strategy.
-	if err := auth.ApplyAuthentication(req, token.Strategy, token.Credentials); err != nil {
-		return NewPermanentError(fmt.Errorf("failed to apply authentication strategy: %w", err))
-	}
-
-	// Dial uses the headers and the potentially modified URL (for query params).
-	conn, _, err := b.dialer.Dial(req.URL.String(), req.Header)
+	conn, err := b.dial(ctx, endpointURL, token, connectionID)
 	if err != nil {
-		// WebSocket dialing errors are typically recoverable, so we don't wrap this.
-		return fmt.Errorf("failed to establish WebSocket connection: %w", err)
+		return err
 	}
 	defer conn.Close()
 
+	// --- Concurrency and Shutdown Management ---
+	done := make(chan struct{})       // Channel to signal shutdown to goroutines
+	defer close(done) // Ensure done is closed when manageConnection exits to clean up pumps
+
+	// Explicitly tie connection closure to context cancellation to prevent goroutine
+	// leaks if ReadMessage blocks indefinitely without a set read deadline.
+	go func() {
+		select {
+		case <-ctx.Done():
+			conn.Close() // This unblocks conn.ReadMessage()
+		case <-done:
+		}
+	}()
+
+	writeChan := make(chan []byte, 1) // Channel for thread-safe writes
+
+	// Call OnConnect, providing a thread-safe send function.
+	sendFunc := func(message []byte) error {
+		select {
+		case writeChan <- message:
+			return nil
+		case <-done:
+			return fmt.Errorf("connection is closed")
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	handler.OnConnect(sendFunc)
+
+	readErrChan := make(chan error, 1)
+	
+	b.startPumps(ctx, conn, handler, writeChan, readErrChan, done, connectionID)
+
+	return b.runEventLoop(ctx, connectionID, token, handler, readErrChan, done)
+}
+
+func (b *Bridge) getInitialToken(ctx context.Context, connectionID string) (*auth.Token, error) {
+	token, err := b.oauthClient.GetToken(ctx, connectionID)
+	if err != nil {
+		var envErr oauthsdk.ErrorEnvelope
+		if errors.As(err, &envErr) && envErr.StatusCode == 429 {
+			b.logger.Error(err, "Rate limited getting initial token; will retry", "connectionID", connectionID)
+			return nil, err
+		}
+		return nil, NewPermanentError(fmt.Errorf("failed to get initial token: %w", err))
+	}
+	b.logger.Info("Successfully obtained initial token", "connectionID", connectionID)
+	return token, nil
+}
+
+func (b *Bridge) dial(ctx context.Context, endpointURL string, token *auth.Token, connectionID string) (*websocket.Conn, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", endpointURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for auth injection: %w", err)
+	}
+
+	if err := auth.ApplyAuthentication(req, token.Strategy, token.Credentials); err != nil {
+		return nil, NewPermanentError(fmt.Errorf("failed to apply authentication strategy: %w", err))
+	}
+
+	conn, _, err := b.dialer.DialContext(ctx, req.URL.String(), req.Header)
+	if err != nil {
+		return nil, fmt.Errorf("failed to establish WebSocket connection: %w", err)
+	}
+
 	conn.SetReadLimit(b.messageSizeLimit)
 	conn.SetPongHandler(func(string) error {
-		// Extend the read deadline upon receiving a pong.
 		conn.SetReadDeadline(time.Now().Add(b.pingInterval + b.writeTimeout))
 		return nil
 	})
@@ -226,29 +269,16 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 	b.metrics.SetConnectionStatus(1)
 	b.logger.Info("Successfully established WebSocket connection", "connectionID", connectionID, "endpoint", endpointURL)
 
-	// --- Concurrency and Shutdown Management ---
-	done := make(chan struct{})       // Channel to signal shutdown to goroutines
-	writeChan := make(chan []byte, 1) // Channel for thread-safe writes
+	return conn, nil
+}
 
-	// Step 3: Call OnConnect, providing a thread-safe send function.
-	sendFunc := func(message []byte) error {
-		select {
-		case writeChan <- message:
-			return nil
-		case <-done:
-			return fmt.Errorf("connection is closed")
-		}
-	}
-	handler.OnConnect(sendFunc)
-
-	// Step 4.1: Start the "read pump" goroutine.
-	readErrChan := make(chan error, 1)
+func (b *Bridge) startPumps(ctx context.Context, conn *websocket.Conn, handler Handler, writeChan <-chan []byte, readErrChan chan<- error, done <-chan struct{}, connectionID string) {
+	// Read pump
 	go func() {
 		defer close(readErrChan)
 		for {
 			_, message, err := conn.ReadMessage()
 			if err != nil {
-				// Check if the error is a permanent close code.
 				var closeErr *websocket.CloseError
 				if errors.As(err, &closeErr) {
 					if permanentCloseCodes[closeErr.Code] {
@@ -256,7 +286,6 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 						return
 					}
 				}
-				// For other unexpected close errors, treat as recoverable.
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					readErrChan <- err
 				}
@@ -266,13 +295,15 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 		}
 	}()
 
-	// Step 4.2: Start the "write pump" and "ping" goroutine for thread-safe writes and health checks.
+	// Write pump
 	go func() {
 		pingTicker := time.NewTicker(b.pingInterval)
 		defer pingTicker.Stop()
 
 		for {
 			select {
+			case <-ctx.Done():
+				return
 			case message := <-writeChan:
 				conn.SetWriteDeadline(time.Now().Add(b.writeTimeout))
 				if err := conn.WriteMessage(websocket.TextMessage, message); err != nil {
@@ -289,8 +320,9 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 			}
 		}
 	}()
+}
 
-	// Step 5: Start the event loop for the active connection.
+func (b *Bridge) runEventLoop(ctx context.Context, connectionID string, token *auth.Token, handler Handler, readErrChan <-chan error, done <-chan struct{}) error {
 	refreshResultChan := make(chan *auth.Token, 1)
 	refreshErrChan := make(chan error, 1)
 	refreshing := false
@@ -308,13 +340,11 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 			if refreshIn <= 0 {
 				b.logger.Info("Token expired or nearing expiry, forcing reconnect", "connectionID", connectionID)
 				err := fmt.Errorf("token refresh required")
-				close(done)
 				b.metrics.IncDisconnects()
 				b.metrics.SetConnectionStatus(0)
 				handler.OnDisconnect(err)
 				return err
 			}
-			// Only set the timer if we are not already refreshing.
 			timer = time.NewTimer(refreshIn)
 			refreshTimerC = timer.C
 		}
@@ -325,7 +355,6 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 			if timer != nil {
 				timer.Stop()
 			}
-			close(done)
 			return ctx.Err()
 
 		case err, ok := <-readErrChan:
@@ -336,13 +365,12 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 			if timer != nil {
 				timer.Stop()
 			}
-			close(done)
 			b.metrics.IncDisconnects()
 			b.metrics.SetConnectionStatus(0)
 			handler.OnDisconnect(err)
 			return err
 
-		case <-refreshTimerC: // This case is disabled if refreshTimerC is nil
+		case <-refreshTimerC:
 			b.logger.Info("Select case: refresh timer fired")
 			refreshing = true
 			b.metrics.IncTokenRefreshes()
@@ -350,9 +378,15 @@ func (b *Bridge) manageConnection(ctx context.Context, connectionID string, endp
 			go func() {
 				refreshedToken, refreshErr := b.oauthClient.RefreshConnection(ctx, connectionID)
 				if refreshErr != nil {
-					refreshErrChan <- refreshErr
+					select {
+					case refreshErrChan <- refreshErr:
+					case <-ctx.Done():
+					}
 				} else {
-					refreshResultChan <- refreshedToken
+					select {
+					case refreshResultChan <- refreshedToken:
+					case <-ctx.Done():
+					}
 				}
 			}()
 
