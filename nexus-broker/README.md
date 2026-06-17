@@ -140,6 +140,30 @@ If you request the `openid` scope, the Broker attempts **OIDC Discovery**:
 2. If found, it **dynamically uses** the endpoints (Authorization, Token, UserInfo) declared in the metadata, ignoring your manually configured values if they differ.
 3. This simplifies maintenance for providers like Google, Okta, and Microsoft—you just need a valid "base" URL.
 
+### SAML 2.0 Single Sign-On (Enterprise)
+Nexus Broker supports serving as a SAML Service Provider (SP) to authenticate users via enterprise Identity Providers (Okta, Entra ID, PingIdentity, etc.).
+1. **Register the Provider:**
+```bash
+jq -n '{
+  profile: {
+    name: "okta-saml",
+    auth_type: "saml",
+    description: "Enterprise SSO via Okta.",
+    saml_idp_entity_id: "http://www.okta.com/exk...",
+    saml_idp_sso_url: "https://mycompany.okta.com/app/...",
+    saml_idp_x509_cert: "-----BEGIN CERTIFICATE-----\nMIIDpD...\n-----END CERTIFICATE-----",
+    saml_sp_entity_id: "urn:nexus:broker:sp"
+  }
+}' | curl -s -X POST http://localhost:8080/providers -H "Content-Type: application/json" -d @- | jq .
+```
+2. **Fetch SP Metadata:**
+Once registered, Nexus dynamically generates the SP metadata XML for the provider. Download this and upload it to your IdP.
+```bash
+curl -H "X-API-Key: $API_KEY" http://localhost:8080/saml/metadata/<provider_id> > metadata.xml
+```
+3. **Assertion Consumer Service (ACS):**
+The IdP will POST the `SAMLResponse` back to `https://<BASE_URL>/saml/acs`. Nexus automatically validates signatures, checks assertion expiry conditions, and securely stores the extracted user attributes as if they were OAuth tokens.
+
 ---
 
 ## Provider Metadata (Frontend Integration)

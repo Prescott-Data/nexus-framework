@@ -31,7 +31,7 @@ components:
           description: Unique slug for the provider (e.g. "google", "github")
         auth_type:
           type: string
-          enum: [oauth2, api_key, basic_auth, header, query_param, hmac_payload, aws_sigv4]
+          enum: [oauth2, api_key, basic_auth, header, query_param, hmac_payload, aws_sigv4, saml]
           default: oauth2
         auth_header:
           type: string
@@ -63,6 +63,18 @@ components:
         category:
           type: string
           description: Category grouping for the provider (e.g. "CRM & Sales", "Analytics")
+        saml_idp_entity_id:
+          type: string
+          description: SAML Identity Provider Entity ID
+        saml_idp_sso_url:
+          type: string
+          description: SAML Identity Provider Single Sign-On Service URL
+        saml_idp_x509_cert:
+          type: string
+          description: SAML Identity Provider X.509 Certificate (PEM or base64)
+        saml_sp_entity_id:
+          type: string
+          description: SAML Service Provider Entity ID (defaults to ACS URL if empty)
 
     ProviderProfilePatch:
       type: object
@@ -76,7 +88,7 @@ components:
           description: Unique slug for the provider (e.g. "google", "github")
         auth_type:
           type: string
-          enum: [oauth2, api_key, basic_auth, header, query_param, hmac_payload, aws_sigv4]
+          enum: [oauth2, api_key, basic_auth, header, query_param, hmac_payload, aws_sigv4, saml]
         auth_header:
           type: string
           enum: [client_secret_post, client_secret_basic]
@@ -107,6 +119,14 @@ components:
         category:
           type: string
           description: Category grouping for the provider (e.g. "CRM & Sales", "Analytics")
+        saml_idp_entity_id:
+          type: string
+        saml_idp_sso_url:
+          type: string
+        saml_idp_x509_cert:
+          type: string
+        saml_sp_entity_id:
+          type: string
 
     ConsentSpecRequest:
       type: object
@@ -188,7 +208,7 @@ components:
           type: string
         auth_type:
           type: string
-          enum: [oauth2, api_key, basic_auth]
+          enum: [oauth2, api_key, basic_auth, saml]
         status:
           type: string
         scopes:
@@ -389,6 +409,39 @@ paths:
       responses:
         '302':
           description: Redirects to the stored return_url with connection_id
+
+  /saml/acs:
+    post:
+      summary: SAML Assertion Consumer Service (Public)
+      description: The SAML IdP redirects the user here with a SAMLResponse POST body.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                SAMLResponse: { type: string }
+                RelayState: { type: string }
+      responses:
+        '302':
+          description: Redirects to the stored return_url with connection_id
+
+  /saml/metadata/{providerID}:
+    get:
+      summary: Get SAML Service Provider Metadata
+      description: Returns the dynamically generated SP XML metadata for the requested provider profile.
+      parameters:
+        - in: path
+          name: providerID
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: SP Metadata XML document
+          content:
+            application/samlmetadata+xml:
+              schema:
+                type: string
 
   /auth/capture-schema:
     get:
