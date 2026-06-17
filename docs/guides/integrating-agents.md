@@ -135,11 +135,85 @@ if token.strategy['type'] == 'oauth2':
 
 ---
 
-## Connection IDs in agent deployments
+## Managing Connection Identifiers
 
-Your application stores connection IDs and passes them to agents at task dispatch time. A well-designed agent integration keeps connection ID management out of agent code. The agent receives the connection ID as task input, uses it to fetch credentials, and does not store it beyond the current task.
+A common and critical misconception when integrating with Nexus is treating the `connection_id` as a permanent, immutable identifier for a user's integration (like a foreign key in your database). 
 
-If your agent system uses a task queue or orchestrator, inject the relevant connection IDs into the task payload when the task is enqueued. The agent retrieves them from the payload, fetches credentials at the start of execution, and proceeds.
+In reality, a `connection_id` acts more like a specific "session" or "instance" of a connection. Nexus handles identity and connections differently than you might expect, particularly around re-authorization.
+
+### The Re-Authorization Lifecycle
+
+If a background token refresh fails permanently (for example, if the user manually revokes your app's access in their Google settings, or the refresh token expires), Nexus places the connection into an `attention_required` state.
+
+To resolve this, the user must re-authenticate. When you initiate a new OAuth handshake by calling `RequestConnection`, **Nexus generates a brand-new `connection_id`**. 
+
+When the user completes the flow on the provider's site, Nexus redirects them back to your `return_url` with this newly minted `connection_id`. If your backend ignores this and continues requesting tokens using the old `connection_id` (which is permanently stuck in `attention_required`), your token requests will fail.
+
+Because of this lifecycle, you have two options for managing connection identifiers:
+
+---
+
+### Option 1: Workspace & Provider Resolution (Recommended)
+
+Instead of manually tracking and updating `connection_id`s in your own database, the most robust approach is to let Nexus do the tracking. Nexus allows you to dynamically resolve the active token using just the `workspace_id` and the `provider_name`.
+
+This endpoint automatically queries the database for the most recently created, `active` connection for that workspace and provider, abstracting away the underlying `connection_id` entirely.
+
+**Using the REST API:**
+```bash
+curl -s "http://nexus-gateway.example.com/connections/resolve?workspace_id=tenant_123&provider_name=salesforce"
+```
+
+**Using the TypeScript SDK:**
+```typescript
+const token = await client.getTokenByWorkspaceAndProvider('tenant_123', 'salesforce');
+```
+
+**Handling Multiple Users per Workspace (B2B architectures)**
+
+Nexus intentionally does not have a native `user_id` column. The `workspace_id` acts as the sole tenant identifier. How you use this depends on your app's architecture:
+
+- **1 User = 1 Workspace (B2C):** If your application provides a personal workspace for every user, simply map your platform's `user_id` directly to the Nexus `workspace_id`.
+- **N Users = 1 Workspace (B2B):** If your platform has multiple users inside a single workspace, and each user needs their *own* distinct connection to the same provider (e.g., their personal Slack account), querying by just the workspace ID will fail (it will just return the token for the last user who authenticated). 
+  
+  To solve this, **concatenate the tenant and user IDs** when initiating the connection flow:
+  ```typescript
+  // When initiating the connection:
+  const consentUrl = await client.requestConnection({
+      workspaceId: `tenant_123:user_456`, 
+      providerId: 'google-prod',
+      returnUrl: 'https://myapp.com/callback'
+  });
+  
+  // When fetching the token later:
+  const token = await client.getTokenByWorkspaceAndProvider(`tenant_123:user_456`, 'google-prod');
+  ```
+  This creates a unique namespace for every user within a workspace, allowing Nexus to resolve their active connections without you ever needing to save a `connection_id`.
+
+---
+
+### Option 2: Tracking the Connection ID Manually
+
+If you prefer to store the `connection_id` in your own platform's database (e.g., mapping it to an `integrations` table) and passing it to agents at task dispatch time, you must strictly follow these rules:
+
+1. **Update on Re-Auth:** You **must** update the `connection_id` in your database every time a user completes an OAuth flow. When the user is redirected to your `return_url`, extract the new `connection_id` from the query parameters and overwrite the old one in your database:
+   ```typescript
+   // Example Express.js callback handler
+   app.get('/callback', async (req, res) => {
+       const newConnectionId = req.query.connection_id;
+       const status = req.query.status; // "success"
+       
+       // CRITICAL: Overwrite the old connection ID for this user
+       await db.integrations.update({
+           where: { userId: req.user.id, provider: 'salesforce' },
+           data: { nexusConnectionId: newConnectionId }
+       });
+       
+       res.send("Integration successful!");
+   });
+   ```
+
+2. **Agent Isolation:** A well-designed agent integration keeps connection ID management entirely out of the agent's code. Your application orchestrator should retrieve the current `connection_id` from your database and inject it into the agent's task payload. The agent uses it to fetch credentials, executes the task, and then discards it.
 
 ---
 
