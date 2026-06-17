@@ -104,11 +104,24 @@ func main() {
 	auditHandler := handlers.NewAuditHandler(db)
 	connectionsHandler := handlers.NewConnectionsHandler(connSvc)
 
+	samlHandler := handlers.NewSAMLHandler(
+		store,
+		connRepo,
+		tokenRepo,
+		auditSvc,
+		cfg.BaseURL,
+		cfg.StateKey,
+		cfg.EncryptionKey,
+		cfg.EnforceReturnURL,
+		cfg.AllowedReturnDomains,
+	)
+
 	router := srv.Router()
 	router.Get("/auth/callback", callbackHandler.Handle)
 	router.Method("GET", "/metrics", server.MetricsHandler())
 	router.Get("/auth/capture-schema", callbackHandler.GetCaptureSchema)
 	router.Post("/auth/capture-credential", callbackHandler.SaveCredential)
+	router.Post("/saml/acs", samlHandler.ACS)
 
 	protected := router.With(
 		server.ApiKeyMiddleware(cfg.RequireAPIKey, cfg.APIKeys),
@@ -132,6 +145,7 @@ func main() {
 	protected.Get("/connections/resolve", callbackHandler.ResolveToken)
 	protected.Get("/connections/{connectionID}/token", callbackHandler.GetToken)
 	protected.Post("/connections/{connectionID}/refresh", callbackHandler.Refresh)
+	protected.Get("/saml/metadata/{providerID}", samlHandler.Metadata)
 
 	router.Get("/health", server.HealthHandler)
 

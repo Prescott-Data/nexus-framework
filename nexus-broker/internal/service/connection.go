@@ -20,6 +20,8 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/server"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/samlutil"
+	"github.com/crewjam/saml"
 	"github.com/google/uuid"
 )
 
@@ -174,6 +176,55 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 
 		return &ConsentSpecResponse{
 			AuthURL:    authURL,
+			State:      signedState,
+			Scopes:     req.Scopes,
+			ProviderID: req.ProviderID,
+		}, nil
+
+	case "saml":
+		connID := uuid.New()
+		conn := &domain.Connection{
+			ID:          connID,
+			WorkspaceID: req.WorkspaceID,
+			ProviderID:  providerID,
+			Scopes:      req.Scopes,
+			ReturnURL:   req.ReturnURL,
+			ExpiresAt:   time.Now().Add(10 * time.Minute),
+		}
+
+		if err := s.connRepo.Create(ctx, conn); err != nil {
+			return nil, ErrInternalWithErr(err, "connection_create_failed", "Failed to create connection")
+		}
+
+		stateData := auth.StateData{
+			WorkspaceID: req.WorkspaceID,
+			ProviderID:  req.ProviderID,
+			Nonce:       connID.String(),
+			IAT:         time.Now(),
+		}
+		signedState, err := auth.SignState(s.stateKey, stateData)
+		if err != nil {
+			return nil, ErrInternalWithErr(err, "state_sign_failed", "Failed to sign state")
+		}
+
+		acsURL, _ := url.JoinPath(s.baseURL, "/saml/acs")
+		sp, err := samlutil.BuildServiceProvider(*p.SAMLSPEntityID, acsURL, *p.SAMLIdpEntityID, *p.SAMLIdpSSOURL, *p.SAMLIdpX509Cert)
+		if err != nil {
+			return nil, ErrInternalWithErr(err, "saml_sp_build_failed", "Failed to build SAML SP")
+		}
+
+		authReq, err := sp.MakeAuthenticationRequest(sp.AcsURL.String(), saml.HTTPRedirectBinding, saml.HTTPPostBinding)
+		if err != nil {
+			return nil, ErrInternalWithErr(err, "saml_req_failed", "Failed to create SAML request")
+		}
+
+		redirectURL, err := authReq.Redirect(signedState, sp)
+		if err != nil {
+			return nil, ErrInternalWithErr(err, "saml_redirect_failed", "Failed to build SAML redirect URL")
+		}
+
+		return &ConsentSpecResponse{
+			AuthURL:    redirectURL.String(),
 			State:      signedState,
 			Scopes:     req.Scopes,
 			ProviderID: req.ProviderID,
