@@ -19,6 +19,9 @@ type ConnectionRepository interface {
 	GetForHealthCheck(ctx context.Context, limit int) ([]*domain.ConnectionWithProvider, error)
 	UpdateHealthStatus(ctx context.Context, id uuid.UUID, status string) error
 	ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.ConnectionSummary, error)
+	// DeactivateOtherActive marks all active connections for the same workspace+provider
+	// as "superseded", excluding the connection that just became active.
+	DeactivateOtherActive(ctx context.Context, workspaceID string, providerID uuid.UUID, exceptID uuid.UUID) error
 }
 
 // TokenRepository handles database operations for tokens

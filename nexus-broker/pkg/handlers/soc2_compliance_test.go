@@ -104,6 +104,10 @@ func TestSOC2_CC61_EncryptionAtRest(t *testing.T) {
 	mock.ExpectExec("UPDATE connections SET status").
 		WithArgs("active", connID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	mock.ExpectExec("UPDATE connections").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 0))
 	mock.ExpectCommit()
 
 	// 3. Fire the request
