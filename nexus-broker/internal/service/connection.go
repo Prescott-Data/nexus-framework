@@ -320,6 +320,9 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 		if err := s.connRepo.UpdateStatus(txCtx, connID, "active"); err != nil {
 			return ErrInternalWithErr(err, "status_update_failed", "Failed to update status")
 		}
+		if err := s.connRepo.DeactivateOtherActive(txCtx, stateData.WorkspaceID, conn.ProviderID, connID); err != nil {
+			return ErrInternalWithErr(err, "deactivate_stale_failed", "Failed to deactivate stale connections")
+		}
 		return nil
 	}); err != nil {
 		return "", false, err
@@ -385,6 +388,25 @@ func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID
 	var credentials map[string]interface{}
 	if err := json.Unmarshal(decryptedData, &credentials); err != nil {
 		return nil, "", ErrInternalWithErr(err, "invalid_token_format", "Invalid token format")
+	}
+
+	if token.ExpiresAt != nil && token.ExpiresAt.Before(time.Now()) {
+		if conn.AuthType == "oauth2" || conn.AuthType == "" {
+			if _, refreshErr := s.Refresh(ctx, connectionID); refreshErr != nil {
+				return nil, "", ErrConflict("token_expired", "Token has expired and could not be refreshed. Re-authentication is required.")
+			}
+			token, err = s.tokenRepo.Get(ctx, connectionID)
+			if err != nil {
+				return nil, "", ErrInternalWithErr(err, "token_not_found", "Failed to fetch refreshed token")
+			}
+			decryptedData, err = vault.Decrypt(s.encryptionKey, token.EncryptedData)
+			if err != nil {
+				return nil, "", ErrInternalWithErr(err, "decrypt_failed", "Failed to decrypt refreshed token")
+			}
+			if err = json.Unmarshal(decryptedData, &credentials); err != nil {
+				return nil, "", ErrInternalWithErr(err, "invalid_token_format", "Invalid refreshed token format")
+			}
+		}
 	}
 
 	if token.ExpiresAt != nil {

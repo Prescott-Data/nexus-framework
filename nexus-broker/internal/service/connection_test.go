@@ -417,6 +417,7 @@ func TestConnectionService_SaveCredential(t *testing.T) {
 		return t.ConnectionID == connID && t.EncryptedData != ""
 	})).Return(nil)
 	connRepo.On("UpdateStatus", mock.Anything, connID, "active").Return(nil)
+	connRepo.On("DeactivateOtherActive", mock.Anything, "ws-test", providerID, connID).Return(nil)
 
 	credentials := map[string]interface{}{"api_key": "my-secret-key"}
 	returnURL, err := svc.SaveCredential(context.Background(), signedState, credentials)
@@ -653,6 +654,7 @@ func TestConnectionService_ExchangeCodeForTokens_Success(t *testing.T) {
 
 	// Mock status update
 	connRepo.On("UpdateStatus", mock.Anything, connID, "active").Return(nil)
+	connRepo.On("DeactivateOtherActive", mock.Anything, "ws-exchange", providerID, connID).Return(nil)
 
 	returnURL, _, err := svc.ExchangeCodeForTokens(context.Background(), signedState, "auth-code-xyz", "", "")
 

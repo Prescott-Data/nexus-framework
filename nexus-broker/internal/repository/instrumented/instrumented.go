@@ -93,6 +93,11 @@ func (r *ConnectionRepository) ListByWorkspace(ctx context.Context, workspaceID 
 	return r.inner.ListByWorkspace(ctx, workspaceID)
 }
 
+func (r *ConnectionRepository) DeactivateOtherActive(ctx context.Context, workspaceID string, providerID uuid.UUID, exceptID uuid.UUID) error {
+	defer observe("connection", "DeactivateOtherActive", time.Now())
+	return r.inner.DeactivateOtherActive(ctx, workspaceID, providerID, exceptID)
+}
+
 // InTx forwards transactional execution when the wrapped repository supports it.
 func (r *ConnectionRepository) InTx(ctx context.Context, fn func(context.Context) error) error {
 	if runner, ok := r.inner.(txRunner); ok {

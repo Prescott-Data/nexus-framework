@@ -94,6 +94,9 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 		if err := s.connRepo.UpdateStatus(txCtx, connID, "active"); err != nil {
 			return ErrInternalWithErr(err, "status_update_failed", "Failed to update status")
 		}
+		if err := s.connRepo.DeactivateOtherActive(txCtx, stateData.WorkspaceID, conn.ProviderID, connID); err != nil {
+			return ErrInternalWithErr(err, "deactivate_stale_failed", "Failed to deactivate stale connections")
+		}
 		return nil
 	}); err != nil {
 		return "", err

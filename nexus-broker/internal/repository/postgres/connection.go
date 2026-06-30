@@ -170,9 +170,21 @@ func (r *connectionRepository) GetForHealthCheck(ctx context.Context, limit int)
 	return ptrRows, nil
 }
 
+func (r *connectionRepository) DeactivateOtherActive(ctx context.Context, workspaceID string, providerID uuid.UUID, exceptID uuid.UUID) error {
+	_, err := execerFromContext(ctx, r.db).ExecContext(ctx, `
+		UPDATE connections
+		SET status = 'superseded', updated_at = NOW()
+		WHERE workspace_id = $1
+		  AND provider_id = $2
+		  AND id != $3
+		  AND status = 'active'`,
+		workspaceID, providerID, exceptID)
+	return err
+}
+
 func (r *connectionRepository) UpdateHealthStatus(ctx context.Context, id uuid.UUID, status string) error {
 	_, err := execerFromContext(ctx, r.db).ExecContext(ctx, `
-		UPDATE connections 
+		UPDATE connections
 		SET health_status = $1, last_health_check_at = NOW(), updated_at = NOW()
 		WHERE id = $2`, status, id)
 	return err

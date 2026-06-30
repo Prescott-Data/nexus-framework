@@ -64,6 +64,11 @@ func (m *MockConnectionRepository) UpdateHealthStatus(ctx context.Context, id uu
 	return args.Error(0)
 }
 
+func (m *MockConnectionRepository) DeactivateOtherActive(ctx context.Context, workspaceID string, providerID uuid.UUID, exceptID uuid.UUID) error {
+	args := m.Called(ctx, workspaceID, providerID, exceptID)
+	return args.Error(0)
+}
+
 // MockConnectionService mocks the ConnectionService
 type MockConnectionService struct {
 	mock.Mock
