@@ -385,7 +385,13 @@ func setupTestServiceWithHTTPClient(t *testing.T, httpClient *http.Client) (*Moc
 // =============================================================================
 
 func TestConnectionService_SaveCredential(t *testing.T) {
-	connRepo, tokenRepo, _, svc, stateKey := setupTestServiceWithHTTPClient(t, http.DefaultClient)
+	// Validation endpoint that accepts the credential (non-401/403).
+	validationSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer validationSrv.Close()
+
+	connRepo, tokenRepo, _, svc, stateKey := setupTestServiceWithHTTPClient(t, validationSrv.Client())
 
 	connID := uuid.New()
 	providerID := uuid.New()
@@ -400,7 +406,7 @@ func TestConnectionService_SaveCredential(t *testing.T) {
 	signedState, err := auth.SignState(stateKey, stateData)
 	assert.NoError(t, err)
 
-	// Mock: GetWithProvider returns a connection with NO userInfoEndpoint (skip validation)
+	// Mock: GetWithProvider returns a validatable api_key connection; validation passes.
 	connWithProv := &domain.ConnectionWithProvider{
 		Connection: domain.Connection{
 			ID:         connID,
@@ -409,8 +415,8 @@ func TestConnectionService_SaveCredential(t *testing.T) {
 			ReturnURL:  "http://app.example.com/callback",
 		},
 		AuthType:         "api_key",
-		APIBaseURL:       "",
-		UserInfoEndpoint: "",
+		APIBaseURL:       validationSrv.URL,
+		UserInfoEndpoint: "/me",
 	}
 	connRepo.On("GetWithProvider", mock.Anything, connID).Return(connWithProv, nil)
 	tokenRepo.On("Upsert", mock.Anything, mock.MatchedBy(func(t *domain.Token) bool {
@@ -429,6 +435,46 @@ func TestConnectionService_SaveCredential(t *testing.T) {
 
 	connRepo.AssertExpectations(t)
 	tokenRepo.AssertExpectations(t)
+}
+
+// TestConnectionService_SaveCredential_NotValidatable proves that a static-auth
+// provider with no validation endpoint configured fails closed instead of being
+// marked active with an unverified credential.
+func TestConnectionService_SaveCredential_NotValidatable(t *testing.T) {
+	connRepo, tokenRepo, _, svc, stateKey := setupTestServiceWithHTTPClient(t, http.DefaultClient)
+
+	connID := uuid.New()
+	providerID := uuid.New()
+
+	stateData := auth.StateData{
+		WorkspaceID: "ws-test",
+		ProviderID:  providerID.String(),
+		Nonce:       connID.String(),
+		IAT:         time.Now(),
+	}
+	signedState, err := auth.SignState(stateKey, stateData)
+	assert.NoError(t, err)
+
+	connWithProv := &domain.ConnectionWithProvider{
+		Connection: domain.Connection{
+			ID:         connID,
+			ProviderID: providerID,
+			Status:     "pending",
+			ReturnURL:  "http://app.example.com/callback",
+		},
+		AuthType:         "api_key",
+		APIBaseURL:       "",
+		UserInfoEndpoint: "",
+	}
+	connRepo.On("GetWithProvider", mock.Anything, connID).Return(connWithProv, nil)
+
+	credentials := map[string]interface{}{"api_key": "my-secret-key"}
+	_, err = svc.SaveCredential(context.Background(), signedState, credentials)
+
+	// The credential must be rejected and never stored or activated.
+	assert.Error(t, err)
+	tokenRepo.AssertNotCalled(t, "Upsert", mock.Anything, mock.Anything)
+	connRepo.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestConnectionService_SaveCredential_InvalidState(t *testing.T) {

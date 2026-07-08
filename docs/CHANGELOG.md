@@ -34,6 +34,7 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 **Fixed**
 
+- **Broker: static credentials are now validated before activation.** `api_key`/`basic_auth` connections fail closed (`provider_not_validatable`) when the provider has no `api_base_url` + `user_info_endpoint`, instead of accepting any key and reporting `active`. When configured, a `401`/`403` from the provider rejects the key with `invalid_credentials`.
 - TypeScript SDK: `Bearer` token type normalized to RFC 6750 capitalization (was `bearer`).
 - TypeScript SDK: package entry pointed at compiled `dist/`, not `.ts` source.
 - Gateway: `resolve` route wired; ESM import errors resolved in adapter.

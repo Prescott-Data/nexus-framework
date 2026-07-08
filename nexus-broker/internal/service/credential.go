@@ -69,9 +69,24 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 		return "", ErrNotFoundWithErr(err, "connection_not_found", "Connection not found")
 	}
 
-	if conn.UserInfoEndpoint != "" && conn.APIBaseURL != "" {
+	switch conn.AuthType {
+	case "api_key", "basic_auth":
+		// Static credentials must be verified before we mark the connection active.
+		// If the provider has no validation endpoint configured we cannot verify the
+		// credential, so fail closed rather than reporting a false "connected" status.
+		if conn.APIBaseURL == "" || conn.UserInfoEndpoint == "" {
+			return "", ErrBadRequest("provider_not_validatable",
+				"Provider is not configured for credential validation (missing api_base_url or user_info_endpoint)")
+		}
 		if err := s.validateCredentials(ctx, conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, credentials); err != nil {
 			return "", ErrBadRequestWithErr(err, "invalid_credentials", "Invalid credentials")
+		}
+	default:
+		// Other auth types keep best-effort validation when an endpoint is configured.
+		if conn.UserInfoEndpoint != "" && conn.APIBaseURL != "" {
+			if err := s.validateCredentials(ctx, conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, credentials); err != nil {
+				return "", ErrBadRequestWithErr(err, "invalid_credentials", "Invalid credentials")
+			}
 		}
 	}
 

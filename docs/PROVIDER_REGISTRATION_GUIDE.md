@@ -95,6 +95,8 @@ curl -s -X POST "$GATEWAY_URL/v1/request-connection" \
 
 These providers do not require a Console App. You define a **Schema** for the form fields.
 
+> **Validation is required.** For `api_key` and `basic_auth` the Broker verifies the credential against `{api_base_url}{user_info_endpoint}` before activating the connection. Both fields are **required** — omit them and capture fails closed with `provider_not_validatable`. Pick a `user_info_endpoint` that returns `401`/`403` for a bad key.
+
 ### Option A: API Key (`api_key`)
 *Single token field.*
 
@@ -105,6 +107,9 @@ jq -n '{
   profile: {
     name: "[slug]-api",
     auth_type: "api_key",
+    api_base_url: "https://api.example.com",
+    user_info_endpoint: "/me",
+    # auth_header: "X-API-Key",   # Optional. Defaults to "Authorization: Bearer <key>"
     params: {
       credential_schema: {
         type: "object",
@@ -130,6 +135,8 @@ jq -n '{
   profile: {
     name: "[slug]-basic",
     auth_type: "basic_auth",
+    api_base_url: "https://api.example.com",
+    user_info_endpoint: "/me",
     params: {
       credential_schema: {
         type: "object",

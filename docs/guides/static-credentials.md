@@ -8,6 +8,18 @@ OAuth2 providers redirect users to an authorization page. Static credential prov
 
 This guide covers the complete flow for static credential connections.
 
+## Prerequisites
+
+The provider must be registered with a validation endpoint so the Broker can verify the submitted credential before activating the connection. Both fields are **required** for `api_key` and `basic_auth` providers:
+
+| Field | Example | Purpose |
+|---|---|---|
+| `api_base_url` | `https://api.example.com` | Root URL of the provider's API |
+| `user_info_endpoint` | `/me` | Path that returns `401`/`403` for an invalid key |
+| `auth_header` | `X-API-Key` | Optional. Header used to inject the key (default `Authorization: Bearer`) |
+
+The Broker validates by calling `GET {api_base_url}{user_info_endpoint}`. If these fields are missing, capture fails with `provider_not_validatable` (see [Validation failures](#validation-failures)).
+
 ## How it works
 
 ```
@@ -113,7 +125,7 @@ curl -s -X POST https://your-gateway.example.com/v1/capture-credential \
   }' | jq .
 ```
 
-The Gateway submits this to the Broker, which encrypts the credentials and stores them. The response:
+The Gateway submits this to the Broker. Before storing anything, the Broker **validates the credential** — it sends a `GET` to the provider's `{api_base_url}{user_info_endpoint}` with the credential applied. Only if the provider does not reject it (`401`/`403`) are the credentials encrypted, stored, and the connection activated. The response:
 
 ```json
 {
@@ -124,6 +136,17 @@ The Gateway submits this to the Broker, which encrypts the credentials and store
 ```
 
 The Broker also issues a redirect to the `return_url` you specified in step 1. If your application uses a browser-based flow, redirect the user there. If it is server-side only, the `connection_id` in the response is sufficient.
+
+### Validation failures
+
+The credential is **not** stored and the connection is **not** activated if:
+
+| Condition | Error code |
+|---|---|
+| The provider rejects the key (`GET` returns `401`/`403`) | `invalid_credentials` |
+| The provider has no `api_base_url` + `user_info_endpoint` configured | `provider_not_validatable` |
+
+`provider_not_validatable` means the provider profile is missing the endpoints the Broker needs to verify the key. Register the provider with both fields (see [Prerequisites](#prerequisites)) — the Broker **fails closed** rather than activating an unverified credential.
 
 ## Step 4 — Verify the connection is active
 

@@ -90,11 +90,18 @@ func TestSOC2_CC61_EncryptionAtRest(t *testing.T) {
 	plainTextKey := "super-secret-api-key"
 	encryptionKey := []byte("01234567890123456789012345678901")
 
+	// Validation endpoint that accepts the credential (non-401/403) so SaveCredential
+	// proceeds to the encryption/storage path this test is asserting on.
+	validationSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer validationSrv.Close()
+
 	// 2. Mock database expectations — parameterized queries only
 	mock.ExpectQuery("SELECT c.id, c.provider_id").
 		WithArgs(connID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "provider_id", "status", "scopes", "return_url", "name", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "health_status"}).
-			AddRow(connID.String(), providerID.String(), "active", "{}", "http://localhost/return", "TestProvider", "api_key", "", "", "", nil, "unknown"))
+			AddRow(connID.String(), providerID.String(), "active", "{}", "http://localhost/return", "TestProvider", "api_key", "", validationSrv.URL, "/me", nil, "unknown"))
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO tokens").
