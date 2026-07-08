@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Static credential validation now fails closed**: `api_key`/`basic_auth` connections are no longer marked `active` when the provider has no `api_base_url` + `user_info_endpoint` to validate against — capture now returns `provider_not_validatable` instead of accepting any key. When a validation endpoint is configured, a `401`/`403` from the provider rejects the key with `invalid_credentials`.
+
 ## [0.2.4] - 2026-05-19
 
 ### Added

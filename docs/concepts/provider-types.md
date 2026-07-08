@@ -33,7 +33,9 @@ Set `auth_url` and `token_url` explicitly. Use this for GitHub and other OAuth2 
 | `issuer` | OAuth2 (discovery) | OIDC issuer URL |
 | `enable_discovery` | no | `true` to use OIDC discovery |
 | `scopes` | no | Default OAuth2 scopes for this provider |
-| `auth_header` | static | Header name for static-key injection |
+| `api_base_url` | static | Root URL used to validate the credential (e.g. `https://api.example.com`) |
+| `user_info_endpoint` | static | Path appended to `api_base_url` to validate the credential (e.g. `/me`) |
+| `auth_header` | no | Header name for static-key injection (default `Authorization`) |
 | `params` | no | Additional provider-specific parameters as JSON |
 
 ### PKCE
@@ -46,11 +48,24 @@ Static providers authenticate with credentials that do not expire and cannot be 
 
 ### api_key
 
-A single opaque key. Your backend calls `GET /v1/capture-schema` to get the field definition, presents it to the user, and submits via `POST /v1/capture-credential`. The connection goes directly to `active`. Set `auth_strategy` to `header` or `query_param` on the provider profile to control how the key is injected.
+A single opaque key. Your backend calls `GET /v1/capture-schema` to get the field definition, presents it to the user, and submits via `POST /v1/capture-credential`. Set `auth_strategy` to `header` or `query_param` on the provider profile to control how the key is injected.
+
+Before the connection is activated, the Broker **validates the credential** against the provider (see [Credential validation](#credential-validation)). Only if validation passes does the connection move to `active`.
 
 ### basic_auth
 
-Username and password pair. The capture flow is identical to `api_key`. The stored credentials map has `username` and `password` keys. The auth strategy is always `basic_auth`.
+Username and password pair. The capture flow is identical to `api_key`, including credential validation. The stored credentials map has `username` and `password` keys. The auth strategy is always `basic_auth`.
+
+### Credential validation
+
+For `api_key` and `basic_auth`, the Broker verifies the submitted credential before storing it. It sends a `GET` request to `{api_base_url}{user_info_endpoint}` with the credential applied, and:
+
+- **`2x` / non-auth error** → credential accepted, connection set to `active`.
+- **`401` / `403`** → credential rejected with `invalid_credentials`; the connection is **not** activated.
+
+Because of this, a static provider **must** be registered with both `api_base_url` and `user_info_endpoint`. If either is missing, capture **fails closed** with `provider_not_validatable` rather than activating an unverified credential. Pick a `user_info_endpoint` that returns `401`/`403` for a bad key (e.g. `/me`, `/user`, `/v1/account`).
+
+> The validator injects the credential as an HTTP **header** (`Authorization: Bearer <key>` by default, or the header named by `auth_header`). Providers that require the key elsewhere — for example in the **URL path** (`/bot<token>/...`) — cannot be validated by the current validator and will fail closed until path-based injection is supported.
 
 ## Scopes
 
