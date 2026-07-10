@@ -62,3 +62,11 @@ func ErrInternalWithErr(err error, code, message string) *ServiceError {
 func ErrConflict(code, message string) *ServiceError {
 	return NewServiceError(http.StatusConflict, nil, code, message)
 }
+
+// ErrBadGatewayWithErr is for failures reaching an upstream provider (e.g. the
+// broker cannot reach a provider's API to validate a credential). Status 502 so
+// the cause is logged by writeServiceError and clients can distinguish it from
+// a genuine credential rejection.
+func ErrBadGatewayWithErr(err error, code, message string) *ServiceError {
+	return NewServiceError(http.StatusBadGateway, err, code, message)
+}
