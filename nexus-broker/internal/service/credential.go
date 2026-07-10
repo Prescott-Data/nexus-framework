@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -79,13 +80,13 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 				"Provider is not configured for credential validation (missing api_base_url or user_info_endpoint)")
 		}
 		if err := s.validateCredentials(ctx, conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, credentials); err != nil {
-			return "", ErrBadRequestWithErr(err, "invalid_credentials", "Invalid credentials")
+			return "", err
 		}
 	default:
 		// Other auth types keep best-effort validation when an endpoint is configured.
 		if conn.UserInfoEndpoint != "" && conn.APIBaseURL != "" {
 			if err := s.validateCredentials(ctx, conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, credentials); err != nil {
-				return "", ErrBadRequestWithErr(err, "invalid_credentials", "Invalid credentials")
+				return "", err
 			}
 		}
 	}
@@ -226,14 +227,14 @@ func (s *connectionService) validateCredentials(ctx context.Context, authType, a
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
 	if err != nil {
-		return fmt.Errorf("could not build validation request")
+		return ErrInternalWithErr(err, "validation_request_failed", "Could not build credential-validation request")
 	}
 
 	switch authType {
 	case "api_key":
 		apiKey, _ := credentials["api_key"].(string)
 		if apiKey == "" {
-			return fmt.Errorf("api_key credential is required")
+			return ErrBadRequest("missing_credential", "The 'api_key' credential is required")
 		}
 		headerName := authHeader
 		if headerName == "" {
@@ -248,6 +249,9 @@ func (s *connectionService) validateCredentials(ctx context.Context, authType, a
 	case "basic_auth":
 		username, _ := credentials["username"].(string)
 		password, _ := credentials["password"].(string)
+		if username == "" && password == "" {
+			return ErrBadRequest("missing_credential", "The 'username' and 'password' credentials are required")
+		}
 		encoded := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
 		req.Header.Set("Authorization", "Basic "+encoded)
 
@@ -257,12 +261,16 @@ func (s *connectionService) validateCredentials(ctx context.Context, authType, a
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("could not reach provider to validate credentials")
+		// The broker could not reach the provider — this is NOT a credential
+		// rejection. Surface it distinctly (502, logged) so it is not confused
+		// with a bad key (e.g. missing egress from the broker to the provider).
+		log.Printf("validateCredentials: could not reach provider at %s: %v", testURL, err)
+		return ErrBadGatewayWithErr(err, "validation_unreachable", "Could not reach the provider to validate the credentials")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("credentials rejected by provider")
+		return ErrBadRequest("credentials_rejected", "The provider rejected these credentials")
 	}
 
 	return nil
