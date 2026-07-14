@@ -10,6 +10,16 @@ permissions:
   contents: read
 
 jobs:
+  version-check:
+    name: Version Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify version is in sync across specs and docs
+        run: make check-version
+
   test:
     name: Unit & Contract Tests
     runs-on: ubuntu-latest

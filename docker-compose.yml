@@ -36,6 +36,8 @@ services:
     build:
       context: ./nexus-broker
       dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
     container_name: nexus-broker
     depends_on:
       postgres:
@@ -69,6 +71,8 @@ services:
     build:
       context: ./nexus-gateway
       dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
     container_name: nexus-gateway
     depends_on:
       - broker

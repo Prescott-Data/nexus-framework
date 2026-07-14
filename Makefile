@@ -1,6 +1,26 @@
 # Nexus Framework - Root Makefile
 
-.PHONY: up down restart logs build test clean
+.PHONY: up down restart logs build test clean stamp check-version version
+
+# Single source of truth for the framework version. Every build and spec
+# derives from this file so a bump propagates from one place.
+VERSION := $(shell cat VERSION | tr -d '[:space:]')
+export VERSION
+
+# Print the current version
+version:
+	@echo $(VERSION)
+
+# Propagate the VERSION file into OpenAPI specs and the docs site
+stamp:
+	@bash scripts/stamp-version.sh
+
+# CI drift-guard: fail if any stamped file is out of sync with the VERSION file
+check-version:
+	@bash scripts/stamp-version.sh
+	@git diff --exit-code -- openapi.yaml nexus-broker/openapi.yaml mkdocs.yml \
+		|| { echo "❌ Version drift detected. Run 'make stamp' and commit the result."; exit 1; }
+	@echo "✅ Version $(VERSION) is in sync across all stamped files."
 
 # Default: Start the entire stack in detached mode
 up:
