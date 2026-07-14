@@ -47,6 +47,19 @@ type Profile struct {
 	HealthMessage    *string          `json:"health_message,omitempty" db:"health_message"`
 }
 
+// Redacted returns a copy of the profile with sensitive fields removed so it is
+// safe to serialize in API responses. The client_secret must never leave the
+// broker; internal OAuth flows read the secret directly from the store, not via
+// HTTP responses.
+func (p *Profile) Redacted() *Profile {
+	if p == nil {
+		return nil
+	}
+	clone := *p
+	clone.ClientSecret = nil
+	return &clone
+}
+
 // RegisterProfile registers a new provider profile from JSON
 func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	var p Profile

@@ -39,7 +39,7 @@ func (h *ProvidersHandler) Get(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusNotFound, "provider_not_found", "Provider not found")
 		return
 	}
-	httputil.WriteJSON(w, http.StatusOK, profile)
+	httputil.WriteJSON(w, http.StatusOK, profile.Redacted())
 }
 
 // Update handles PUT /providers/{id} to update a provider profile

@@ -191,6 +191,19 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 			return &RefreshResponse{StatusCode: statusCode}, fmt.Errorf("refresh failed: %w", err)
 		}
 
+		// Merge the refreshed fields into the existing credential blob. Providers
+		// like Google do NOT return a new refresh_token on refresh, so replacing
+		// the stored blob outright would drop it and break the next refresh. We
+		// only overwrite refresh_token when the provider actually rotated it.
+		merged := current
+		for k, v := range newTokens {
+			merged[k] = v
+		}
+		if newRT, ok := newTokens["refresh_token"].(string); !ok || newRT == "" {
+			merged["refresh_token"] = refreshToken
+		}
+		newTokens = merged
+
 		tokenJSON, err := json.Marshal(newTokens)
 		if err != nil {
 			return nil, ErrInternalWithErr(err, "token_marshal_failed", "Failed to serialize refreshed tokens")
