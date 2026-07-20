@@ -60,4 +60,6 @@ openssl rand -base64 32
 
 ## Network isolation
 
-The Broker should only accept connections from the Gateway's IP range. It should not be reachable from the public internet or from agent processes. The `API_KEY` on the Broker should be known only to the Gateway.
+The Broker should only accept connections from the Gateway's IP range. It should not be reachable from the public internet or from agent processes. The Broker API key should be known only to the Gateway and can be supplied through `API_KEY`, `API_KEYS`, `API_KEY_FILE`, or `API_KEYS_FILE`.
+
+For production rotation, mount API keys as secret files and configure `API_KEY_FILE` or `API_KEYS_FILE`. The Broker reloads those files on `API_KEY_RELOAD_INTERVAL` without a process restart.

@@ -23,6 +23,9 @@ Security in Nexus relies on three primary environment variables that must be gua
 ### 3. The API Key (`API_KEY` / `BROKER_API_KEY`)
 - **Role:** Authenticates the Gateway to the Broker and the Admin to the Broker.
 - **Impact:** Controls access to provider registration and token retrieval.
+- **Rotation:** For runtime rotation without restarting the Broker, mount API
+  keys as secret files and configure `API_KEY_FILE` or `API_KEYS_FILE`. The
+  Broker reloads those files on `API_KEY_RELOAD_INTERVAL`.
 
 ## Usage Secrets vs. Master Secrets
 

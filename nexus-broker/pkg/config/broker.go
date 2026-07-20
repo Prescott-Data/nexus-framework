@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 // BrokerConfig holds all configuration for the nexus-broker service.
@@ -22,8 +23,10 @@ type BrokerConfig struct {
 	RedirectPath string
 
 	// API key protection
-	RequireAPIKey bool
-	APIKeys       map[string]struct{}
+	RequireAPIKey        bool
+	APIKeys              map[string]struct{}
+	APIKeyFiles          []string
+	APIKeyReloadInterval time.Duration
 
 	// CIDR allowlist
 	RequireAllowlist bool
@@ -50,9 +53,10 @@ func Load() (*BrokerConfig, error) {
 
 		RedirectPath: envOr("REDIRECT_PATH", "/auth/callback"),
 
-		RequireAPIKey:    envBool("REQUIRE_API_KEY"),
-		RequireAllowlist: envBool("REQUIRE_ALLOWLIST"),
-		AllowedCIDRs:     envOr("ALLOWED_CIDRS", "127.0.0.1/32,::1/128"),
+		RequireAPIKey:        envBool("REQUIRE_API_KEY"),
+		RequireAllowlist:     envBool("REQUIRE_ALLOWLIST"),
+		AllowedCIDRs:         envOr("ALLOWED_CIDRS", "127.0.0.1/32,::1/128"),
+		APIKeyReloadInterval: 30 * time.Second,
 
 		EnforceReturnURL: envBool("ENFORCE_RETURN_URL"),
 
@@ -83,6 +87,26 @@ func Load() (*BrokerConfig, error) {
 	}
 	if v := strings.TrimSpace(os.Getenv("API_KEY")); v != "" {
 		cfg.APIKeys[v] = struct{}{}
+	}
+	for _, envName := range []string{"API_KEY_FILE", "API_KEYS_FILE"} {
+		if v := strings.TrimSpace(os.Getenv(envName)); v != "" {
+			for _, path := range strings.Split(v, ",") {
+				path = strings.TrimSpace(path)
+				if path != "" {
+					cfg.APIKeyFiles = append(cfg.APIKeyFiles, path)
+				}
+			}
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("API_KEY_RELOAD_INTERVAL")); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("API_KEY_RELOAD_INTERVAL is invalid: %w", err)
+		}
+		if interval <= 0 {
+			return nil, fmt.Errorf("API_KEY_RELOAD_INTERVAL must be greater than zero")
+		}
+		cfg.APIKeyReloadInterval = interval
 	}
 
 	// Required fields
