@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -90,3 +91,15 @@ jobs:
           name: ${{ steps.version.outputs.tag }}
           body_path: /tmp/release_notes.md
           generate_release_notes: false
+
+      # The tag above is pushed with GITHUB_TOKEN, which by design does NOT
+      # trigger the tag-driven docker-publish workflow. Explicitly dispatch it
+      # on the new tag ref so container images are built for every release.
+      # (workflow_dispatch is an allowed exception and runs under GITHUB_TOKEN.)
+      - name: Trigger container image build for the new tag
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run docker-publish.yml --ref "${{ steps.version.outputs.tag }}"
+          echo "Dispatched docker-publish.yml for ${{ steps.version.outputs.tag }}"

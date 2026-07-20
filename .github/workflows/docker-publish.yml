@@ -48,6 +48,8 @@ jobs:
           context: ./nexus-broker
           file: ./nexus-broker/Dockerfile
           push: true
+          build-args: |
+            VERSION=${{ steps.meta-broker.outputs.version }}
           tags: ${{ steps.meta-broker.outputs.tags }}
           labels: ${{ steps.meta-broker.outputs.labels }}
 
@@ -57,5 +59,7 @@ jobs:
           context: ./nexus-gateway
           file: ./nexus-gateway/Dockerfile
           push: true
+          build-args: |
+            VERSION=${{ steps.meta-gateway.outputs.version }}
           tags: ${{ steps.meta-gateway.outputs.tags }}
           labels: ${{ steps.meta-gateway.outputs.labels }}
