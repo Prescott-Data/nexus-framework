@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -72,20 +71,32 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 
 	switch conn.AuthType {
 	case "api_key", "basic_auth":
+		// Providers explicitly marked as non-validatable (write-only ingestion
+		// keys with no endpoint that can verify them) opt out of the probe.
+		if parseValidationRule(conn.ProviderParams).Skip {
+			break
+		}
 		// Static credentials must be verified before we mark the connection active.
+		// Self-hosted providers have no global api_base_url; the user supplies
+		// their instance URL as "base_url" in the capture payload.
+		baseURL := effectiveBaseURL(conn.APIBaseURL, credentials)
+		if conn.APIBaseURL == "" && baseURL != "" && !isValidBaseURL(baseURL) {
+			return "", ErrBadRequest("invalid_base_url", "The provided base_url must be a valid http(s) URL")
+		}
 		// If the provider has no validation endpoint configured we cannot verify the
 		// credential, so fail closed rather than reporting a false "connected" status.
-		if conn.APIBaseURL == "" || conn.UserInfoEndpoint == "" {
+		if baseURL == "" || conn.UserInfoEndpoint == "" {
 			return "", ErrBadRequest("provider_not_validatable",
 				"Provider is not configured for credential validation (missing api_base_url or user_info_endpoint)")
 		}
-		if err := s.validateCredentials(ctx, conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, credentials); err != nil {
+		if err := s.validateCredentials(ctx, conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, conn.ProviderParams, credentials); err != nil {
 			return "", err
 		}
 	default:
 		// Other auth types keep best-effort validation when an endpoint is configured.
-		if conn.UserInfoEndpoint != "" && conn.APIBaseURL != "" {
-			if err := s.validateCredentials(ctx, conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, credentials); err != nil {
+		baseURL := effectiveBaseURL(conn.APIBaseURL, credentials)
+		if conn.UserInfoEndpoint != "" && baseURL != "" {
+			if err := s.validateCredentials(ctx, conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, conn.ProviderParams, credentials); err != nil {
 				return "", err
 			}
 		}
@@ -235,41 +246,33 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 	}
 }
 
-func (s *connectionService) validateCredentials(ctx context.Context, authType, authHeader, apiBaseURL, userInfoEndpoint string, credentials map[string]interface{}) error {
-	testURL := strings.TrimRight(apiBaseURL, "/") + "/" + strings.TrimLeft(userInfoEndpoint, "/")
+func (s *connectionService) validateCredentials(ctx context.Context, authType, authHeader, apiBaseURL, userInfoEndpoint string, providerParams *json.RawMessage, credentials map[string]interface{}) error {
+	// Self-hosted / instance-specific providers have no global api_base_url; the
+	// user supplies their instance URL at connect time (stored as "base_url").
+	baseURL := effectiveBaseURL(apiBaseURL, credentials)
+	// Path-based providers carry the credential in the URL path via a {field}
+	// template (e.g. Telegram /bot{api_key}/getMe); render it before building.
+	endpoint := renderEndpoint(userInfoEndpoint, credentials)
+	testURL := strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(endpoint, "/")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
 	if err != nil {
 		return ErrInternalWithErr(err, "validation_request_failed", "Could not build credential-validation request")
 	}
 
-	switch authType {
-	case "api_key":
-		apiKey, _ := credentials["api_key"].(string)
-		if apiKey == "" {
-			return ErrBadRequest("missing_credential", "The 'api_key' credential is required")
+	// Authenticate the probe request exactly the way real requests are made:
+	// resolve the same auth strategy the bridge uses at runtime (custom header
+	// name/prefix, query-param, basic auth, ...) so non-standard providers can
+	// actually be validated instead of always failing with a false 401.
+	strat := resolveAuthStrategy(authType, authHeader, providerParams)
+	if err := applyAuthStrategy(req, strat, credentials); err != nil {
+		if err == errUnsupportedValidation {
+			// Body-signing schemes (hmac/sigv4) can't be probed with a plain GET.
+			// Skip validation rather than fail-open silently — log it.
+			log.Printf("validateCredentials: strategy %q not validatable at connect time; skipping probe", strat.Type)
+			return nil
 		}
-		headerName := authHeader
-		if headerName == "" {
-			headerName = "Authorization"
-		}
-		if strings.ToLower(headerName) == "authorization" {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-		} else {
-			req.Header.Set(headerName, apiKey)
-		}
-
-	case "basic_auth":
-		username, _ := credentials["username"].(string)
-		password, _ := credentials["password"].(string)
-		if username == "" && password == "" {
-			return ErrBadRequest("missing_credential", "The 'username' and 'password' credentials are required")
-		}
-		encoded := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
-		req.Header.Set("Authorization", "Basic "+encoded)
-
-	default:
-		return nil
+		return err
 	}
 
 	resp, err := s.httpClient.Do(req)
@@ -282,11 +285,9 @@ func (s *connectionService) validateCredentials(ctx context.Context, authType, a
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return ErrBadRequest("credentials_rejected", "The provider rejected these credentials")
-	}
-
-	return nil
+	// Interpret the response, including providers that signal failure with a
+	// non-4xx status and an error body (e.g. Slack: 200 + {"ok":false}).
+	return evaluateValidation(resp, parseValidationRule(providerParams))
 }
 
 func (s *connectionService) refreshTokens(ctx context.Context, tokenURL, clientID, clientSecret, refreshToken string) (map[string]interface{}, int, error) {

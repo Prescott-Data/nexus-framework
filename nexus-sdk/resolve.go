@@ -21,6 +21,7 @@ type ResolveTokenResponse struct {
 	ExpiresAt   *string                `json:"expires_at,omitempty"`
 	Strategy    map[string]interface{} `json:"strategy,omitempty"`
 	Credentials map[string]interface{} `json:"credentials,omitempty"`
+	APIBaseURL  string                 `json:"api_base_url,omitempty"`
 }
 
 // ResolveToken fetches a token from the Gateway using workspace ID + provider name.
@@ -88,6 +89,12 @@ func (c *Client) ResolveToken(ctx context.Context, workspaceID, providerName str
 	// Extract strategy
 	if strat, ok := raw["strategy"].(map[string]interface{}); ok {
 		out.Strategy = strat
+	}
+
+	// Extract the resolved base URL (provider default or self-hosted instance URL)
+	// so callers can target the correct host.
+	if base, ok := raw["api_base_url"].(string); ok {
+		out.APIBaseURL = base
 	}
 
 	// Default token type

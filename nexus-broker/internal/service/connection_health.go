@@ -2,16 +2,15 @@ package service
 
 import (
 	"context"
-	"encoding/base64"
 	"log"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
+	"github.com/google/uuid"
 )
 
 // ProviderHealthLookup provides read-only access to provider health status.
@@ -142,55 +141,59 @@ func (w *ConnectionHealthWorker) checkConnection(ctx context.Context, c *domain.
 		return w.checkOAuth2Connection(ctx, c)
 	}
 
+	// Providers explicitly marked as non-validatable (validation.skip) have no
+	// endpoint that can verify the key — their health cannot be probed.
+	if parseValidationRule(c.ProviderParams).Skip {
+		return "unknown"
+	}
+
 	// For non-OAuth2 (API keys), we need a UserInfoEndpoint to test against
 	if c.UserInfoEndpoint == "" {
 		return "unknown"
 	}
 
 	// Fetch and decrypt the credentials
-	credentials, _, err := w.connSvc.GetToken(ctx, c.ID)
+	tokenResp, _, err := w.connSvc.GetToken(ctx, c.ID)
 	if err != nil {
 		// GetToken can fail for internal reasons (decryption error, DB error).
 		// Don't mark as expired — the credential might still be valid.
 		log.Printf("ConnectionHealthWorker: Connection %s — failed to fetch token: %v", c.ID, err)
 		return "degraded"
 	}
+	// GetToken nests static credentials under "credentials"; OAuth spreads them
+	// at the top level. Normalize so auth strategies find the right fields.
+	creds := tokenResp
+	if nested, ok := tokenResp["credentials"].(map[string]interface{}); ok {
+		creds = nested
+	}
 
-	// Make a test request to the user_info_endpoint
-	req, err := http.NewRequestWithContext(ctx, "GET", c.UserInfoEndpoint, nil)
+	// Build the probe URL the same way connect-time validation does: resolve the
+	// effective base URL (provider default or the user's self-hosted instance
+	// URL) and render any path-based credential template.
+	baseURL := effectiveBaseURL(c.APIBaseURL, creds)
+	endpoint := renderEndpoint(c.UserInfoEndpoint, creds)
+	if baseURL == "" && !(strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://")) {
+		return "unknown"
+	}
+	testURL := endpoint
+	if baseURL != "" {
+		testURL = strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(endpoint, "/")
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", testURL, nil)
 	if err != nil {
 		return "unhealthy"
 	}
 
-	// Apply authentication using the same key extraction as validateCredentials
-	// in credential.go. We use explicit credential keys to avoid accidentally
-	// injecting unrelated map values (e.g., expires_at) as auth headers.
-	switch c.AuthType {
-	case "api_key":
-		apiKey, _ := credentials["api_key"].(string)
-		if apiKey == "" {
-			log.Printf("ConnectionHealthWorker: Connection %s — api_key field missing from credentials", c.ID)
-			return "degraded"
+	// Authenticate the probe using the same strategy engine as connect-time
+	// validation and the bridge runtime, so health checks never diverge from
+	// how the credential is actually used.
+	strat := resolveAuthStrategy(c.AuthType, c.AuthHeader, c.ProviderParams)
+	if err := applyAuthStrategy(req, strat, creds); err != nil {
+		if err == errUnsupportedValidation {
+			return "unknown" // body-signing schemes can't be probed with a GET
 		}
-		headerName := c.AuthHeader
-		if headerName == "" {
-			headerName = "Authorization"
-		}
-		if strings.ToLower(headerName) == "authorization" {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-		} else {
-			req.Header.Set(headerName, apiKey)
-		}
-
-	case "basic_auth":
-		username, _ := credentials["username"].(string)
-		password, _ := credentials["password"].(string)
-		if username == "" {
-			log.Printf("ConnectionHealthWorker: Connection %s — username field missing from credentials", c.ID)
-			return "degraded"
-		}
-		encoded := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
-		req.Header.Set("Authorization", "Basic "+encoded)
+		log.Printf("ConnectionHealthWorker: Connection %s — cannot apply auth: %v", c.ID, err)
+		return "degraded"
 	}
 
 	resp, err := w.httpClient.Do(req)
@@ -199,12 +202,13 @@ func (w *ConnectionHealthWorker) checkConnection(ctx context.Context, c *domain.
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return "expired" // The key is dead
-	}
-
 	if resp.StatusCode >= 500 {
 		return "unhealthy" // Provider is having issues, don't mark as expired yet
+	}
+
+	// Status- and body-aware rejection check (e.g. Slack 200 + {"ok":false}).
+	if err := evaluateValidation(resp, parseValidationRule(c.ProviderParams)); err != nil {
+		return "expired" // The key is dead
 	}
 
 	return "healthy"

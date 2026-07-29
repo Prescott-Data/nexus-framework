@@ -22,18 +22,19 @@ import (
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type Provider struct {
-	Name            string                 `yaml:"name" json:"name"`
-	AuthType        string                 `yaml:"auth_type,omitempty" json:"auth_type,omitempty"`
-	AuthHeader      string                 `yaml:"auth_header,omitempty" json:"auth_header,omitempty"`
-	ClientID        string                 `yaml:"client_id,omitempty" json:"client_id,omitempty"`
-	ClientSecret    string                 `yaml:"client_secret,omitempty" json:"client_secret,omitempty"`
-	AuthURL         string                 `yaml:"auth_url,omitempty" json:"auth_url,omitempty"`
-	TokenURL        string                 `yaml:"token_url,omitempty" json:"token_url,omitempty"`
-	Issuer          string                 `yaml:"issuer,omitempty" json:"issuer,omitempty"`
-	EnableDiscovery bool                   `yaml:"enable_discovery" json:"enable_discovery"`
-	Scopes          []string               `yaml:"scopes" json:"scopes"`
-	APIBaseURL      string                 `yaml:"api_base_url,omitempty" json:"api_base_url,omitempty"`
-	Params          map[string]interface{} `yaml:"params,omitempty" json:"params,omitempty"`
+	Name             string                 `yaml:"name" json:"name"`
+	AuthType         string                 `yaml:"auth_type,omitempty" json:"auth_type,omitempty"`
+	AuthHeader       string                 `yaml:"auth_header,omitempty" json:"auth_header,omitempty"`
+	ClientID         string                 `yaml:"client_id,omitempty" json:"client_id,omitempty"`
+	ClientSecret     string                 `yaml:"client_secret,omitempty" json:"client_secret,omitempty"`
+	AuthURL          string                 `yaml:"auth_url,omitempty" json:"auth_url,omitempty"`
+	TokenURL         string                 `yaml:"token_url,omitempty" json:"token_url,omitempty"`
+	Issuer           string                 `yaml:"issuer,omitempty" json:"issuer,omitempty"`
+	EnableDiscovery  bool                   `yaml:"enable_discovery" json:"enable_discovery"`
+	Scopes           []string               `yaml:"scopes" json:"scopes"`
+	APIBaseURL       string                 `yaml:"api_base_url,omitempty" json:"api_base_url,omitempty"`
+	UserInfoEndpoint string                 `yaml:"user_info_endpoint,omitempty" json:"user_info_endpoint,omitempty"`
+	Params           map[string]interface{} `yaml:"params,omitempty" json:"params,omitempty"`
 }
 
 type Manifest struct {
@@ -416,7 +417,6 @@ func runCommand(isPlanOnly bool) {
 		os.Exit(1)
 	}
 }
-
 
 // isSecretField returns true for fields that should be masked in plan output.
 func isSecretField(field string) bool {

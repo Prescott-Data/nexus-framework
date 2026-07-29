@@ -12,6 +12,8 @@ import (
 	"hash"
 	"io"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -291,8 +293,49 @@ func applyAWSSigV4(req *http.Request, config map[string]interface{}, creds Crede
 	return nil
 }
 
+// pathTemplatePlaceholder matches {field} tokens in a request path.
+var pathTemplatePlaceholder = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
+
+// renderPathTemplate substitutes {field} placeholders in the request path with
+// the corresponding (path-escaped) credential values. This enables path-based
+// auth such as Telegram (/bot{api_key}/getMe) and WhatsApp (/{phone_number_id}/...).
+//
+// It also substitutes placeholders in the query string (RawQuery) using
+// url.QueryEscape so query-parameter templates like token_auth={api_key} work.
+// It is a no-op when no placeholders are present, so it is safe to run for every
+// strategy.
+func renderPathTemplate(req *http.Request, creds Credentials) {
+	if req == nil || req.URL == nil {
+		return
+	}
+	if strings.Contains(req.URL.Path, "{") {
+		req.URL.Path = pathTemplatePlaceholder.ReplaceAllStringFunc(req.URL.Path, func(tok string) string {
+			field := tok[1 : len(tok)-1]
+			if v, ok := creds[field].(string); ok && v != "" {
+				return url.PathEscape(v)
+			}
+			return tok
+		})
+		// Clear RawPath so the rendered Path is used when the URL is serialized.
+		req.URL.RawPath = ""
+	}
+	if strings.Contains(req.URL.RawQuery, "{") {
+		req.URL.RawQuery = pathTemplatePlaceholder.ReplaceAllStringFunc(req.URL.RawQuery, func(tok string) string {
+			field := tok[1 : len(tok)-1]
+			if v, ok := creds[field].(string); ok && v != "" {
+				return url.QueryEscape(v)
+			}
+			return tok
+		})
+	}
+}
+
 // ApplyAuthentication applies the authentication strategy to the request.
 func ApplyAuthentication(req *http.Request, strategy AuthStrategy, creds Credentials) error {
+	// Render any {field} path placeholders first so path-based credentials are
+	// substituted regardless of the header/query strategy in effect.
+	renderPathTemplate(req, creds)
+
 	switch strategy.Type {
 	case "header":
 		return applyHeaderAuth(req, strategy.Config, creds)
@@ -304,6 +347,10 @@ func ApplyAuthentication(req *http.Request, strategy AuthStrategy, creds Credent
 		return applyHMACPayload(req, strategy.Config, creds)
 	case "aws_sigv4":
 		return applyAWSSigV4(req, strategy.Config, creds)
+	case "path":
+		// The credential is carried in the URL path (rendered above); there is
+		// no header/query material to inject.
+		return nil
 	case "oauth2":
 		// OAuth2 is just a specific configuration of Header auth
 		oauthConfig := map[string]interface{}{
