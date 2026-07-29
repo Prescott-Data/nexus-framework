@@ -111,21 +111,28 @@ func applyAuthStrategy(req *http.Request, strat authStrategy, creds map[string]i
 // templatePlaceholder matches {field} tokens in an endpoint path.
 var templatePlaceholder = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
 
-// renderEndpoint substitutes {field} placeholders in an endpoint/path with the
-// corresponding (path-escaped) credential values. Placeholders whose field is
-// not present in creds are left untouched. This enables path-based auth such as
-// Telegram (/bot{api_key}/getMe) and WhatsApp (/{phone_number_id}/...).
 func renderEndpoint(endpoint string, creds map[string]interface{}) string {
 	if !strings.Contains(endpoint, "{") {
 		return endpoint
 	}
-	return templatePlaceholder.ReplaceAllStringFunc(endpoint, func(tok string) string {
-		field := tok[1 : len(tok)-1]
-		if v, ok := creds[field].(string); ok && v != "" {
-			return url.PathEscape(v)
-		}
-		return tok
-	})
+
+	pathPart, queryPart, hasQuery := strings.Cut(endpoint, "?")
+	render := func(s string, esc func(string) string) string {
+		return templatePlaceholder.ReplaceAllStringFunc(s, func(tok string) string {
+			field := tok[1 : len(tok)-1]
+			if v, ok := creds[field].(string); ok && v != "" {
+				return esc(v)
+			}
+			return tok
+		})
+	}
+
+	pathPart = render(pathPart, url.PathEscape)
+	if !hasQuery {
+		return pathPart
+	}
+	queryPart = render(queryPart, url.QueryEscape)
+	return pathPart + "?" + queryPart
 }
 
 // effectiveBaseURL returns the base URL to use for a connection. Self-hosted /
