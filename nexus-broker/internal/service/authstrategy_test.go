@@ -128,6 +128,20 @@ func TestEvaluateValidation_SlackBodyFailure(t *testing.T) {
 	}
 }
 
+func TestParseValidationRule_Skip(t *testing.T) {
+	// Write-only ingestion keys (segment, heap, ...) mark validation.skip so
+	// the fail-closed guard stores the credential without a probe.
+	params := rawParams(t, map[string]interface{}{
+		"validation": map[string]interface{}{"skip": true},
+	})
+	if !parseValidationRule(params).Skip {
+		t.Fatal("validation.skip=true should parse as Skip")
+	}
+	if parseValidationRule(nil).Skip {
+		t.Fatal("nil params must not skip validation")
+	}
+}
+
 func TestEvaluateValidation_SuccessBodyRequired(t *testing.T) {
 	rule := validationRule{SuccessBodyContains: "account_id"}
 	if err := evaluateValidation(mkResp(200, `{"account_id":"1"}`), rule); err != nil {

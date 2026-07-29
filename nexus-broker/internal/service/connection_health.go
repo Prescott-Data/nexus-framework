@@ -141,6 +141,12 @@ func (w *ConnectionHealthWorker) checkConnection(ctx context.Context, c *domain.
 		return w.checkOAuth2Connection(ctx, c)
 	}
 
+	// Providers explicitly marked as non-validatable (validation.skip) have no
+	// endpoint that can verify the key — their health cannot be probed.
+	if parseValidationRule(c.ProviderParams).Skip {
+		return "unknown"
+	}
+
 	// For non-OAuth2 (API keys), we need a UserInfoEndpoint to test against
 	if c.UserInfoEndpoint == "" {
 		return "unknown"

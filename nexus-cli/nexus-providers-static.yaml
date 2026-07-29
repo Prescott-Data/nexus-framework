@@ -1,0 +1,502 @@
+# Static-credential provider validation config (Groups B & C from the
+# 2026-07-09 audit). Applies params.auth_strategy / params.validation /
+# api_base_url / user_info_endpoint so the broker's strategy-driven
+# validation engine can verify these providers.
+#
+# Usage:
+#   BROKER_BASE_URL=... API_KEY=... nexus-cli plan  -file nexus-providers-static.yaml
+#   BROKER_BASE_URL=... API_KEY=... nexus-cli apply -file nexus-providers-static.yaml
+#
+# WARNING: never use -prune with this manifest — it is a PARTIAL manifest
+# (it does not list every provider in the broker) and -prune would delete
+# everything not listed here.
+#
+# Entries marked "REVIEW" at the bottom are commented out pending confirmation.
+
+providers:
+  # ──────────────────────────────────────────────────────────────────
+  # Group B — path-based auth (credential lives in the URL path)
+  # ──────────────────────────────────────────────────────────────────
+  - name: telegram
+    auth_type: api_key
+    scopes: []
+    api_base_url: https://api.telegram.org
+    user_info_endpoint: "/bot{api_key}/getMe"
+    params:
+      auth_strategy:
+        type: path
+      credential_schema:
+        type: object
+        required: [api_key]
+        properties:
+          api_key: { type: string, title: "Bot Token" }
+
+  - name: whatsapp-business
+    auth_type: api_key
+    scopes: []
+    api_base_url: https://graph.facebook.com/v19.0
+    user_info_endpoint: "/{phone_number_id}"
+    params:
+      auth_strategy:
+        type: header
+        config: { header_name: Authorization, value_prefix: "Bearer ", credential_field: api_key }
+      credential_schema:
+        type: object
+        required: [api_key, phone_number_id]
+        properties:
+          api_key: { type: string, title: "System User Access Token" }
+          phone_number_id: { type: string, title: "Phone Number ID" }
+
+  # ──────────────────────────────────────────────────────────────────
+  # Group B — query-parameter auth
+  # ──────────────────────────────────────────────────────────────────
+  - name: trello
+    auth_type: api_key
+    scopes: []
+    api_base_url: https://api.trello.com
+    # Trello needs BOTH key and token; carry them via the endpoint template.
+    user_info_endpoint: "/1/members/me?key={api_key}&token={api_token}"
+    params:
+      auth_strategy:
+        type: path
+      credential_schema:
+        type: object
+        required: [api_key, api_token]
+        properties:
+          api_key: { type: string, title: "API Key" }
+          api_token: { type: string, title: "API Token" }
+
+  - name: what3words
+    auth_type: api_key
+    scopes: []
+    api_base_url: https://api.what3words.com
+    user_info_endpoint: /v3/available-languages
+    params:
+      auth_strategy:
+        type: query_param
+        config: { param_name: key, credential_field: api_key }
+      credential_schema:
+        type: object
+        required: [api_key]
+        properties:
+          api_key: { type: string, title: "API Key" }
+
+  # ──────────────────────────────────────────────────────────────────
+  # Group B — custom header names / prefixes
+  # ──────────────────────────────────────────────────────────────────
+  - name: klaviyo
+    auth_type: api_key
+    scopes: []
+    api_base_url: https://a.klaviyo.com
+    user_info_endpoint: /api/accounts/
+    params:
+      auth_strategy:
+        type: header
+        config: { header_name: Authorization, value_prefix: "Klaviyo-API-Key ", credential_field: api_key }
+      credential_schema:
+        type: object
+        required: [api_key]
+        properties:
+          api_key: { type: string, title: "Private API Key" }
+
+  - name: travis-ci
+    auth_type: api_key
+    scopes: []
+    api_base_url: https://api.travis-ci.com
+    user_info_endpoint: /user
+    params:
+      auth_strategy:
+        type: header
+        config: { header_name: Authorization, value_prefix: "token ", credential_field: api_key }
+      credential_schema:
+        type: object
+        required: [api_key]
+        properties:
+          api_key: { type: string, title: "API Token" }
+
+  - name: salesflare
+    auth_type: api_key
+    scopes: []
+    # Standard Bearer auth — it only lacked base URL + endpoint.
+    api_base_url: https://api.salesflare.com
+    user_info_endpoint: /me
+    params:
+      credential_schema:
+        type: object
+        required: [api_key]
+        properties:
+          api_key: { type: string, title: "API Key" }
+
+  - name: height
+    auth_type: api_key
+    scopes: []
+    api_base_url: https://api.height.app
+    user_info_endpoint: /workspace
+    params:
+      auth_strategy:
+        type: header
+        config: { header_name: Authorization, value_prefix: "api-key ", credential_field: api_key }
+      credential_schema:
+        type: object
+        required: [api_key]
+        properties:
+          api_key: { type: string, title: "API Key" }
+
+  # ──────────────────────────────────────────────────────────────────
+  # Group B — body-based validation (2xx with an error body)
+  # ──────────────────────────────────────────────────────────────────
+  - name: slack-bot
+    auth_type: api_key
+    scopes: []
+    api_base_url: https://slack.com/api
+    user_info_endpoint: /auth.test
+    params:
+      validation:
+        failure_body_contains: '"ok":false'
+      credential_schema:
+        type: object
+        required: [api_key]
+        properties:
+          api_key: { type: string, title: "Bot Token (xoxb-...)" }
+
+  # ──────────────────────────────────────────────────────────────────
+  # Group B — basic-auth pairs that just needed base URL + endpoint
+  # ──────────────────────────────────────────────────────────────────
+  - name: backblaze-b2
+    auth_type: basic_auth
+    scopes: []
+    api_base_url: https://api.backblazeb2.com
+    user_info_endpoint: /b2api/v2/b2_authorize_account
+    params:
+      credential_schema:
+        type: object
+        required: [username, password]
+        properties:
+          username: { type: string, title: "Key ID" }
+          password: { type: string, title: "Application Key", format: password }
+
+  # ──────────────────────────────────────────────────────────────────
+  # Group B — special signing schemes: cannot be probed with a GET.
+  # aws_sigv4 request signing; connect-time probe not meaningful.
+  # ──────────────────────────────────────────────────────────────────
+  - name: amazon-s3
+    auth_type: api_key
+    scopes: []
+    params:
+      validation: { skip: true }
+
+  # ──────────────────────────────────────────────────────────────────
+  # Group B — write-only ingestion keys: nothing to validate against.
+  # validation.skip stores the key without a probe (health = unknown).
+  # ──────────────────────────────────────────────────────────────────
+  - name: segment
+    auth_type: api_key
+    scopes: []
+    params:
+      validation: { skip: true }
+  - name: heap
+    auth_type: api_key
+    scopes: []
+    params:
+      validation: { skip: true }
+  - name: kissmetrics
+    auth_type: api_key
+    scopes: []
+    params:
+      validation: { skip: true }
+  - name: logrocket
+    auth_type: api_key
+    scopes: []
+    params:
+      validation: { skip: true }
+  - name: fullstory
+    auth_type: api_key
+    scopes: []
+    params:
+      validation: { skip: true }
+  - name: pendo
+    auth_type: api_key
+    scopes: []
+    params:
+      validation: { skip: true }
+  - name: posthog
+    auth_type: api_key
+    scopes: []
+    params:
+      validation: { skip: true }
+  - name: plausible
+    auth_type: api_key
+    scopes: []
+    params:
+      validation: { skip: true }
+  - name: dummy
+    auth_type: api_key
+    scopes: []
+    params:
+      validation: { skip: true }
+
+  # ──────────────────────────────────────────────────────────────────
+  # Group C — self-hosted / instance-specific base URL.
+  # No global api_base_url; the user supplies base_url at connect time
+  # (credential_schema.base_url → stored in the credential blob → used
+  # by effectiveBaseURL for validation, health checks and runtime).
+  # ──────────────────────────────────────────────────────────────────
+  - name: jenkins
+    auth_type: basic_auth
+    scopes: []
+    user_info_endpoint: /me/api/json
+    params:
+      credential_schema:
+        type: object
+        required: [base_url, username, password]
+        properties:
+          base_url: { type: string, title: "Jenkins URL (https://jenkins.example.com)", format: uri }
+          username: { type: string, title: "Username" }
+          password: { type: string, title: "API Token", format: password }
+
+  - name: teamcity
+    auth_type: api_key
+    scopes: []
+    user_info_endpoint: /app/rest/server
+    params:
+      credential_schema:
+        type: object
+        required: [base_url, api_key]
+        properties:
+          base_url: { type: string, title: "TeamCity URL", format: uri }
+          api_key: { type: string, title: "Access Token" }
+
+  - name: mattermost
+    auth_type: api_key
+    scopes: []
+    user_info_endpoint: /api/v4/users/me
+    params:
+      credential_schema:
+        type: object
+        required: [base_url, api_key]
+        properties:
+          base_url: { type: string, title: "Mattermost URL", format: uri }
+          api_key: { type: string, title: "Personal Access Token" }
+
+  - name: matomo
+    auth_type: api_key
+    scopes: []
+    user_info_endpoint: "/index.php?module=API&method=API.getMatomoVersion&format=json&token_auth={api_key}"
+    params:
+      auth_strategy:
+        type: path
+      validation:
+        failure_body_contains: '"result":"error"'
+      credential_schema:
+        type: object
+        required: [base_url, api_key]
+        properties:
+          base_url: { type: string, title: "Matomo URL", format: uri }
+          api_key: { type: string, title: "Auth Token (token_auth)" }
+
+  - name: phabricator
+    auth_type: api_key
+    scopes: []
+    user_info_endpoint: "/api/user.whoami?api.token={api_key}"
+    params:
+      auth_strategy:
+        type: path
+      validation:
+        failure_body_contains: "ERR-INVALID-AUTH"
+      credential_schema:
+        type: object
+        required: [base_url, api_key]
+        properties:
+          base_url: { type: string, title: "Phabricator URL", format: uri }
+          api_key: { type: string, title: "Conduit API Token" }
+
+  - name: sourcegraph
+    auth_type: api_key
+    scopes: []
+    user_info_endpoint: /.api/user
+    params:
+      auth_strategy:
+        type: header
+        config: { header_name: Authorization, value_prefix: "token ", credential_field: api_key }
+      credential_schema:
+        type: object
+        required: [base_url, api_key]
+        properties:
+          base_url: { type: string, title: "Sourcegraph URL", format: uri }
+          api_key: { type: string, title: "Access Token" }
+
+  - name: woocommerce
+    auth_type: basic_auth
+    scopes: []
+    user_info_endpoint: /wp-json/wc/v3/system_status
+    params:
+      credential_schema:
+        type: object
+        required: [base_url, username, password]
+        properties:
+          base_url: { type: string, title: "Store URL", format: uri }
+          username: { type: string, title: "Consumer Key" }
+          password: { type: string, title: "Consumer Secret", format: password }
+
+  - name: prestashop
+    auth_type: basic_auth
+    scopes: []
+    user_info_endpoint: "/api/?output_format=JSON"
+    params:
+      auth_strategy:
+        type: basic_auth
+        config: { username_field: api_key }
+      credential_schema:
+        type: object
+        required: [base_url, api_key]
+        properties:
+          base_url: { type: string, title: "Shop URL", format: uri }
+          api_key: { type: string, title: "Webservice Key" }
+
+  - name: activecampaign
+    auth_type: api_key
+    scopes: []
+    user_info_endpoint: /api/3/users/me
+    params:
+      auth_strategy:
+        type: header
+        config: { header_name: Api-Token, credential_field: api_key }
+      credential_schema:
+        type: object
+        required: [base_url, api_key]
+        properties:
+          base_url: { type: string, title: "Account URL (https://youraccount.api-us1.com)", format: uri }
+          api_key: { type: string, title: "API Key" }
+
+  - name: agilecrm
+    auth_type: basic_auth
+    scopes: []
+    user_info_endpoint: "/dev/api/contacts?page_size=1"
+    params:
+      credential_schema:
+        type: object
+        required: [base_url, username, password]
+        properties:
+          base_url: { type: string, title: "Account URL (https://yourdomain.agilecrm.com)", format: uri }
+          username: { type: string, title: "Email" }
+          password: { type: string, title: "REST API Key", format: password }
+
+  - name: infobip
+    auth_type: api_key
+    scopes: []
+    user_info_endpoint: /account/1/balance
+    params:
+      auth_strategy:
+        type: header
+        config: { header_name: Authorization, value_prefix: "App ", credential_field: api_key }
+      credential_schema:
+        type: object
+        required: [base_url, api_key]
+        properties:
+          base_url: { type: string, title: "API Base URL (https://xxxxx.api.infobip.com)", format: uri }
+          api_key: { type: string, title: "API Key" }
+
+  - name: proofhub
+    auth_type: api_key
+    scopes: []
+    user_info_endpoint: /api/v3/me
+    params:
+      auth_strategy:
+        type: header
+        config: { header_name: X-API-KEY, credential_field: api_key }
+      credential_schema:
+        type: object
+        required: [base_url, api_key]
+        properties:
+          base_url: { type: string, title: "ProofHub URL (https://company.proofhub.com)", format: uri }
+          api_key: { type: string, title: "API Key" }
+
+  - name: gorgias
+    auth_type: basic_auth
+    scopes: []
+    user_info_endpoint: /api/account
+    params:
+      credential_schema:
+        type: object
+        required: [base_url, username, password]
+        properties:
+          base_url: { type: string, title: "Account URL (https://yourdomain.gorgias.com)", format: uri }
+          username: { type: string, title: "Email" }
+          password: { type: string, title: "API Key", format: password }
+
+  - name: beanstalk
+    auth_type: basic_auth
+    scopes: []
+    user_info_endpoint: /api/users/current.json
+    params:
+      credential_schema:
+        type: object
+        required: [base_url, username, password]
+        properties:
+          base_url: { type: string, title: "Account URL (https://account.beanstalkapp.com)", format: uri }
+          username: { type: string, title: "Username" }
+          password: { type: string, title: "Access Token", format: password }
+
+  - name: targetprocess
+    auth_type: basic_auth
+    scopes: []
+    user_info_endpoint: "/api/v1/Context?format=json"
+    params:
+      credential_schema:
+        type: object
+        required: [base_url, username, password]
+        properties:
+          base_url: { type: string, title: "Targetprocess URL", format: uri }
+          username: { type: string, title: "Username" }
+          password: { type: string, title: "Password", format: password }
+
+  - name: openmrs
+    auth_type: basic_auth
+    scopes: []
+    # api_base_url already configured live (o2.openmrs.org); only the endpoint.
+    user_info_endpoint: /ws/rest/v1/session
+
+  - name: zendesk-chat
+    auth_type: api_key
+    scopes: []
+    api_base_url: https://www.zopim.com/api/v2
+    user_info_endpoint: /agents/me
+    params:
+      credential_schema:
+        type: object
+        required: [api_key]
+        properties:
+          api_key: { type: string, title: "Access Token" }
+
+# ════════════════════════════════════════════════════════════════════
+# REVIEW — uncertain configs, commented out pending confirmation.
+# Uncomment (and correct) after verifying against each provider's docs.
+# ════════════════════════════════════════════════════════════════════
+#
+# crisp             — Basic auth PLUS a static "X-Crisp-Tier: plugin" header.
+#                     The strategy engine has no "extra static headers" support
+#                     yet; either add it or use validation.skip.
+# freedcamp         — key+secret+timestamp hash signing; not probeable with a
+#                     plain GET. Suggest validation.skip.
+# mixpanel          — service-account Basic auth against
+#                     https://mixpanel.com/api/app/me — verify account type.
+# amplitude         — Basic (api_key:secret_key) against
+#                     https://amplitude.com/api/2/usersearch?user=probe — verify.
+# nutshell          — JSON-RPC API (POST); GET probe unclear.
+# nimble            — Bearer; endpoint to confirm (/api/v1/myself ?).
+# clay              — API/auth scheme unclear. Suggest validation.skip.
+# sourceforge       — Bearer; endpoint to confirm.
+# olark             — API auth unclear. Suggest validation.skip.
+# tawkto            — API auth unclear. Suggest validation.skip.
+# prembly           — x-api-key header; validation endpoint to confirm.
+# rocket-chat       — needs TWO headers (X-Auth-Token + X-User-Id); engine
+#                     supports one header per strategy. Needs engine extension.
+# workfront         — query param apiKey; endpoint/status semantics to confirm.
+# odoo              — JSON-RPC (POST) authentication; GET probe not possible.
+#                     Suggest validation.skip.
+# svn               — WebDAV, not a JSON API; Basic works but endpoint is
+#                     repo-specific. Suggest validation.skip or per-repo URL.
+# perforce          — not an HTTP API. Suggest validation.skip.
+# opencart          — API login is a POST handshake. Suggest validation.skip.
+# volusion          — legacy XML API w/ query auth; to confirm.
+# corecommerce      — API auth unclear. Suggest validation.skip.

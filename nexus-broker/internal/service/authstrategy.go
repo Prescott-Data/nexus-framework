@@ -27,6 +27,10 @@ type authStrategy struct {
 // handle providers that signal auth failure with a 200 + error body (e.g. Slack
 // returns 200 with {"ok":false}).
 type validationRule struct {
+	// Skip marks the provider as explicitly non-validatable (e.g. write-only
+	// ingestion keys like Segment/Heap where no endpoint can verify the key).
+	// The credential is stored without a probe instead of failing closed.
+	Skip bool `json:"skip"`
 	// FailureStatus overrides the default {401,403} "rejected" status codes.
 	FailureStatus []int `json:"failure_status"`
 	// FailureBodyContains: if the response body contains this substring, the

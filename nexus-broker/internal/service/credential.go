@@ -71,6 +71,11 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 
 	switch conn.AuthType {
 	case "api_key", "basic_auth":
+		// Providers explicitly marked as non-validatable (write-only ingestion
+		// keys with no endpoint that can verify them) opt out of the probe.
+		if parseValidationRule(conn.ProviderParams).Skip {
+			break
+		}
 		// Static credentials must be verified before we mark the connection active.
 		// Self-hosted providers have no global api_base_url; the user supplies
 		// their instance URL as "base_url" in the capture payload.
