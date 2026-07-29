@@ -180,6 +180,7 @@ func (w *ConnectionHealthWorker) checkConnection(ctx context.Context, c *domain.
 		testURL = strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(endpoint, "/")
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", testURL, nil)
+	if err != nil {
 		return "unhealthy"
 	}
 
