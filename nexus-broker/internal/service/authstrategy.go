@@ -230,7 +230,7 @@ func applyBasicStrategy(req *http.Request, config map[string]interface{}, creds 
 	}
 	username, _ := creds[userField].(string)
 	password, _ := creds[passField].(string)
-	if username == "" && password == "" {
+	if username == "" || password == "" {
 		return ErrBadRequest("missing_credential", fmt.Sprintf("The '%s' and '%s' credentials are required", userField, passField))
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
