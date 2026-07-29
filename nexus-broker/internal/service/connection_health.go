@@ -172,12 +172,14 @@ func (w *ConnectionHealthWorker) checkConnection(ctx context.Context, c *domain.
 	// URL) and render any path-based credential template.
 	baseURL := effectiveBaseURL(c.APIBaseURL, creds)
 	endpoint := renderEndpoint(c.UserInfoEndpoint, creds)
+	if baseURL == "" && !(strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://")) {
+		return "unknown"
+	}
 	testURL := endpoint
 	if baseURL != "" {
 		testURL = strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(endpoint, "/")
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", testURL, nil)
-	if err != nil {
 		return "unhealthy"
 	}
 
