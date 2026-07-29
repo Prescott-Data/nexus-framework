@@ -339,13 +339,15 @@ providers:
           password: { type: string, title: "Consumer Secret", format: password }
 
   - name: prestashop
-    auth_type: basic_auth
+    auth_type: api_key
     scopes: []
+    # PrestaShop accepts the webservice key as a ws_key query parameter;
+    # basic auth with a blank password is rejected by the strategy engine.
     user_info_endpoint: "/api/?output_format=JSON"
     params:
       auth_strategy:
-        type: basic_auth
-        config: { username_field: api_key }
+        type: query_param
+        config: { param_name: ws_key, credential_field: api_key }
       credential_schema:
         type: object
         required: [base_url, api_key]

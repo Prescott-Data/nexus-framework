@@ -111,6 +111,11 @@ func applyAuthStrategy(req *http.Request, strat authStrategy, creds map[string]i
 // templatePlaceholder matches {field} tokens in an endpoint path.
 var templatePlaceholder = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
 
+// renderEndpoint substitutes {field} placeholders in an endpoint with the
+// corresponding credential values — path-escaped in the path segment and
+// query-escaped in the query string. Placeholders whose field is not present
+// in creds are left untouched. This enables path-based auth such as Telegram
+// (/bot{api_key}/getMe) and query templates like ?token_auth={api_key}.
 func renderEndpoint(endpoint string, creds map[string]interface{}) string {
 	if !strings.Contains(endpoint, "{") {
 		return endpoint
