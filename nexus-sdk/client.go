@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -27,6 +28,7 @@ type Client struct {
 	Logger      Logger
 	RetryPolicy RetryPolicy
 
+	randMu     sync.Mutex
 	randSource *rand.Rand
 }
 
@@ -339,6 +341,8 @@ func (c *Client) backoff(attempt int, minDelay, maxDelay time.Duration) time.Dur
 	if base > float64(maxDelay) {
 		base = float64(maxDelay)
 	}
+	c.randMu.Lock()
 	jitter := 0.2 + c.randSource.Float64()*0.6 // 0.2..0.8
+	c.randMu.Unlock()
 	return time.Duration(base * jitter)
 }
