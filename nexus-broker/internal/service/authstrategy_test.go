@@ -167,3 +167,84 @@ func TestValidateCredentials_QueryParamProvider(t *testing.T) {
 		t.Fatal("bad query-param key should be rejected")
 	}
 }
+
+func TestRenderEndpoint_PathTemplate(t *testing.T) {
+	// Telegram style: credential embedded in the path.
+	got := renderEndpoint("/bot{api_key}/getMe", map[string]interface{}{"api_key": "123:ABC"})
+	want := "/bot123:ABC/getMe"
+	if got != want {
+		t.Fatalf("want %q, got %q", want, got)
+	}
+	// Unknown placeholder is left intact.
+	if got := renderEndpoint("/x/{missing}", map[string]interface{}{}); got != "/x/{missing}" {
+		t.Fatalf("unknown placeholder should be untouched, got %q", got)
+	}
+	// No template → unchanged.
+	if got := renderEndpoint("/user", map[string]interface{}{"api_key": "k"}); got != "/user" {
+		t.Fatalf("plain endpoint should be unchanged, got %q", got)
+	}
+}
+
+func TestEffectiveBaseURL(t *testing.T) {
+	// Provider base wins.
+	if got := effectiveBaseURL("https://api.example.com", map[string]interface{}{"base_url": "https://user.example.com"}); got != "https://api.example.com" {
+		t.Fatalf("provider base should win, got %q", got)
+	}
+	// Falls back to user-supplied base_url for self-hosted providers.
+	if got := effectiveBaseURL("", map[string]interface{}{"base_url": "https://jenkins.acme.internal"}); got != "https://jenkins.acme.internal" {
+		t.Fatalf("should use user base_url, got %q", got)
+	}
+	// Nothing configured.
+	if got := effectiveBaseURL("", map[string]interface{}{}); got != "" {
+		t.Fatalf("expected empty, got %q", got)
+	}
+}
+
+func TestIsValidBaseURL(t *testing.T) {
+	valid := []string{"https://jenkins.acme.internal", "http://10.0.0.5:8080", "https://my-co.api-us1.com"}
+	for _, u := range valid {
+		if !isValidBaseURL(u) {
+			t.Fatalf("%q should be valid", u)
+		}
+	}
+	invalid := []string{"", "not-a-url", "ftp://example.com", "example.com", "javascript:alert(1)"}
+	for _, u := range invalid {
+		if isValidBaseURL(u) {
+			t.Fatalf("%q should be invalid", u)
+		}
+	}
+}
+
+// End-to-end: a self-hosted provider (no provider api_base_url) validates against
+// the user-supplied base_url, with a path-based credential template.
+func TestValidateCredentials_SelfHostedPathAuth(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Telegram-like: token is in the path (/bot<token>/getMe).
+		if strings.HasPrefix(r.URL.Path, "/bot secret/") || r.URL.Path == "/bot%20secret/getMe" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if strings.Contains(r.URL.Path, "goodtoken") {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	svc := &connectionService{httpClient: srv.Client()}
+	params := rawParams(t, map[string]interface{}{
+		"auth_strategy": map[string]interface{}{"type": "path"},
+	})
+
+	// Provider api_base_url is empty; base_url comes from the user. Token in path.
+	creds := map[string]interface{}{"api_key": "goodtoken", "base_url": srv.URL}
+	if err := svc.validateCredentials(context.Background(), "api_key", "", "", "/bot{api_key}/getMe", params, creds); err != nil {
+		t.Fatalf("self-hosted path auth should validate, got %v", err)
+	}
+	// Bad token in path → rejected.
+	bad := map[string]interface{}{"api_key": "wrong", "base_url": srv.URL}
+	if err := svc.validateCredentials(context.Background(), "api_key", "", "", "/bot{api_key}/getMe", params, bad); err == nil {
+		t.Fatal("bad path token should be rejected")
+	}
+}

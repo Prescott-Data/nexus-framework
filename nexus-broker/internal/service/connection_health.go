@@ -161,10 +161,14 @@ func (w *ConnectionHealthWorker) checkConnection(ctx context.Context, c *domain.
 		creds = nested
 	}
 
-	// Build the probe URL the same way connect-time validation does.
-	testURL := c.UserInfoEndpoint
-	if c.APIBaseURL != "" {
-		testURL = strings.TrimRight(c.APIBaseURL, "/") + "/" + strings.TrimLeft(c.UserInfoEndpoint, "/")
+	// Build the probe URL the same way connect-time validation does: resolve the
+	// effective base URL (provider default or the user's self-hosted instance
+	// URL) and render any path-based credential template.
+	baseURL := effectiveBaseURL(c.APIBaseURL, creds)
+	endpoint := renderEndpoint(c.UserInfoEndpoint, creds)
+	testURL := endpoint
+	if baseURL != "" {
+		testURL = strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(endpoint, "/")
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", testURL, nil)
 	if err != nil {

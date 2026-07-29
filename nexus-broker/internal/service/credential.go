@@ -72,9 +72,15 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 	switch conn.AuthType {
 	case "api_key", "basic_auth":
 		// Static credentials must be verified before we mark the connection active.
+		// Self-hosted providers have no global api_base_url; the user supplies
+		// their instance URL as "base_url" in the capture payload.
+		baseURL := effectiveBaseURL(conn.APIBaseURL, credentials)
+		if conn.APIBaseURL == "" && baseURL != "" && !isValidBaseURL(baseURL) {
+			return "", ErrBadRequest("invalid_base_url", "The provided base_url must be a valid http(s) URL")
+		}
 		// If the provider has no validation endpoint configured we cannot verify the
 		// credential, so fail closed rather than reporting a false "connected" status.
-		if conn.APIBaseURL == "" || conn.UserInfoEndpoint == "" {
+		if baseURL == "" || conn.UserInfoEndpoint == "" {
 			return "", ErrBadRequest("provider_not_validatable",
 				"Provider is not configured for credential validation (missing api_base_url or user_info_endpoint)")
 		}
@@ -83,7 +89,8 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 		}
 	default:
 		// Other auth types keep best-effort validation when an endpoint is configured.
-		if conn.UserInfoEndpoint != "" && conn.APIBaseURL != "" {
+		baseURL := effectiveBaseURL(conn.APIBaseURL, credentials)
+		if conn.UserInfoEndpoint != "" && baseURL != "" {
 			if err := s.validateCredentials(ctx, conn.AuthType, conn.AuthHeader, conn.APIBaseURL, conn.UserInfoEndpoint, conn.ProviderParams, credentials); err != nil {
 				return "", err
 			}
@@ -235,7 +242,13 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 }
 
 func (s *connectionService) validateCredentials(ctx context.Context, authType, authHeader, apiBaseURL, userInfoEndpoint string, providerParams *json.RawMessage, credentials map[string]interface{}) error {
-	testURL := strings.TrimRight(apiBaseURL, "/") + "/" + strings.TrimLeft(userInfoEndpoint, "/")
+	// Self-hosted / instance-specific providers have no global api_base_url; the
+	// user supplies their instance URL at connect time (stored as "base_url").
+	baseURL := effectiveBaseURL(apiBaseURL, credentials)
+	// Path-based providers carry the credential in the URL path via a {field}
+	// template (e.g. Telegram /bot{api_key}/getMe); render it before building.
+	endpoint := renderEndpoint(userInfoEndpoint, credentials)
+	testURL := strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(endpoint, "/")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
 	if err != nil {

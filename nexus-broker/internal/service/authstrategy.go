@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -90,11 +92,62 @@ func applyAuthStrategy(req *http.Request, strat authStrategy, creds map[string]i
 		return applyQueryStrategy(req, strat.Config, creds)
 	case "basic_auth":
 		return applyBasicStrategy(req, strat.Config, creds)
+	case "path":
+		// The credential is carried in the URL path via a {field} template that
+		// renderEndpoint substitutes before the request is built (e.g. Telegram's
+		// /bot{api_key}/getMe). Nothing to inject into headers/query here.
+		return nil
 	default:
 		// hmac_payload / aws_sigv4 require request-body signing that a generic
 		// validation probe cannot meaningfully perform.
 		return errUnsupportedValidation
 	}
+}
+
+// templatePlaceholder matches {field} tokens in an endpoint path.
+var templatePlaceholder = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
+
+// renderEndpoint substitutes {field} placeholders in an endpoint/path with the
+// corresponding (path-escaped) credential values. Placeholders whose field is
+// not present in creds are left untouched. This enables path-based auth such as
+// Telegram (/bot{api_key}/getMe) and WhatsApp (/{phone_number_id}/...).
+func renderEndpoint(endpoint string, creds map[string]interface{}) string {
+	if !strings.Contains(endpoint, "{") {
+		return endpoint
+	}
+	return templatePlaceholder.ReplaceAllStringFunc(endpoint, func(tok string) string {
+		field := tok[1 : len(tok)-1]
+		if v, ok := creds[field].(string); ok && v != "" {
+			return url.PathEscape(v)
+		}
+		return tok
+	})
+}
+
+// effectiveBaseURL returns the base URL to use for a connection. Self-hosted /
+// instance-specific providers have no global api_base_url; instead the user
+// supplies their instance URL at connect time, stored as "base_url" in the
+// per-connection credential blob. The provider's configured base URL always
+// wins when present.
+func effectiveBaseURL(providerBaseURL string, creds map[string]interface{}) string {
+	if strings.TrimSpace(providerBaseURL) != "" {
+		return providerBaseURL
+	}
+	if v, ok := creds["base_url"].(string); ok {
+		return strings.TrimSpace(v)
+	}
+	return ""
+}
+
+// isValidBaseURL reports whether a user-supplied base URL is a well-formed
+// absolute http(s) URL. Self-hosted providers may legitimately point at
+// internal hosts, so we only enforce scheme and host presence.
+func isValidBaseURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 func strFromConfig(config map[string]interface{}, key string) string {

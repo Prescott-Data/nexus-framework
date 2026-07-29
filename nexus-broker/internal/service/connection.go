@@ -450,6 +450,11 @@ func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID
 	response["strategy"] = strategy
 	response["credentials"] = credentials
 	response["health_status"] = conn.HealthStatus
+	// Resolve the base URL the caller should target: the provider's configured
+	// api_base_url, or the user-supplied instance URL for self-hosted providers.
+	if base := effectiveBaseURL(conn.APIBaseURL, credentials); base != "" {
+		response["api_base_url"] = base
+	}
 
 	return response, conn.ProviderName, nil
 }
