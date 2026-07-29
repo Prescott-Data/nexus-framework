@@ -12,6 +12,8 @@ import (
 	"hash"
 	"io"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -291,8 +293,36 @@ func applyAWSSigV4(req *http.Request, config map[string]interface{}, creds Crede
 	return nil
 }
 
+// pathTemplatePlaceholder matches {field} tokens in a request path.
+var pathTemplatePlaceholder = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
+
+// renderPathTemplate substitutes {field} placeholders in the request path with
+// the corresponding (path-escaped) credential values. This enables path-based
+// auth such as Telegram (/bot{api_key}/getMe) and WhatsApp (/{phone_number_id}/...).
+// It is a no-op when the path contains no placeholders, so it is safe to run for
+// every strategy. It mirrors renderEndpoint in the broker so runtime requests hit
+// the same URL that connect-time validation probed.
+func renderPathTemplate(req *http.Request, creds Credentials) {
+	if req == nil || req.URL == nil || !strings.Contains(req.URL.Path, "{") {
+		return
+	}
+	req.URL.Path = pathTemplatePlaceholder.ReplaceAllStringFunc(req.URL.Path, func(tok string) string {
+		field := tok[1 : len(tok)-1]
+		if v, ok := creds[field].(string); ok && v != "" {
+			return url.PathEscape(v)
+		}
+		return tok
+	})
+	// Clear RawPath so the escaped Path is used verbatim when the URL is rendered.
+	req.URL.RawPath = ""
+}
+
 // ApplyAuthentication applies the authentication strategy to the request.
 func ApplyAuthentication(req *http.Request, strategy AuthStrategy, creds Credentials) error {
+	// Render any {field} path placeholders first so path-based credentials are
+	// substituted regardless of the header/query strategy in effect.
+	renderPathTemplate(req, creds)
+
 	switch strategy.Type {
 	case "header":
 		return applyHeaderAuth(req, strategy.Config, creds)
@@ -304,6 +334,10 @@ func ApplyAuthentication(req *http.Request, strategy AuthStrategy, creds Credent
 		return applyHMACPayload(req, strategy.Config, creds)
 	case "aws_sigv4":
 		return applyAWSSigV4(req, strategy.Config, creds)
+	case "path":
+		// The credential is carried in the URL path (rendered above); there is
+		// no header/query material to inject.
+		return nil
 	case "oauth2":
 		// OAuth2 is just a specific configuration of Header auth
 		oauthConfig := map[string]interface{}{

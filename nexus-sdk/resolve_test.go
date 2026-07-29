@@ -47,6 +47,30 @@ func TestResolveToken(t *testing.T) {
 	}
 }
 
+func TestResolveToken_SelfHostedBaseURL(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/resolve", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "k",
+			"credentials":  map[string]any{"access_token": "k", "api_key": "k"},
+			"strategy":     map[string]any{"type": "header"},
+			"api_base_url": "https://jenkins.acme.internal",
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := New(srv.URL)
+	tok, err := c.ResolveToken(context.Background(), "ws-001", "jenkins")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok.APIBaseURL != "https://jenkins.acme.internal" {
+		t.Fatalf("want self-hosted base url, got %q", tok.APIBaseURL)
+	}
+}
+
 func TestResolveToken_MissingParams(t *testing.T) {
 	c := New("http://localhost")
 	_, err := c.ResolveToken(context.Background(), "", "github")
