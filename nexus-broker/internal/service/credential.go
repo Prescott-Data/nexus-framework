@@ -246,6 +246,23 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 	}
 }
 
+// validationClient returns the HTTP client used for credential-validation
+// probes.
+//
+// These MUST NOT go through the shared caching client: cachingTransport keys
+// responses on the request URL alone, so the Authorization header is invisible
+// to it. A probe with a valid credential would then satisfy every later probe
+// for the same endpoint regardless of the credential supplied — accepting
+// arbitrary keys for the whole TTL — and conversely a cached 401 would reject
+// valid credentials. Probes are per-credential and must always hit the provider.
+func (s *connectionService) validationClient() *http.Client {
+	if s.probeClient != nil {
+		return s.probeClient
+	}
+	// Tests construct connectionService directly with only httpClient set.
+	return s.httpClient
+}
+
 func (s *connectionService) validateCredentials(ctx context.Context, authType, authHeader, apiBaseURL, userInfoEndpoint string, providerParams *json.RawMessage, credentials map[string]interface{}) error {
 	// Self-hosted / instance-specific providers have no global api_base_url; the
 	// user supplies their instance URL at connect time (stored as "base_url").
@@ -275,7 +292,7 @@ func (s *connectionService) validateCredentials(ctx context.Context, authType, a
 		return err
 	}
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := s.validationClient().Do(req)
 	if err != nil {
 		// The broker could not reach the provider — this is NOT a credential
 		// rejection. Surface it distinctly (502, logged) so it is not confused
