@@ -35,15 +35,18 @@ type ConnectionService interface {
 }
 
 type connectionService struct {
-	connRepo             repository.ConnectionRepository
-	tokenRepo            repository.TokenRepository
-	providerStore        provider.ProfileStorer
-	audit                audit.Logger
-	baseURL              string
-	redirectPath         string
-	encryptionKey        []byte
-	stateKey             []byte
-	httpClient           *http.Client
+	connRepo      repository.ConnectionRepository
+	tokenRepo     repository.TokenRepository
+	providerStore provider.ProfileStorer
+	audit         audit.Logger
+	baseURL       string
+	redirectPath  string
+	encryptionKey []byte
+	stateKey      []byte
+	httpClient    *http.Client
+	// probeClient is a plain, uncached client reserved for credential-validation
+	// probes. See validationClient() for why these must bypass httpClient.
+	probeClient          *http.Client
 	enforceReturnURL     bool
 	allowedReturnDomains []string
 }
@@ -87,6 +90,7 @@ func NewConnectionService(
 		encryptionKey:        encryptionKey,
 		stateKey:             stateKey,
 		httpClient:           httpClient,
+		probeClient:          newProbeClient(),
 		enforceReturnURL:     enforceReturnURL,
 		allowedReturnDomains: allowedReturnDomains,
 	}

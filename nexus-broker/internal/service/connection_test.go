@@ -299,8 +299,8 @@ func TestConnectionService_GetToken_Active(t *testing.T) {
 	expiresAt := time.Now().Add(1 * time.Hour)
 	tokenData := map[string]interface{}{"access_token": "super-secret-token"}
 	tokenBytes, _ := json.Marshal(tokenData)
-	
-	encryptionKey := []byte("12345678901234567890123456789012") 
+
+	encryptionKey := []byte("12345678901234567890123456789012")
 	encryptedData, _ := vault.Encrypt(encryptionKey, tokenBytes)
 
 	token := &domain.Token{
@@ -316,7 +316,7 @@ func TestConnectionService_GetToken_Active(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
-	
+
 	strategy := resp["strategy"].(map[string]interface{})
 	assert.Equal(t, "oauth2", strategy["type"])
 
@@ -356,6 +356,12 @@ func TestConnectionService_GetToken_NotActive(t *testing.T) {
 // --- setupTestServiceWithHTTPClient creates a service with a custom HTTP client (for mock servers) ---
 
 func setupTestServiceWithHTTPClient(t *testing.T, httpClient *http.Client) (*MockConnectionRepository, *MockTokenRepository, *MockProfileStorer, service.ConnectionService, []byte) {
+	// Credential-validation probes refuse to dial non-public addresses (SSRF
+	// guard, see service.newProbeClient). Callers here point the provider at an
+	// httptest stub on 127.0.0.1, so opt out explicitly rather than depending on
+	// the guard being absent.
+	t.Setenv(service.AllowPrivateProbeTargetsEnv, "true")
+
 	connRepo := new(MockConnectionRepository)
 	tokenRepo := new(MockTokenRepository)
 	providerStore := new(MockProfileStorer)
