@@ -90,7 +90,7 @@ func NewConnectionService(
 		encryptionKey:        encryptionKey,
 		stateKey:             stateKey,
 		httpClient:           httpClient,
-		probeClient:          &http.Client{Timeout: 15 * time.Second},
+		probeClient:          newProbeClient(),
 		enforceReturnURL:     enforceReturnURL,
 		allowedReturnDomains: allowedReturnDomains,
 	}

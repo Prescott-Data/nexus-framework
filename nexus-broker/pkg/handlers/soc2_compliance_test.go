@@ -25,6 +25,12 @@ import (
 // setupSOC2Env initializes a real handler with a real service, wired to a mock database.
 // This allows us to prove end-to-end data flows for compliance auditing.
 func setupSOC2Env(t *testing.T) (*handlers.CallbackHandler, sqlmock.Sqlmock, []byte, *sqlx.DB) {
+	// Credential-validation probes refuse to dial non-public addresses (SSRF
+	// guard, see service.newProbeClient). This suite drives the real service
+	// against an httptest stub on 127.0.0.1, so it opts out explicitly rather
+	// than depending on the guard being absent.
+	t.Setenv(service.AllowPrivateProbeTargetsEnv, "true")
+
 	db, mock, err := sqlmock.New()
 	assert.NoError(t, err)
 
@@ -67,9 +73,9 @@ func setupSOC2Env(t *testing.T) (*handlers.CallbackHandler, sqlmock.Sqlmock, []b
 // they are encrypted before ever touching the database (TSC CC6.1).
 //
 // This test provides two-layer proof:
-//   1. Integration: The handler stores credentials via parameterized SQL (no plaintext in queries)
-//   2. Cryptographic: vault.Encrypt produces ciphertext that does NOT contain plaintext,
-//      and vault.Decrypt recovers the original value.
+//  1. Integration: The handler stores credentials via parameterized SQL (no plaintext in queries)
+//  2. Cryptographic: vault.Encrypt produces ciphertext that does NOT contain plaintext,
+//     and vault.Decrypt recovers the original value.
 func TestSOC2_CC61_EncryptionAtRest(t *testing.T) {
 	handler, mock, stateKey, db := setupSOC2Env(t)
 	defer db.Close()
