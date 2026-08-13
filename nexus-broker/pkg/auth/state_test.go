@@ -116,3 +116,30 @@ func TestVerifyStateInvalidFormat(t *testing.T) {
 		t.Error("VerifyState should fail for wrong number of parts")
 	}
 }
+func TestSignAndVerifyStateWithSAMLRequestID(t *testing.T) {
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+
+	data := StateData{
+		WorkspaceID:   "workspace-123",
+		ProviderID:    "provider-456",
+		Nonce:         "connection-789",
+		SAMLRequestID: "id-authn-request",
+		IAT:           time.Now(),
+	}
+
+	signedState, err := SignState(key, data)
+	if err != nil {
+		t.Fatalf("SignState failed: %v", err)
+	}
+
+	verifiedData, err := VerifyState(key, signedState)
+	if err != nil {
+		t.Fatalf("VerifyState failed: %v", err)
+	}
+	if verifiedData.SAMLRequestID != data.SAMLRequestID {
+		t.Fatalf("SAMLRequestID mismatch: got %q, want %q", verifiedData.SAMLRequestID, data.SAMLRequestID)
+	}
+}

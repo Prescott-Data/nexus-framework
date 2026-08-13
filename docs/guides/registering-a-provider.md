@@ -146,6 +146,26 @@ curl -s -X POST https://your-gateway.example.com/v1/providers \
   }' | jq .
 ```
 
+### SAML provider
+
+SAML providers authenticate users through an enterprise IdP and return signed identity assertions to Nexus. Register the Broker ACS URL (`https://your-broker.example.com/saml/acs`) in the IdP application before testing the flow.
+
+```bash
+curl -s -X POST https://your-gateway.example.com/v1/providers \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{
+    "name": "okta-saml",
+    "auth_type": "saml",
+    "saml_idp_entity_id": "https://idp.example.com/app/abc123",
+    "saml_idp_sso_url": "https://idp.example.com/app/abc123/sso/saml",
+    "saml_idp_x509_cert": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
+    "saml_sp_entity_id": "https://your-broker.example.com/saml/sp/okta"
+  }' | jq .
+```
+
+After registration, retrieve the Broker SP metadata with `GET /saml/metadata/{providerID}` on the Broker using `X-API-Key`, then upload it to the IdP if the IdP supports metadata import.
+
 ### AWS SigV4 provider
 
 For services that use AWS Signature Version 4 request signing. `params.service` and `params.region` configure the signing scope.
@@ -227,7 +247,7 @@ curl -s -X POST https://your-gateway.example.com/v1/providers \
 | Field | Type | Description |
 |---|---|---|
 | `name` | string | Unique alias. Used in all subsequent operations. |
-| `auth_type` | string | `oauth2`, `api_key`, `basic_auth`, `aws_sigv4`, `query_param`, `hmac_payload` |
+| `auth_type` | string | `oauth2`, `saml`, `api_key`, `basic_auth`, `aws_sigv4`, `query_param`, `hmac_payload` |
 | `client_id` | string | OAuth 2.0 client ID |
 | `client_secret` | string | OAuth 2.0 client secret |
 | `issuer` | string | OIDC issuer URL — required when `enable_discovery: true` |
@@ -236,6 +256,10 @@ curl -s -X POST https://your-gateway.example.com/v1/providers \
 | `api_base_url` | string | Provider API root URL |
 | `enable_discovery` | boolean | Fetch endpoints from OIDC discovery document |
 | `scopes` | array | Default scopes to request during the OAuth handshake |
+| `saml_idp_entity_id` | string | SAML IdP entity ID |
+| `saml_idp_sso_url` | string | SAML IdP SSO endpoint |
+| `saml_idp_x509_cert` | string | SAML IdP signing certificate as PEM or base64 DER |
+| `saml_sp_entity_id` | string | Nexus SAML SP entity ID |
 | `params` | object | Provider-specific configuration (schemas, signing params, quirks) |
 
 ### Provider-specific quirks
@@ -253,7 +277,7 @@ Some providers deviate from the OAuth2 spec in ways that require additional para
 
 ## Step 3 — Verify the registration
 
-Test an OAuth2 provider by requesting a connection URL and completing the flow in your browser:
+Test an OAuth2 or SAML provider by requesting a connection URL and completing the flow in your browser:
 
 ```bash
 curl -s -X POST https://your-gateway.example.com/v1/request-connection \
@@ -267,7 +291,7 @@ curl -s -X POST https://your-gateway.example.com/v1/request-connection \
   }' | jq .
 ```
 
-Open the `auth_url` from the response in a browser. After authorizing, you should be redirected to `httpbin.org/get` with `connection_id` and `status=success` as query parameters.
+Open the `auth_url` from the response in a browser. OAuth providers start an authorization-code flow; SAML providers redirect to the IdP with an AuthnRequest. After authorizing, you should be redirected to `httpbin.org/get` with `connection_id` and `status=success` as query parameters.
 
 ---
 

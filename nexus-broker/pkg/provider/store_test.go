@@ -1,8 +1,14 @@
 package provider
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"database/sql"
 	"encoding/json"
+	"encoding/pem"
+	"math/big"
 	"testing"
 	"time"
 
@@ -49,6 +55,10 @@ func TestRegisterProfile_OAuth2(t *testing.T) {
 			sqlmock.AnyArg(),            // params
 			"",                          // description
 			"",                          // category
+			nil,                         // saml_idp_entity_id
+			nil,                         // saml_idp_sso_url
+			nil,                         // saml_idp_x509_cert
+			nil,                         // saml_sp_entity_id
 		).
 		WillReturnRows(rows)
 
@@ -108,6 +118,10 @@ func TestRegisterProfile_StaticKey(t *testing.T) {
 			sqlmock.AnyArg(),        // params
 			"",                      // description
 			"",                      // category
+			nil,                     // saml_idp_entity_id
+			nil,                     // saml_idp_sso_url
+			nil,                     // saml_idp_x509_cert
+			nil,                     // saml_sp_entity_id
 		).
 		WillReturnRows(rows)
 
@@ -192,10 +206,10 @@ func TestGetProfile_NullValues(t *testing.T) {
 	providerID := uuid.New()
 	rows := sqlmock.NewRows([]string{
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
-		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category", "last_health_check_at", "health_status", "health_message",
+		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category", "last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id",
 	}).AddRow(
 		providerID.String(), "null-provider", nil, nil, nil, nil, nil,
-		false, []byte("{}"), "api_key", "", "", "", nil, "", "", nil, "unknown", nil,
+		false, []byte("{}"), "api_key", "", "", "", nil, "", "", nil, "unknown", nil, nil, nil, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles WHERE id = \$1`).
@@ -223,26 +237,26 @@ func TestGetAllProfiles_Success(t *testing.T) {
 	now := time.Now()
 	msg := "timeout reaching token_endpoint"
 
-	// Must match the exact 19-column order in GetAllProfiles SELECT:
+	// Must match the exact 23-column order in GetAllProfiles SELECT:
 	// id, name, client_id, client_secret, auth_url, token_url, issuer,
 	// enable_discovery, scopes, auth_type, auth_header,
 	// api_base_url, user_info_endpoint, params, description, category,
-	// last_health_check_at, health_status, health_message
+	// last_health_check_at, health_status, health_message, SAML metadata
 	rows := sqlmock.NewRows([]string{
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
 		"enable_discovery", "scopes", "auth_type", "auth_header",
 		"api_base_url", "user_info_endpoint", "params", "description", "category",
-		"last_health_check_at", "health_status", "health_message",
+		"last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id",
 	}).AddRow(
 		id1.String(), "google", ptr("cid"), ptr("csec"), ptr("https://auth"), ptr("https://token"), nil,
 		true, []byte("{email,profile}"), "oauth2", "",
 		"https://api.google.com", "/userinfo", nil, "Google OAuth", "Identity",
-		now, "healthy", nil,
+		now, "healthy", nil, nil, nil, nil, nil,
 	).AddRow(
 		id2.String(), "stripe", nil, nil, nil, nil, nil,
 		false, []byte("{}"), "api_key", "Authorization",
 		"https://api.stripe.com", "/v1/account", nil, "Stripe API", "Payments",
-		now, "unhealthy", &msg,
+		now, "unhealthy", &msg, nil, nil, nil, nil,
 	)
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles`).WillReturnRows(rows)
@@ -280,7 +294,7 @@ func TestGetAllProfiles_Empty(t *testing.T) {
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
 		"enable_discovery", "scopes", "auth_type", "auth_header",
 		"api_base_url", "user_info_endpoint", "params", "description", "category",
-		"last_health_check_at", "health_status", "health_message",
+		"last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id",
 	})
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles`).WillReturnRows(rows)
@@ -471,4 +485,166 @@ func TestGetAllHealthStatuses_Empty(t *testing.T) {
 	assert.Len(t, summaries, 0)
 
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+func TestPatchProfile_SAMLRejectsMissingMetadata(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	store := NewStore(sqlx.NewDb(db, "sqlmock"))
+	providerID := uuid.New()
+	rows := sqlmock.NewRows(providerProfileColumns()).AddRow(
+		providerID.String(), "oauth-provider", ptr("cid"), ptr("secret"), ptr("https://auth.example.com"), ptr("https://token.example.com"), nil,
+		false, []byte("{}"), "oauth2", "", "", "", nil, "", "", nil, "unknown", nil, nil, nil, nil, nil,
+	)
+
+	mock.ExpectQuery(`SELECT .* FROM provider_profiles WHERE id = \$1`).
+		WithArgs(providerID).
+		WillReturnRows(rows)
+
+	err = store.PatchProfile(providerID, map[string]interface{}{"auth_type": "saml"})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "saml_idp_entity_id")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPatchProfile_SAMLAcceptsCompleteMetadata(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	store := NewStore(sqlx.NewDb(db, "sqlmock"))
+	providerID := uuid.New()
+	cert := testSAMLProviderCertificatePEM(t)
+	rows := sqlmock.NewRows(providerProfileColumns()).AddRow(
+		providerID.String(), "placeholder-provider", nil, nil, nil, nil, nil,
+		false, []byte("{}"), "api_key", "", "", "", nil, "", "", nil, "unknown", nil, nil, nil, nil, nil,
+	)
+
+	mock.ExpectQuery(`SELECT .* FROM provider_profiles WHERE id = \$1`).
+		WithArgs(providerID).
+		WillReturnRows(rows)
+	mock.ExpectExec(`UPDATE provider_profiles SET`).
+		WithArgs(
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			providerID,
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err = store.PatchProfile(providerID, map[string]interface{}{
+		"auth_type":          "saml",
+		"saml_idp_entity_id": "https://idp.example.com/entity",
+		"saml_idp_sso_url":   "https://idp.example.com/sso",
+		"saml_idp_x509_cert": cert,
+		"saml_sp_entity_id":  "https://broker.example.com/saml/sp",
+	})
+
+	assert.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func providerProfileColumns() []string {
+	return []string{
+		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
+		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category", "last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id",
+	}
+}
+func TestRegisterProfile_SAML(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+	store := NewStore(sqlxDB)
+	cert := testSAMLProviderCertificatePEM(t)
+
+	mock.ExpectQuery(`SELECT id FROM provider_profiles WHERE name`).
+		WithArgs("test-saml-provider").
+		WillReturnError(sql.ErrNoRows)
+
+	rows := sqlmock.NewRows([]string{"id"}).AddRow("c2c2c2c2-c2c2-c2c2-c2c2-c2c2c2c2c2c2")
+	mock.ExpectQuery(`INSERT INTO provider_profiles`).
+		WithArgs(
+			"test-saml-provider",
+			nil,
+			nil,
+			nil,
+			nil,
+			nil,
+			false,
+			pq.Array([]string{}),
+			"saml",
+			"",
+			"",
+			"",
+			nil,
+			"",
+			"",
+			"https://idp.example.com/entity",
+			"https://idp.example.com/sso",
+			cert,
+			"https://broker.example.com/saml/sp",
+		).
+		WillReturnRows(rows)
+
+	profile := Profile{
+		Name:            "test-saml-provider",
+		AuthType:        "saml",
+		SAMLIdpEntityID: ptr("https://idp.example.com/entity"),
+		SAMLIdpSSOURL:   ptr("https://idp.example.com/sso"),
+		SAMLIdpX509Cert: ptr(cert),
+		SAMLSPEntityID:  ptr("https://broker.example.com/saml/sp"),
+	}
+	profileJSON, err := json.Marshal(profile)
+	assert.NoError(t, err)
+
+	result, err := store.RegisterProfile(string(profileJSON))
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, "saml", result.AuthType)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestRegisterProfile_SAMLRejectsMissingMetadata(t *testing.T) {
+	db, _, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	store := NewStore(sqlx.NewDb(db, "sqlmock"))
+	profile := Profile{Name: "bad-saml-provider", AuthType: "saml"}
+	profileJSON, err := json.Marshal(profile)
+	assert.NoError(t, err)
+
+	_, err = store.RegisterProfile(string(profileJSON))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "saml_idp_entity_id")
+}
+
+func testSAMLProviderCertificatePEM(t *testing.T) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		t.Fatalf("generate serial: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "Test IdP"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }

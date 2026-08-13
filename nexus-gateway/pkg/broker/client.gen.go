@@ -22,6 +22,31 @@ const (
 	ApiKeyAuthScopes = "ApiKeyAuth.Scopes"
 )
 
+// Defines values for ConnectionSummaryAuthType.
+const (
+	ConnectionSummaryAuthTypeApiKey    ConnectionSummaryAuthType = "api_key"
+	ConnectionSummaryAuthTypeBasicAuth ConnectionSummaryAuthType = "basic_auth"
+	ConnectionSummaryAuthTypeOauth2    ConnectionSummaryAuthType = "oauth2"
+	ConnectionSummaryAuthTypeSaml      ConnectionSummaryAuthType = "saml"
+)
+
+// Defines values for ConnectionSummaryHealthStatus.
+const (
+	ConnectionSummaryHealthStatusDegraded  ConnectionSummaryHealthStatus = "degraded"
+	ConnectionSummaryHealthStatusExpired   ConnectionSummaryHealthStatus = "expired"
+	ConnectionSummaryHealthStatusHealthy   ConnectionSummaryHealthStatus = "healthy"
+	ConnectionSummaryHealthStatusUnhealthy ConnectionSummaryHealthStatus = "unhealthy"
+	ConnectionSummaryHealthStatusUnknown   ConnectionSummaryHealthStatus = "unknown"
+)
+
+// Defines values for ProviderHealthStatusHealthStatus.
+const (
+	ProviderHealthStatusHealthStatusDegraded  ProviderHealthStatusHealthStatus = "degraded"
+	ProviderHealthStatusHealthStatusHealthy   ProviderHealthStatusHealthStatus = "healthy"
+	ProviderHealthStatusHealthStatusUnhealthy ProviderHealthStatusHealthStatus = "unhealthy"
+	ProviderHealthStatusHealthStatusUnknown   ProviderHealthStatusHealthStatus = "unknown"
+)
+
 // Defines values for ProviderProfileAuthHeader.
 const (
 	ProviderProfileAuthHeaderClientSecretBasic ProviderProfileAuthHeader = "client_secret_basic"
@@ -37,6 +62,7 @@ const (
 	ProviderProfileAuthTypeHmacPayload ProviderProfileAuthType = "hmac_payload"
 	ProviderProfileAuthTypeOauth2      ProviderProfileAuthType = "oauth2"
 	ProviderProfileAuthTypeQueryParam  ProviderProfileAuthType = "query_param"
+	ProviderProfileAuthTypeSaml        ProviderProfileAuthType = "saml"
 )
 
 // Defines values for ProviderProfilePatchAuthHeader.
@@ -47,14 +73,44 @@ const (
 
 // Defines values for ProviderProfilePatchAuthType.
 const (
-	ProviderProfilePatchAuthTypeApiKey      ProviderProfilePatchAuthType = "api_key"
-	ProviderProfilePatchAuthTypeAwsSigv4    ProviderProfilePatchAuthType = "aws_sigv4"
-	ProviderProfilePatchAuthTypeBasicAuth   ProviderProfilePatchAuthType = "basic_auth"
-	ProviderProfilePatchAuthTypeHeader      ProviderProfilePatchAuthType = "header"
-	ProviderProfilePatchAuthTypeHmacPayload ProviderProfilePatchAuthType = "hmac_payload"
-	ProviderProfilePatchAuthTypeOauth2      ProviderProfilePatchAuthType = "oauth2"
-	ProviderProfilePatchAuthTypeQueryParam  ProviderProfilePatchAuthType = "query_param"
+	ApiKey      ProviderProfilePatchAuthType = "api_key"
+	AwsSigv4    ProviderProfilePatchAuthType = "aws_sigv4"
+	BasicAuth   ProviderProfilePatchAuthType = "basic_auth"
+	Header      ProviderProfilePatchAuthType = "header"
+	HmacPayload ProviderProfilePatchAuthType = "hmac_payload"
+	Oauth2      ProviderProfilePatchAuthType = "oauth2"
+	QueryParam  ProviderProfilePatchAuthType = "query_param"
+	Saml        ProviderProfilePatchAuthType = "saml"
 )
+
+// Defines values for TokenResponseHealthStatus.
+const (
+	Degraded  TokenResponseHealthStatus = "degraded"
+	Expired   TokenResponseHealthStatus = "expired"
+	Healthy   TokenResponseHealthStatus = "healthy"
+	Unhealthy TokenResponseHealthStatus = "unhealthy"
+	Unknown   TokenResponseHealthStatus = "unknown"
+)
+
+// ConnectionSummary defines model for ConnectionSummary.
+type ConnectionSummary struct {
+	AuthType          *ConnectionSummaryAuthType     `json:"auth_type,omitempty"`
+	CreatedAt         *time.Time                     `json:"created_at,omitempty"`
+	HealthStatus      *ConnectionSummaryHealthStatus `json:"health_status,omitempty"`
+	Id                *openapi_types.UUID            `json:"id,omitempty"`
+	LastHealthCheckAt *time.Time                     `json:"last_health_check_at"`
+	ProviderId        *openapi_types.UUID            `json:"provider_id,omitempty"`
+	ProviderName      *string                        `json:"provider_name,omitempty"`
+	Scopes            *[]string                      `json:"scopes,omitempty"`
+	Status            *string                        `json:"status,omitempty"`
+	UpdatedAt         *time.Time                     `json:"updated_at,omitempty"`
+}
+
+// ConnectionSummaryAuthType defines model for ConnectionSummary.AuthType.
+type ConnectionSummaryAuthType string
+
+// ConnectionSummaryHealthStatus defines model for ConnectionSummary.HealthStatus.
+type ConnectionSummaryHealthStatus string
 
 // ConsentSpecRequest defines model for ConsentSpecRequest.
 type ConsentSpecRequest struct {
@@ -82,6 +138,19 @@ type MetadataResponse map[string]map[string]struct {
 	UserInfoEndpoint *string   `json:"user_info_endpoint,omitempty"`
 }
 
+// ProviderHealthStatus defines model for ProviderHealthStatus.
+type ProviderHealthStatus struct {
+	// HealthMessage Human-readable detail when status is not healthy
+	HealthMessage     *string                           `json:"health_message,omitempty"`
+	HealthStatus      *ProviderHealthStatusHealthStatus `json:"health_status,omitempty"`
+	Id                *openapi_types.UUID               `json:"id,omitempty"`
+	LastHealthCheckAt *time.Time                        `json:"last_health_check_at"`
+	Name              *string                           `json:"name,omitempty"`
+}
+
+// ProviderHealthStatusHealthStatus defines model for ProviderHealthStatus.HealthStatus.
+type ProviderHealthStatusHealthStatus string
+
 // ProviderProfile defines model for ProviderProfile.
 type ProviderProfile struct {
 	// ApiBaseUrl Root URL for the provider's API (e.g., https://api.github.com)
@@ -105,9 +174,21 @@ type ProviderProfile struct {
 	Name string `json:"name"`
 
 	// Params Provider-specific extra parameters (e.g., prompt, access_type)
-	Params   *map[string]interface{} `json:"params,omitempty"`
-	Scopes   *[]string               `json:"scopes,omitempty"`
-	TokenUrl *string                 `json:"token_url,omitempty"`
+	Params *map[string]interface{} `json:"params,omitempty"`
+
+	// SamlIdpEntityId SAML IdP entity ID. Required when auth_type is saml.
+	SamlIdpEntityId *string `json:"saml_idp_entity_id,omitempty"`
+
+	// SamlIdpSsoUrl SAML IdP SSO endpoint. Required when auth_type is saml.
+	SamlIdpSsoUrl *string `json:"saml_idp_sso_url,omitempty"`
+
+	// SamlIdpX509Cert SAML IdP signing certificate as PEM or base64 DER. Required when auth_type is saml.
+	SamlIdpX509Cert *string `json:"saml_idp_x509_cert,omitempty"`
+
+	// SamlSpEntityId SAML SP entity ID used by Nexus. Required when auth_type is saml.
+	SamlSpEntityId *string   `json:"saml_sp_entity_id,omitempty"`
+	Scopes         *[]string `json:"scopes,omitempty"`
+	TokenUrl       *string   `json:"token_url,omitempty"`
 
 	// UserInfoEndpoint Path to fetch user info (e.g., /user)
 	UserInfoEndpoint *string `json:"user_info_endpoint,omitempty"`
@@ -142,9 +223,21 @@ type ProviderProfilePatch struct {
 	Name *string `json:"name,omitempty"`
 
 	// Params Provider-specific extra parameters (e.g., prompt, access_type)
-	Params   *map[string]interface{} `json:"params,omitempty"`
-	Scopes   *[]string               `json:"scopes,omitempty"`
-	TokenUrl *string                 `json:"token_url,omitempty"`
+	Params *map[string]interface{} `json:"params,omitempty"`
+
+	// SamlIdpEntityId SAML IdP entity ID. Required when auth_type is saml.
+	SamlIdpEntityId *string `json:"saml_idp_entity_id,omitempty"`
+
+	// SamlIdpSsoUrl SAML IdP SSO endpoint. Required when auth_type is saml.
+	SamlIdpSsoUrl *string `json:"saml_idp_sso_url,omitempty"`
+
+	// SamlIdpX509Cert SAML IdP signing certificate as PEM or base64 DER. Required when auth_type is saml.
+	SamlIdpX509Cert *string `json:"saml_idp_x509_cert,omitempty"`
+
+	// SamlSpEntityId SAML SP entity ID used by Nexus. Required when auth_type is saml.
+	SamlSpEntityId *string   `json:"saml_sp_entity_id,omitempty"`
+	Scopes         *[]string `json:"scopes,omitempty"`
+	TokenUrl       *string   `json:"token_url,omitempty"`
 
 	// UserInfoEndpoint Path to fetch user info (e.g., /user)
 	UserInfoEndpoint *string `json:"user_info_endpoint,omitempty"`
@@ -161,15 +254,21 @@ type TokenResponse struct {
 	AccessToken *string `json:"access_token,omitempty"`
 
 	// Credentials Decrypted credentials map
-	Credentials  *map[string]interface{} `json:"credentials,omitempty"`
-	Expiry       *time.Time              `json:"expiry,omitempty"`
-	IdToken      *string                 `json:"id_token,omitempty"`
-	RefreshToken *string                 `json:"refresh_token,omitempty"`
+	Credentials *map[string]interface{} `json:"credentials,omitempty"`
+	Expiry      *time.Time              `json:"expiry,omitempty"`
+
+	// HealthStatus Current health status of the connection
+	HealthStatus *TokenResponseHealthStatus `json:"health_status,omitempty"`
+	IdToken      *string                    `json:"id_token,omitempty"`
+	RefreshToken *string                    `json:"refresh_token,omitempty"`
 
 	// Strategy Auth strategy configuration (e.g. type, config)
 	Strategy  *map[string]interface{} `json:"strategy,omitempty"`
 	TokenType *string                 `json:"token_type,omitempty"`
 }
+
+// TokenResponseHealthStatus Current health status of the connection
+type TokenResponseHealthStatus string
 
 // GetAuthCallbackParams defines parameters for GetAuthCallback.
 type GetAuthCallbackParams struct {
@@ -192,6 +291,12 @@ type GetAuthCaptureSchemaParams struct {
 	State string `form:"state" json:"state"`
 }
 
+// GetConnectionsParams defines parameters for GetConnections.
+type GetConnectionsParams struct {
+	// WorkspaceId Workspace ID to filter connections by
+	WorkspaceId string `form:"workspace_id" json:"workspace_id"`
+}
+
 // GetConnectionsResolveParams defines parameters for GetConnectionsResolve.
 type GetConnectionsResolveParams struct {
 	WorkspaceId  string `form:"workspace_id" json:"workspace_id"`
@@ -201,6 +306,15 @@ type GetConnectionsResolveParams struct {
 // PostProvidersJSONBody defines parameters for PostProviders.
 type PostProvidersJSONBody struct {
 	Profile *ProviderProfile `json:"profile,omitempty"`
+}
+
+// PostSamlAcsFormdataBody defines parameters for PostSamlAcs.
+type PostSamlAcsFormdataBody struct {
+	// RelayState Signed Nexus state from the consent-spec response
+	RelayState string `form:"RelayState" json:"RelayState"`
+
+	// SAMLResponse Base64-encoded SAML response from the IdP
+	SAMLResponse string `form:"SAMLResponse" json:"SAMLResponse"`
 }
 
 // PostAuthCaptureCredentialJSONRequestBody defines body for PostAuthCaptureCredential for application/json ContentType.
@@ -217,6 +331,9 @@ type PatchProvidersIdJSONRequestBody = ProviderProfilePatch
 
 // PutProvidersIdJSONRequestBody defines body for PutProvidersId for application/json ContentType.
 type PutProvidersIdJSONRequestBody = ProviderProfile
+
+// PostSamlAcsFormdataRequestBody defines body for PostSamlAcs for application/x-www-form-urlencoded ContentType.
+type PostSamlAcsFormdataRequestBody PostSamlAcsFormdataBody
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -307,6 +424,9 @@ type ClientInterface interface {
 
 	PostAuthConsentSpec(ctx context.Context, body PostAuthConsentSpecJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetConnections request
+	GetConnections(ctx context.Context, params *GetConnectionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetConnectionsResolve request
 	GetConnectionsResolve(ctx context.Context, params *GetConnectionsResolveParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -330,6 +450,9 @@ type ClientInterface interface {
 	// GetProvidersByNameName request
 	GetProvidersByNameName(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetProvidersHealth request
+	GetProvidersHealth(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetProvidersMetadata request
 	GetProvidersMetadata(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -348,6 +471,14 @@ type ClientInterface interface {
 	PutProvidersIdWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	PutProvidersId(ctx context.Context, id openapi_types.UUID, body PutProvidersIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostSamlAcsWithBody request with any body
+	PostSamlAcsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostSamlAcsWithFormdataBody(ctx context.Context, body PostSamlAcsFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSamlMetadataProviderID request
+	GetSamlMetadataProviderID(ctx context.Context, providerID openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) GetAuthCallback(ctx context.Context, params *GetAuthCallbackParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -412,6 +543,18 @@ func (c *Client) PostAuthConsentSpecWithBody(ctx context.Context, contentType st
 
 func (c *Client) PostAuthConsentSpec(ctx context.Context, body PostAuthConsentSpecJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostAuthConsentSpecRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetConnections(ctx context.Context, params *GetConnectionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetConnectionsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -518,6 +661,18 @@ func (c *Client) GetProvidersByNameName(ctx context.Context, name string, reqEdi
 	return c.Client.Do(req)
 }
 
+func (c *Client) GetProvidersHealth(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetProvidersHealthRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) GetProvidersMetadata(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetProvidersMetadataRequest(c.Server)
 	if err != nil {
@@ -592,6 +747,42 @@ func (c *Client) PutProvidersIdWithBody(ctx context.Context, id openapi_types.UU
 
 func (c *Client) PutProvidersId(ctx context.Context, id openapi_types.UUID, body PutProvidersIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPutProvidersIdRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostSamlAcsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostSamlAcsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostSamlAcsWithFormdataBody(ctx context.Context, body PostSamlAcsFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostSamlAcsRequestWithFormdataBody(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetSamlMetadataProviderID(ctx context.Context, providerID openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSamlMetadataProviderIDRequest(c.Server, providerID)
 	if err != nil {
 		return nil, err
 	}
@@ -788,6 +979,51 @@ func NewPostAuthConsentSpecRequestWithBody(server string, contentType string, bo
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetConnectionsRequest generates requests for GetConnections
+func NewGetConnectionsRequest(server string, params *GetConnectionsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/connections")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, params.WorkspaceId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -1045,6 +1281,33 @@ func NewGetProvidersByNameNameRequest(server string, name string) (*http.Request
 	return req, nil
 }
 
+// NewGetProvidersHealthRequest generates requests for GetProvidersHealth
+func NewGetProvidersHealthRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/providers/health")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetProvidersMetadataRequest generates requests for GetProvidersMetadata
 func NewGetProvidersMetadataRequest(server string) (*http.Request, error) {
 	var err error
@@ -1234,6 +1497,80 @@ func NewPutProvidersIdRequestWithBody(server string, id openapi_types.UUID, cont
 	return req, nil
 }
 
+// NewPostSamlAcsRequestWithFormdataBody calls the generic PostSamlAcs builder with application/x-www-form-urlencoded body
+func NewPostSamlAcsRequestWithFormdataBody(server string, body PostSamlAcsFormdataRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	bodyStr, err := runtime.MarshalForm(body, nil)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = strings.NewReader(bodyStr.Encode())
+	return NewPostSamlAcsRequestWithBody(server, "application/x-www-form-urlencoded", bodyReader)
+}
+
+// NewPostSamlAcsRequestWithBody generates requests for PostSamlAcs with any type of body
+func NewPostSamlAcsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/saml/acs")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetSamlMetadataProviderIDRequest generates requests for GetSamlMetadataProviderID
+func NewGetSamlMetadataProviderIDRequest(server string, providerID openapi_types.UUID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "providerID", runtime.ParamLocationPath, providerID)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/saml/metadata/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1293,6 +1630,9 @@ type ClientWithResponsesInterface interface {
 
 	PostAuthConsentSpecWithResponse(ctx context.Context, body PostAuthConsentSpecJSONRequestBody, reqEditors ...RequestEditorFn) (*PostAuthConsentSpecResponse, error)
 
+	// GetConnectionsWithResponse request
+	GetConnectionsWithResponse(ctx context.Context, params *GetConnectionsParams, reqEditors ...RequestEditorFn) (*GetConnectionsResponse, error)
+
 	// GetConnectionsResolveWithResponse request
 	GetConnectionsResolveWithResponse(ctx context.Context, params *GetConnectionsResolveParams, reqEditors ...RequestEditorFn) (*GetConnectionsResolveResponse, error)
 
@@ -1316,6 +1656,9 @@ type ClientWithResponsesInterface interface {
 	// GetProvidersByNameNameWithResponse request
 	GetProvidersByNameNameWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetProvidersByNameNameResponse, error)
 
+	// GetProvidersHealthWithResponse request
+	GetProvidersHealthWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetProvidersHealthResponse, error)
+
 	// GetProvidersMetadataWithResponse request
 	GetProvidersMetadataWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetProvidersMetadataResponse, error)
 
@@ -1334,6 +1677,14 @@ type ClientWithResponsesInterface interface {
 	PutProvidersIdWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutProvidersIdResponse, error)
 
 	PutProvidersIdWithResponse(ctx context.Context, id openapi_types.UUID, body PutProvidersIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PutProvidersIdResponse, error)
+
+	// PostSamlAcsWithBodyWithResponse request with any body
+	PostSamlAcsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostSamlAcsResponse, error)
+
+	PostSamlAcsWithFormdataBodyWithResponse(ctx context.Context, body PostSamlAcsFormdataRequestBody, reqEditors ...RequestEditorFn) (*PostSamlAcsResponse, error)
+
+	// GetSamlMetadataProviderIDWithResponse request
+	GetSamlMetadataProviderIDWithResponse(ctx context.Context, providerID openapi_types.UUID, reqEditors ...RequestEditorFn) (*GetSamlMetadataProviderIDResponse, error)
 }
 
 type GetAuthCallbackResponse struct {
@@ -1421,6 +1772,28 @@ func (r PostAuthConsentSpecResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r PostAuthConsentSpecResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetConnectionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]ConnectionSummary
+}
+
+// Status returns HTTPResponse.Status
+func (r GetConnectionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetConnectionsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -1588,6 +1961,28 @@ func (r GetProvidersByNameNameResponse) StatusCode() int {
 	return 0
 }
 
+type GetProvidersHealthResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]ProviderHealthStatus
+}
+
+// Status returns HTTPResponse.Status
+func (r GetProvidersHealthResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetProvidersHealthResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetProvidersMetadataResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1695,6 +2090,48 @@ func (r PutProvidersIdResponse) StatusCode() int {
 	return 0
 }
 
+type PostSamlAcsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r PostSamlAcsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostSamlAcsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetSamlMetadataProviderIDResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSamlMetadataProviderIDResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSamlMetadataProviderIDResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // GetAuthCallbackWithResponse request returning *GetAuthCallbackResponse
 func (c *ClientWithResponses) GetAuthCallbackWithResponse(ctx context.Context, params *GetAuthCallbackParams, reqEditors ...RequestEditorFn) (*GetAuthCallbackResponse, error) {
 	rsp, err := c.GetAuthCallback(ctx, params, reqEditors...)
@@ -1745,6 +2182,15 @@ func (c *ClientWithResponses) PostAuthConsentSpecWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParsePostAuthConsentSpecResponse(rsp)
+}
+
+// GetConnectionsWithResponse request returning *GetConnectionsResponse
+func (c *ClientWithResponses) GetConnectionsWithResponse(ctx context.Context, params *GetConnectionsParams, reqEditors ...RequestEditorFn) (*GetConnectionsResponse, error) {
+	rsp, err := c.GetConnections(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetConnectionsResponse(rsp)
 }
 
 // GetConnectionsResolveWithResponse request returning *GetConnectionsResolveResponse
@@ -1818,6 +2264,15 @@ func (c *ClientWithResponses) GetProvidersByNameNameWithResponse(ctx context.Con
 	return ParseGetProvidersByNameNameResponse(rsp)
 }
 
+// GetProvidersHealthWithResponse request returning *GetProvidersHealthResponse
+func (c *ClientWithResponses) GetProvidersHealthWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetProvidersHealthResponse, error) {
+	rsp, err := c.GetProvidersHealth(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetProvidersHealthResponse(rsp)
+}
+
 // GetProvidersMetadataWithResponse request returning *GetProvidersMetadataResponse
 func (c *ClientWithResponses) GetProvidersMetadataWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetProvidersMetadataResponse, error) {
 	rsp, err := c.GetProvidersMetadata(ctx, reqEditors...)
@@ -1877,6 +2332,32 @@ func (c *ClientWithResponses) PutProvidersIdWithResponse(ctx context.Context, id
 		return nil, err
 	}
 	return ParsePutProvidersIdResponse(rsp)
+}
+
+// PostSamlAcsWithBodyWithResponse request with arbitrary body returning *PostSamlAcsResponse
+func (c *ClientWithResponses) PostSamlAcsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostSamlAcsResponse, error) {
+	rsp, err := c.PostSamlAcsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostSamlAcsResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostSamlAcsWithFormdataBodyWithResponse(ctx context.Context, body PostSamlAcsFormdataRequestBody, reqEditors ...RequestEditorFn) (*PostSamlAcsResponse, error) {
+	rsp, err := c.PostSamlAcsWithFormdataBody(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostSamlAcsResponse(rsp)
+}
+
+// GetSamlMetadataProviderIDWithResponse request returning *GetSamlMetadataProviderIDResponse
+func (c *ClientWithResponses) GetSamlMetadataProviderIDWithResponse(ctx context.Context, providerID openapi_types.UUID, reqEditors ...RequestEditorFn) (*GetSamlMetadataProviderIDResponse, error) {
+	rsp, err := c.GetSamlMetadataProviderID(ctx, providerID, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSamlMetadataProviderIDResponse(rsp)
 }
 
 // ParseGetAuthCallbackResponse parses an HTTP response from a GetAuthCallbackWithResponse call
@@ -1958,6 +2439,32 @@ func ParsePostAuthConsentSpecResponse(rsp *http.Response) (*PostAuthConsentSpecR
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest ConsentSpecResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetConnectionsResponse parses an HTTP response from a GetConnectionsWithResponse call
+func ParseGetConnectionsResponse(rsp *http.Response) (*GetConnectionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetConnectionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []ConnectionSummary
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -2148,6 +2655,32 @@ func ParseGetProvidersByNameNameResponse(rsp *http.Response) (*GetProvidersByNam
 	return response, nil
 }
 
+// ParseGetProvidersHealthResponse parses an HTTP response from a GetProvidersHealthWithResponse call
+func ParseGetProvidersHealthResponse(rsp *http.Response) (*GetProvidersHealthResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetProvidersHealthResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []ProviderHealthStatus
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetProvidersMetadataResponse parses an HTTP response from a GetProvidersMetadataWithResponse call
 func ParseGetProvidersMetadataResponse(rsp *http.Response) (*GetProvidersMetadataResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -2241,6 +2774,38 @@ func ParsePutProvidersIdResponse(rsp *http.Response) (*PutProvidersIdResponse, e
 	}
 
 	response := &PutProvidersIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParsePostSamlAcsResponse parses an HTTP response from a PostSamlAcsWithResponse call
+func ParsePostSamlAcsResponse(rsp *http.Response) (*PostSamlAcsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostSamlAcsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseGetSamlMetadataProviderIDResponse parses an HTTP response from a GetSamlMetadataProviderIDWithResponse call
+func ParseGetSamlMetadataProviderIDResponse(rsp *http.Response) (*GetSamlMetadataProviderIDResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSamlMetadataProviderIDResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}

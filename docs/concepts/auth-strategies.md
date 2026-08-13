@@ -6,7 +6,7 @@ icon: material/shield-key-outline
 
 An authentication strategy defines how the Bridge applies a connection's credentials to an outgoing request. The strategy is stored on the provider profile and returned as part of every token response. Your agent code does not select or configure strategies at runtime — the Bridge reads and applies them automatically.
 
-There are six strategy types.
+There are six transport strategy types. SAML connections return `strategy.type: "saml"` for identity context, but SAML assertions are not applied by the Bridge to outgoing HTTP or gRPC requests.
 
 ## oauth2
 
@@ -93,3 +93,9 @@ The stored credentials must include:
 | `session_token` | no | Session token for temporary / assumed-role credentials |
 
 The Bridge sets `X-Amz-Content-Sha256`, computes the payload hash, and calls the AWS SDK's `v4.Signer` to complete full SigV4 signing.
+
+## SAML identity assertions
+
+SAML is handled as a connection and identity assertion flow, not as a transport injection strategy. The Broker validates the SAML response at `/saml/acs`, stores the extracted `name_id` and attributes, and returns them from token retrieval with `strategy.type: "saml"`.
+
+Use this when an application needs enterprise SSO identity context. Do not pass SAML connections to Bridge WebSocket or gRPC maintainers unless you add an application-specific strategy for the downstream API.

@@ -2,12 +2,20 @@ package service_test
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"database/sql"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -719,4 +727,244 @@ func TestConnectionService_ExchangeCodeForTokens_Success(t *testing.T) {
 	connRepo.AssertExpectations(t)
 	providerStore.AssertExpectations(t)
 	tokenRepo.AssertExpectations(t)
+}
+func TestConnectionService_CreateConsentSpec_SAML(t *testing.T) {
+	connRepo, _, providerStore, svc, stateKey := setupTestServiceWithHTTPClient(t, http.DefaultClient)
+
+	req := service.CreateConsentRequest{
+		WorkspaceID: "ws-saml",
+		ProviderID:  uuid.New().String(),
+		ReturnURL:   "http://app.example.com/callback",
+	}
+	providerID := uuid.MustParse(req.ProviderID)
+	cert := testSAMLConnectionCertificatePEM(t)
+	prof := &provider.Profile{
+		ID:              providerID,
+		Name:            "test-saml",
+		AuthType:        "saml",
+		SAMLIdpEntityID: ptr("https://idp.example.com/entity"),
+		SAMLIdpSSOURL:   ptr("https://idp.example.com/sso"),
+		SAMLIdpX509Cert: ptr(cert),
+		SAMLSPEntityID:  ptr("https://broker.example.com/saml/sp"),
+	}
+
+	providerStore.On("GetProfile", providerID).Return(prof, nil)
+	connRepo.On("Create", mock.Anything, mock.MatchedBy(func(c *domain.Connection) bool {
+		return c.WorkspaceID == req.WorkspaceID && c.ProviderID == providerID && c.ReturnURL == req.ReturnURL && !c.CodeVerifier.Valid
+	})).Return(nil)
+
+	resp, err := svc.CreateConsentSpec(context.Background(), req)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, req.ProviderID, resp.ProviderID)
+	assert.NotEmpty(t, resp.State)
+
+	authURL, err := url.Parse(resp.AuthURL)
+	assert.NoError(t, err)
+	assert.Equal(t, "https", authURL.Scheme)
+	assert.Equal(t, "idp.example.com", authURL.Host)
+	assert.Equal(t, "/sso", authURL.Path)
+	assert.NotEmpty(t, authURL.Query().Get("SAMLRequest"))
+	assert.Equal(t, resp.State, authURL.Query().Get("RelayState"))
+
+	stateData, err := auth.VerifyState(stateKey, resp.State)
+	assert.NoError(t, err)
+	assert.Equal(t, req.WorkspaceID, stateData.WorkspaceID)
+	assert.Equal(t, req.ProviderID, stateData.ProviderID)
+	assert.NotEmpty(t, stateData.Nonce)
+	assert.NotEmpty(t, stateData.SAMLRequestID)
+
+	providerStore.AssertExpectations(t)
+	connRepo.AssertExpectations(t)
+}
+
+func TestConnectionService_GetToken_SAML(t *testing.T) {
+	connRepo, tokenRepo, _, svc := setupTestService(t)
+
+	connID := uuid.New()
+	connWithProv := &domain.ConnectionWithProvider{
+		Connection: domain.Connection{ID: connID, Status: "active"},
+		AuthType:   "saml",
+	}
+	expiresAt := time.Now().Add(time.Hour)
+	credentialData := map[string]interface{}{
+		"assertion_type": "saml2",
+		"name_id":        "user@example.com",
+		"attributes": map[string]interface{}{
+			"email": "user@example.com",
+		},
+	}
+	credentialBytes, _ := json.Marshal(credentialData)
+	encryptedData, _ := vault.Encrypt([]byte("12345678901234567890123456789012"), credentialBytes)
+	token := &domain.Token{ConnectionID: connID, EncryptedData: encryptedData, ExpiresAt: &expiresAt}
+
+	connRepo.On("GetWithProvider", mock.Anything, connID).Return(connWithProv, nil)
+	tokenRepo.On("Get", mock.Anything, connID).Return(token, nil)
+
+	resp, _, err := svc.GetToken(context.Background(), connID)
+
+	assert.NoError(t, err)
+	strategy := resp["strategy"].(map[string]interface{})
+	assert.Equal(t, "saml", strategy["type"])
+	creds := resp["credentials"].(map[string]interface{})
+	assert.Equal(t, "user@example.com", creds["name_id"])
+	assert.False(t, creds["expired"].(bool))
+
+	connRepo.AssertExpectations(t)
+	tokenRepo.AssertExpectations(t)
+}
+
+func TestConnectionService_GetToken_SAMLExpiredRequiresAttention(t *testing.T) {
+	connRepo, tokenRepo, _, svc := setupTestService(t)
+
+	connID := uuid.New()
+	connWithProv := &domain.ConnectionWithProvider{
+		Connection: domain.Connection{ID: connID, Status: "active"},
+		AuthType:   "saml",
+	}
+	expiresAt := time.Now().Add(-time.Minute)
+	credentialBytes, _ := json.Marshal(map[string]interface{}{"assertion_type": "saml2"})
+	encryptedData, _ := vault.Encrypt([]byte("12345678901234567890123456789012"), credentialBytes)
+	token := &domain.Token{ConnectionID: connID, EncryptedData: encryptedData, ExpiresAt: &expiresAt}
+
+	connRepo.On("GetWithProvider", mock.Anything, connID).Return(connWithProv, nil)
+	tokenRepo.On("Get", mock.Anything, connID).Return(token, nil)
+	connRepo.On("UpdateStatus", mock.Anything, connID, "attention").Return(nil)
+
+	resp, _, err := svc.GetToken(context.Background(), connID)
+
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+	var svcErr *service.ServiceError
+	assert.True(t, errors.As(err, &svcErr))
+	assert.Equal(t, "attention_required", svcErr.Code)
+
+	connRepo.AssertExpectations(t)
+	tokenRepo.AssertExpectations(t)
+}
+
+func TestConnectionService_GetSAMLMetadata(t *testing.T) {
+	_, _, providerStore, svc := setupTestService(t)
+
+	providerID := uuid.New()
+	cert := testSAMLConnectionCertificatePEM(t)
+	prof := &provider.Profile{
+		ID:              providerID,
+		Name:            "test-saml",
+		AuthType:        "saml",
+		SAMLIdpEntityID: ptr("https://idp.example.com/entity"),
+		SAMLIdpSSOURL:   ptr("https://idp.example.com/sso"),
+		SAMLIdpX509Cert: ptr(cert),
+		SAMLSPEntityID:  ptr("https://broker.example.com/saml/sp"),
+	}
+	providerStore.On("GetProfile", providerID).Return(prof, nil)
+
+	metadata, err := svc.GetSAMLMetadata(context.Background(), providerID)
+
+	assert.NoError(t, err)
+	assert.Contains(t, string(metadata), "<EntityDescriptor")
+	assert.Contains(t, string(metadata), "https://broker.example.com/saml/sp")
+	assert.Contains(t, string(metadata), "AssertionConsumerService")
+	providerStore.AssertExpectations(t)
+}
+
+func TestConnectionService_GetSAMLMetadataRejectsNonSAML(t *testing.T) {
+	_, _, providerStore, svc := setupTestService(t)
+
+	providerID := uuid.New()
+	providerStore.On("GetProfile", providerID).Return(&provider.Profile{ID: providerID, AuthType: "oauth2"}, nil)
+
+	metadata, err := svc.GetSAMLMetadata(context.Background(), providerID)
+
+	assert.Error(t, err)
+	assert.Nil(t, metadata)
+	var svcErr *service.ServiceError
+	assert.True(t, errors.As(err, &svcErr))
+	assert.Equal(t, "invalid_auth_type", svcErr.Code)
+	providerStore.AssertExpectations(t)
+}
+
+func TestConnectionService_ExchangeSAMLResponse_MissingResponse(t *testing.T) {
+	_, _, _, svc := setupTestService(t)
+	req := httptest.NewRequest(http.MethodPost, "/saml/acs", strings.NewReader("RelayState=state"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	returnURL, err := svc.ExchangeSAMLResponse(context.Background(), req)
+
+	assert.Error(t, err)
+	assert.Empty(t, returnURL)
+	var svcErr *service.ServiceError
+	assert.True(t, errors.As(err, &svcErr))
+	assert.Equal(t, "missing_saml_response", svcErr.Code)
+}
+
+func TestConnectionService_ExchangeSAMLResponse_InvalidAssertionMarksFailed(t *testing.T) {
+	connRepo, _, providerStore, svc, stateKey := setupTestServiceWithHTTPClient(t, http.DefaultClient)
+
+	connID := uuid.New()
+	providerID := uuid.New()
+	stateData := auth.StateData{
+		WorkspaceID:   "ws-saml",
+		ProviderID:    providerID.String(),
+		Nonce:         connID.String(),
+		SAMLRequestID: "id-authn-request",
+		IAT:           time.Now(),
+	}
+	signedState, err := auth.SignState(stateKey, stateData)
+	assert.NoError(t, err)
+
+	conn := &domain.Connection{ID: connID, ProviderID: providerID, ReturnURL: "http://app.example.com/callback"}
+	cert := testSAMLConnectionCertificatePEM(t)
+	prof := &provider.Profile{
+		ID:              providerID,
+		Name:            "test-saml",
+		AuthType:        "saml",
+		SAMLIdpEntityID: ptr("https://idp.example.com/entity"),
+		SAMLIdpSSOURL:   ptr("https://idp.example.com/sso"),
+		SAMLIdpX509Cert: ptr(cert),
+		SAMLSPEntityID:  ptr("https://broker.example.com/saml/sp"),
+	}
+
+	connRepo.On("GetPending", mock.Anything, connID).Return(conn, nil)
+	providerStore.On("GetProfile", providerID).Return(prof, nil)
+	connRepo.On("UpdateStatus", mock.Anything, connID, "failed").Return(nil)
+
+	form := url.Values{"SAMLResponse": {"not-valid-saml"}, "RelayState": {signedState}}
+	req := httptest.NewRequest(http.MethodPost, "/saml/acs", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	returnURL, err := svc.ExchangeSAMLResponse(context.Background(), req)
+
+	assert.Error(t, err)
+	assert.Empty(t, returnURL)
+	var svcErr *service.ServiceError
+	assert.True(t, errors.As(err, &svcErr))
+	assert.Equal(t, "saml_verification_failed", svcErr.Code)
+
+	connRepo.AssertExpectations(t)
+	providerStore.AssertExpectations(t)
+}
+func testSAMLConnectionCertificatePEM(t *testing.T) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		t.Fatalf("generate serial: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "Test IdP"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }
