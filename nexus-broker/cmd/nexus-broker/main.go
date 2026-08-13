@@ -79,6 +79,7 @@ func main() {
 
 	connRepo := instrumented.NewConnectionRepository(postgres.NewConnectionRepository(db))
 	tokenRepo := instrumented.NewTokenRepository(postgres.NewTokenRepository(db))
+	agentRepo := instrumented.NewAgentRepository(postgres.NewAgentRepository(db))
 
 	connSvc := service.NewConnectionService(
 		connRepo,
@@ -103,6 +104,7 @@ func main() {
 	})
 	auditHandler := handlers.NewAuditHandler(db)
 	connectionsHandler := handlers.NewConnectionsHandler(connSvc)
+	agentsHandler := handlers.NewAgentsHandler(service.NewAgentService(agentRepo, connRepo, connSvc))
 
 	router := srv.Router()
 	router.Get("/auth/callback", callbackHandler.Handle)
@@ -115,6 +117,15 @@ func main() {
 		server.AllowlistMiddleware(cfg.RequireAllowlist, cfg.AllowedCIDRs),
 	)
 	protected.Get("/audit", auditHandler.List)
+	protected.Route("/admin/v1/agents", func(r chi.Router) {
+		r.Post("/", agentsHandler.Register)
+		r.Get("/", agentsHandler.List)
+	})
+	protected.Route("/v1/agent-sessions", func(r chi.Router) {
+		r.Post("/", agentsHandler.CreateSession)
+		r.Get("/{sessionID}", agentsHandler.GetSession)
+		r.Delete("/{sessionID}", agentsHandler.CloseSession)
+	})
 	protected.Route("/providers", func(r chi.Router) {
 		r.Post("/", providersHandler.Register)
 		r.Get("/", providersHandler.List)

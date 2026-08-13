@@ -63,6 +63,10 @@ func ErrConflict(code, message string) *ServiceError {
 	return NewServiceError(http.StatusConflict, nil, code, message)
 }
 
+func ErrForbidden(code, message string) *ServiceError {
+	return NewServiceError(http.StatusForbidden, nil, code, message)
+}
+
 // ErrBadGatewayWithErr is for failures reaching an upstream provider (e.g. the
 // broker cannot reach a provider's API to validate a credential). Status 502 so
 // the cause is logged by writeServiceError and clients can distinguish it from

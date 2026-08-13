@@ -10,14 +10,14 @@ import (
 
 // Connection represents a user's connection to a provider
 type Connection struct {
-	ID           uuid.UUID
-	WorkspaceID  string
-	ProviderID   uuid.UUID
-	CodeVerifier sql.NullString
-	Scopes       []string
-	ReturnURL    string
-	Status       string
-	ExpiresAt    time.Time
+	ID                uuid.UUID
+	WorkspaceID       string
+	ProviderID        uuid.UUID
+	CodeVerifier      sql.NullString
+	Scopes            []string
+	ReturnURL         string
+	Status            string
+	ExpiresAt         time.Time
 	LastHealthCheckAt sql.NullTime
 	HealthStatus      string
 }
@@ -53,4 +53,33 @@ type Token struct {
 	ConnectionID  uuid.UUID
 	EncryptedData string
 	ExpiresAt     *time.Time
+}
+
+// Agent represents a registered agent principal and its authorization ceiling.
+type Agent struct {
+	ID            string    `json:"agent_id"`
+	Description   string    `json:"description,omitempty"`
+	AllowedScopes []string  `json:"allowed_scopes"`
+	CreatedAt     time.Time `json:"created_at"`
+	Active        bool      `json:"active"`
+}
+
+// AgentSession records a short-lived scoped credential grant for an agent.
+type AgentSession struct {
+	SessionID      string     `json:"session_id"`
+	AgentID        string     `json:"agent_id"`
+	ConnectionID   uuid.UUID  `json:"connection_id"`
+	ScopesGranted  []string   `json:"scopes_granted"`
+	ExpiresAt      time.Time  `json:"expires_at"`
+	ClosedAt       *time.Time `json:"closed_at,omitempty"`
+	OBO            bool       `json:"obo"`
+	ActingFor      string     `json:"acting_for,omitempty"`
+	TenantID       string     `json:"tenant_id,omitempty"`
+	ClearanceLevel int        `json:"clearance_level"`
+	CreatedAt      time.Time  `json:"created_at"`
+}
+
+// Active reports whether the session can still be used.
+func (s AgentSession) Active(now time.Time) bool {
+	return s.ClosedAt == nil && s.ExpiresAt.After(now)
 }

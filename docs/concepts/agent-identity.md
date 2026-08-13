@@ -33,7 +33,7 @@ The `allowed_scopes` list is the agent's authorization ceiling. An agent can req
 
 ## Agent sessions
 
-An agent session is a short-lived, scoped credential grant. The agent requests a session specifying exactly which scopes it needs for the current operation:
+An agent session is a short-lived, scoped credential grant. The agent requests a session specifying exactly which scopes it needs for the current operation and which underlying connection to use. Pass either `connection_id` directly, or pass `workspace_id` with `provider_name` to resolve the active connection.
 
 ```bash
 curl -X POST https://your-gateway.example.com/v1/agent-sessions \
@@ -41,6 +41,7 @@ curl -X POST https://your-gateway.example.com/v1/agent-sessions \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "crm-agent",
+    "workspace_id": "user_sarah",
     "provider_name": "salesforce",
     "scopes": ["crm:contacts:read"],
     "ttl_seconds": 900
