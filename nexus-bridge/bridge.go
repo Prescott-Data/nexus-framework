@@ -196,7 +196,8 @@ func (b *Bridge) manageConnection(parentCtx context.Context, connectionID string
 	}
 	defer conn.Close()
 	connectedAt := time.Now()
-	defer b.metrics.ObserveConnectionDuration(time.Since(connectedAt))
+	// Wrap in a closure so the duration is measured at exit, not at defer time.
+	defer func() { b.metrics.ObserveConnectionDuration(time.Since(connectedAt)) }()
 
 	// --- Concurrency and Shutdown Management ---
 	done := make(chan struct{}) // Channel to signal shutdown to goroutines
