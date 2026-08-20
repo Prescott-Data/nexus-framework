@@ -2,9 +2,10 @@ package repository
 
 import (
 	"context"
+	"time"
 
-	"github.com/google/uuid"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
+	"github.com/google/uuid"
 )
 
 // ConnectionRepository handles database operations for connections
@@ -28,4 +29,14 @@ type ConnectionRepository interface {
 type TokenRepository interface {
 	Upsert(ctx context.Context, token *domain.Token) error
 	Get(ctx context.Context, connectionID uuid.UUID) (*domain.Token, error)
+}
+
+// AgentRepository handles database operations for agent principals and sessions.
+type AgentRepository interface {
+	CreateAgent(ctx context.Context, agent *domain.Agent) error
+	GetAgent(ctx context.Context, id string) (*domain.Agent, error)
+	ListAgents(ctx context.Context) ([]domain.Agent, error)
+	CreateSession(ctx context.Context, session *domain.AgentSession) error
+	GetSession(ctx context.Context, sessionID string) (*domain.AgentSession, error)
+	CloseSession(ctx context.Context, sessionID string, closedAt time.Time) error
 }

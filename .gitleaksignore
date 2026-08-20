@@ -1,0 +1,3 @@
+# gitleaks false positives (fingerprints from hook output)
+# Docs curl example with a "your-api-key" placeholder, not a real secret.
+docs/guides/registering-a-provider.md:curl-auth-header:154

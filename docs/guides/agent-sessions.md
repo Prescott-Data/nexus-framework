@@ -101,6 +101,7 @@ When the agent needs to call Salesforce for a user, it requests a session. In Go
 ```go
 session, err := nexusClient.RequestAgentSession(ctx, oauthsdk.AgentSessionInput{
     AgentID:      "crm-agent",
+    WorkspaceID:  "user_sarah",
     ProviderName: "salesforce",
     Scopes:       []string{"crm:contacts:read"},
     TTL:          15 * time.Minute,
@@ -121,6 +122,7 @@ In Python:
 ```python
 session = nexus.request_agent_session(
     agent_id="crm-agent",
+    workspace_id="user_sarah",
     provider="salesforce",
     scopes=["crm:contacts:read"],
 )
@@ -140,6 +142,7 @@ In TypeScript:
 ```typescript
 const session = await nexus.requestAgentSession({
   agentId: 'crm-agent',
+  workspaceId: 'user_sarah',
   provider: 'salesforce',
   scopes: ['crm:contacts:read'],
   ttl: 900,

@@ -128,3 +128,45 @@ func (r *TokenRepository) Get(ctx context.Context, connectionID uuid.UUID) (*dom
 	defer observe("token", "Get", time.Now())
 	return r.inner.Get(ctx, connectionID)
 }
+
+// --- AgentRepository decorator ---
+
+// AgentRepository wraps repository.AgentRepository with latency instrumentation.
+type AgentRepository struct {
+	inner repository.AgentRepository
+}
+
+// NewAgentRepository wraps an AgentRepository with Prometheus latency histograms.
+func NewAgentRepository(inner repository.AgentRepository) repository.AgentRepository {
+	return &AgentRepository{inner: inner}
+}
+
+func (r *AgentRepository) CreateAgent(ctx context.Context, agent *domain.Agent) error {
+	defer observe("agent", "CreateAgent", time.Now())
+	return r.inner.CreateAgent(ctx, agent)
+}
+
+func (r *AgentRepository) GetAgent(ctx context.Context, id string) (*domain.Agent, error) {
+	defer observe("agent", "GetAgent", time.Now())
+	return r.inner.GetAgent(ctx, id)
+}
+
+func (r *AgentRepository) ListAgents(ctx context.Context) ([]domain.Agent, error) {
+	defer observe("agent", "ListAgents", time.Now())
+	return r.inner.ListAgents(ctx)
+}
+
+func (r *AgentRepository) CreateSession(ctx context.Context, session *domain.AgentSession) error {
+	defer observe("agent", "CreateSession", time.Now())
+	return r.inner.CreateSession(ctx, session)
+}
+
+func (r *AgentRepository) GetSession(ctx context.Context, sessionID string) (*domain.AgentSession, error) {
+	defer observe("agent", "GetSession", time.Now())
+	return r.inner.GetSession(ctx, sessionID)
+}
+
+func (r *AgentRepository) CloseSession(ctx context.Context, sessionID string, closedAt time.Time) error {
+	defer observe("agent", "CloseSession", time.Now())
+	return r.inner.CloseSession(ctx, sessionID, closedAt)
+}
