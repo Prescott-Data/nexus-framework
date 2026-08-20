@@ -50,6 +50,8 @@ API keys are not sufficient on their own. Layer network controls on top:
 
 CIDR allowlisting is configurable on both the Broker and the Gateway.
 
+Broker API keys can be rotated without restarting the Broker by mounting key files with `API_KEY_FILE` or `API_KEYS_FILE`. The files are reloaded according to `API_KEY_RELOAD_INTERVAL`.
+
 ## Audit log
 
 Every significant event is written to `audit_events`: consents created, tokens issued, refreshes succeeded or failed, connections cleaned up. Each row includes IP address and User-Agent.

@@ -37,6 +37,9 @@ ENCRYPTION_KEY=<32-byte base64, stable>
 STATE_KEY=<32-byte base64, stable>
 REDIRECT_PATH=/auth/callback
 API_KEY=dev-api-key-12345
+API_KEY_FILE=
+API_KEYS_FILE=
+API_KEY_RELOAD_INTERVAL=30s
 ALLOWED_CIDRS=127.0.0.1/32,::1/128
 ALLOWED_RETURN_DOMAINS=localhost,127.0.0.1,::1
 PORT=8080
@@ -48,6 +51,11 @@ openssl rand -base64 32  # use output for STATE_KEY
 ```
 
 Keep ENCRYPTION_KEY and STATE_KEY constant; changing them breaks decrypting stored tokens.
+
+For production API key rotation, mount a secret file and set `API_KEY_FILE`
+or `API_KEYS_FILE`. `API_KEY_FILE` may contain one key, while `API_KEYS_FILE`
+may contain comma- or newline-separated keys. The broker reloads these files at
+`API_KEY_RELOAD_INTERVAL` without requiring a process restart.
 
 ### 3) Run the broker
 ```bash
@@ -275,7 +283,7 @@ OIDC hardening (id_token verification via JWKS, nonce, discovery) is fully imple
 ## Production Notes
 - Use managed Postgres (e.g., Azure Flexible Server). Set `sslmode=require`.
 - Restrict DB network (VNet/private DNS or firewall IPs). Restrict broker sensitive routes by IP.
-- Keep keys constant; rotate API key; monitor `/metrics`.
+- Keep encryption/state keys constant; rotate API keys through `API_KEY_FILE` or `API_KEYS_FILE`; monitor `/metrics`.
 - Document each provider in `docs/PROVIDERS.md` when added.
 
 ---

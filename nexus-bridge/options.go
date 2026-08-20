@@ -19,6 +19,8 @@ type Metrics interface {
 	IncConnections()
 	IncDisconnects()
 	IncTokenRefreshes()
+	ObserveConnectionDuration(duration time.Duration)
+	ObserveTokenRefreshLatency(duration time.Duration)
 	SetConnectionStatus(status float64)
 }
 
@@ -31,9 +33,13 @@ func (l *nopLogger) Error(err error, msg string, keysAndValues ...interface{}) {
 
 type nopMetrics struct{}
 
-func (m *nopMetrics) IncConnections()                    {}
-func (m *nopMetrics) IncDisconnects()                    {}
-func (m *nopMetrics) IncTokenRefreshes()                 {}
+func (m *nopMetrics) IncConnections()    {}
+func (m *nopMetrics) IncDisconnects()    {}
+func (m *nopMetrics) IncTokenRefreshes() {}
+func (m *nopMetrics) ObserveConnectionDuration(time.Duration) {
+}
+func (m *nopMetrics) ObserveTokenRefreshLatency(time.Duration) {
+}
 func (m *nopMetrics) SetConnectionStatus(status float64) {}
 
 // --- Configuration ---

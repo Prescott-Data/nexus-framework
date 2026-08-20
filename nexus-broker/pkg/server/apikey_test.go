@@ -3,7 +3,10 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestApiKeyMiddleware(t *testing.T) {
@@ -69,4 +72,87 @@ func TestApiKeyMiddleware(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestApiKeySourceMiddlewareReloadsFileKeys(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "api-keys")
+	if err := os.WriteFile(keyFile, []byte("first-key\n"), 0600); err != nil {
+		t.Fatalf("failed to write key file: %v", err)
+	}
+
+	source, err := NewReloadingAPIKeySource(nil, []string{keyFile}, time.Second)
+	if err != nil {
+		t.Fatalf("NewReloadingAPIKeySource returned error: %v", err)
+	}
+
+	now := source.lastReload
+	source.now = func() time.Time { return now }
+
+	handler := ApiKeySourceMiddleware(true, source)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	if status := requestWithAPIKey(handler, "first-key"); status != http.StatusOK {
+		t.Fatalf("expected first key to be accepted, got %d", status)
+	}
+
+	if err := os.WriteFile(keyFile, []byte("second-key\n"), 0600); err != nil {
+		t.Fatalf("failed to rotate key file: %v", err)
+	}
+
+	if status := requestWithAPIKey(handler, "second-key"); status != http.StatusForbidden {
+		t.Fatalf("expected second key to be rejected before reload interval, got %d", status)
+	}
+
+	now = now.Add(2 * time.Second)
+
+	if status := requestWithAPIKey(handler, "second-key"); status != http.StatusOK {
+		t.Fatalf("expected second key to be accepted after reload, got %d", status)
+	}
+	if status := requestWithAPIKey(handler, "first-key"); status != http.StatusForbidden {
+		t.Fatalf("expected first key to be rejected after reload, got %d", status)
+	}
+}
+
+func TestReloadingAPIKeySourceKeepsLastKeysWhenReloadFails(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "api-keys")
+	if err := os.WriteFile(keyFile, []byte("stable-key\n"), 0600); err != nil {
+		t.Fatalf("failed to write key file: %v", err)
+	}
+
+	source, err := NewReloadingAPIKeySource(nil, []string{keyFile}, time.Second)
+	if err != nil {
+		t.Fatalf("NewReloadingAPIKeySource returned error: %v", err)
+	}
+
+	now := source.lastReload
+	source.now = func() time.Time { return now }
+
+	if err := os.Remove(keyFile); err != nil {
+		t.Fatalf("failed to remove key file: %v", err)
+	}
+	now = now.Add(2 * time.Second)
+
+	if !source.Contains("stable-key") {
+		t.Fatal("expected last known-good key to remain valid after reload failure")
+	}
+}
+func TestNewReloadingAPIKeySourceFailsForMissingFile(t *testing.T) {
+	missingFile := filepath.Join(t.TempDir(), "missing-api-keys")
+
+	_, err := NewReloadingAPIKeySource(nil, []string{missingFile}, time.Second)
+	if err == nil {
+		t.Fatal("expected missing key file to fail initial load")
+	}
+}
+
+func requestWithAPIKey(handler http.Handler, key string) int {
+	req := httptest.NewRequest("GET", "/", nil)
+	if key != "" {
+		req.Header.Set("X-API-Key", key)
+	}
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	return rr.Code
 }

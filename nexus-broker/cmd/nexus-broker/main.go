@@ -103,6 +103,10 @@ func main() {
 	})
 	auditHandler := handlers.NewAuditHandler(db)
 	connectionsHandler := handlers.NewConnectionsHandler(connSvc)
+	apiKeySource, err := server.NewReloadingAPIKeySource(cfg.APIKeys, cfg.APIKeyFiles, cfg.APIKeyReloadInterval)
+	if err != nil {
+		log.Fatalf("Fatal API key configuration error: %v", err)
+	}
 
 	router := srv.Router()
 	router.Get("/auth/callback", callbackHandler.Handle)
@@ -111,7 +115,7 @@ func main() {
 	router.Post("/auth/capture-credential", callbackHandler.SaveCredential)
 
 	protected := router.With(
-		server.ApiKeyMiddleware(cfg.RequireAPIKey, cfg.APIKeys),
+		server.ApiKeySourceMiddleware(cfg.RequireAPIKey, apiKeySource),
 		server.AllowlistMiddleware(cfg.RequireAllowlist, cfg.AllowedCIDRs),
 	)
 	protected.Get("/audit", auditHandler.List)

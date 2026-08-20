@@ -32,7 +32,11 @@ Store these in your secret manager (AWS Secrets Manager, Azure Key Vault, HashiC
 | `ENCRYPTION_KEY` | yes | 32-byte base64 key for AES-GCM token encryption |
 | `STATE_KEY` | yes | 32-byte base64 key for OAuth state HMAC signing — must match Gateway |
 | `BASE_URL` | yes | Public URL of the Broker, e.g. `https://broker.internal.example.com` |
-| `API_KEY` | yes | Key the Gateway uses to authenticate with the Broker |
+| `API_KEY` | conditional | Single key the Gateway uses to authenticate with the Broker. Required unless `API_KEYS`, `API_KEY_FILE`, or `API_KEYS_FILE` supplies keys. |
+| `API_KEYS` | no | Comma-separated Broker API keys for key rollover. |
+| `API_KEY_FILE` | no | Mounted secret file containing one Broker API key; reloaded without process restart. |
+| `API_KEYS_FILE` | no | Mounted secret file containing comma- or newline-separated Broker API keys; reloaded without process restart. |
+| `API_KEY_RELOAD_INTERVAL` | no | File reload interval for `API_KEY_FILE` and `API_KEYS_FILE` (default: `30s`). |
 | `REDIRECT_PATH` | no | OAuth callback path (default: `/auth/callback`) |
 | `ALLOWED_CIDRS` | no | Comma-separated CIDRs for IP allowlisting, e.g. `10.0.0.0/8` |
 | `ALLOWED_RETURN_DOMAINS` | no | Comma-separated allowed domains for `return_url` validation |
@@ -132,6 +136,8 @@ volumes:
 `STATE_KEY` can be rotated, but doing so invalidates all in-flight OAuth flows (pending connections at the moment of rotation). Any user mid-authorization will see an "invalid state" error and need to restart the flow.
 
 Both keys must be identical across all instances of the same service. In Kubernetes, use a single `Secret` object mounted into both the Broker and Gateway pods for `STATE_KEY`.
+
+For Broker API key rotation, prefer `API_KEY_FILE` or `API_KEYS_FILE` backed by a mounted secret. The Broker reloads those files on `API_KEY_RELOAD_INTERVAL`, so updating the secret volume can add or remove accepted keys without restarting the pod.
 
 ## Health checks
 
