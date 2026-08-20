@@ -41,5 +41,8 @@
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "zod": "^4.4.3"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
   }
 }
