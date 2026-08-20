@@ -32,7 +32,11 @@ Store these in your secret manager (AWS Secrets Manager, Azure Key Vault, HashiC
 | `ENCRYPTION_KEY` | yes | 32-byte base64 key for AES-GCM token encryption |
 | `STATE_KEY` | yes | 32-byte base64 key for OAuth state HMAC signing — must match Gateway |
 | `BASE_URL` | yes | Public URL of the Broker, e.g. `https://broker.internal.example.com` |
-| `API_KEY` | yes | Key the Gateway uses to authenticate with the Broker |
+| `API_KEY` | conditional | Single key the Gateway uses to authenticate with the Broker. Required unless `API_KEYS`, `API_KEY_FILE`, or `API_KEYS_FILE` supplies keys. |
+| `API_KEYS` | no | Comma-separated Broker API keys for key rollover. |
+| `API_KEY_FILE` | no | Mounted secret file containing one Broker API key; reloaded without process restart. |
+| `API_KEYS_FILE` | no | Mounted secret file containing comma- or newline-separated Broker API keys; reloaded without process restart. |
+| `API_KEY_RELOAD_INTERVAL` | no | File reload interval for `API_KEY_FILE` and `API_KEYS_FILE` (default: `30s`). |
 | `REDIRECT_PATH` | no | OAuth callback path (default: `/auth/callback`) |
 | `ALLOWED_CIDRS` | no | Comma-separated CIDRs for IP allowlisting, e.g. `10.0.0.0/8` |
 | `ALLOWED_RETURN_DOMAINS` | no | Comma-separated allowed domains for `return_url` validation |
@@ -45,6 +49,18 @@ Store these in your secret manager (AWS Secrets Manager, Azure Key Vault, HashiC
 | `BROKER_BASE_URL` | yes | Internal URL of the Broker, e.g. `http://broker.internal:8080` |
 | `BROKER_API_KEY` | yes | The Broker's `API_KEY` |
 | `PORT` | no | Port to listen on (default: `8090`) |
+
+## Sidecar environment variables
+
+The Sidecar is optional. Deploy it next to each agent that needs it (same pod or compose network), not as a shared central service, and never expose it publicly: it authenticates callers by network locality alone.
+
+| Variable | Required | Description |
+|---|---|---|
+| `GATEWAY_BASE_URL` | yes | URL of the Gateway, e.g. `http://gateway:8090` |
+| `NEXUS_ROUTES` | yes | Allowlisted upstream routes, e.g. `github=https://api.github.com` |
+| `TOKEN_CACHE_TTL` | no | Fallback credential cache lifetime for payloads without an expiry, e.g. `5m` |
+| `REQUEST_BODY_LIMIT` | no | Body buffer cap for signing strategies (default: `10MiB`) |
+| `PORT` | no | Port to listen on (default: `8070`) |
 
 ## Network topology
 
@@ -106,6 +122,17 @@ services:
       - internal
       - public
 
+  # Optional: co-located proxy for non-Go agents. Keep it on the internal
+  # network only; it has no caller authentication of its own.
+  sidecar:
+    image: ghcr.io/prescott-data/nexus-sidecar:latest
+    environment:
+      GATEWAY_BASE_URL: http://gateway:8090
+      NEXUS_ROUTES: "github=https://api.github.com"
+      TOKEN_CACHE_TTL: 5m
+    networks:
+      - internal
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -133,9 +160,11 @@ volumes:
 
 Both keys must be identical across all instances of the same service. In Kubernetes, use a single `Secret` object mounted into both the Broker and Gateway pods for `STATE_KEY`.
 
+For Broker API key rotation, prefer `API_KEY_FILE` or `API_KEYS_FILE` backed by a mounted secret. The Broker reloads those files on `API_KEY_RELOAD_INTERVAL`, so updating the secret volume can add or remove accepted keys without restarting the pod.
+
 ## Health checks
 
-The Broker exposes `GET /health` and the Gateway exposes `GET /health`. Both return `200 OK` when the service is ready. Configure your load balancer to use these endpoints.
+The Broker exposes `GET /health` and the Gateway exposes `GET /health`. Both return `200 OK` when the service is ready. Configure your load balancer to use these endpoints. The Sidecar also exposes `GET /health` plus Prometheus metrics at `GET /metrics`.
 
 ## Upgrading
 

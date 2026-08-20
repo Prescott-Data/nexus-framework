@@ -53,6 +53,12 @@ Beyond the OAuth layer, Nexus covers the full auth surface that production agent
 </div>
 
 <div class="nx-card" markdown>
+<span class="nx-card-label">Sidecar</span>
+
+**The polyglot proxy.** Runs next to any agent, in any language. The agent sends plain HTTP with a connection ID; the Sidecar injects credentials and forwards to an allowlisted upstream. The agent never sees a token.
+</div>
+
+<div class="nx-card" markdown>
 <span class="nx-card-label">SDKs</span>
 
 **Three first-class clients.** Go, TypeScript, and Python. Direct Gateway access for explicit credential fetches and MCP server integration.

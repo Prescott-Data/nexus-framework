@@ -91,5 +91,23 @@ services:
       ALLOWED_RETURN_DOMAINS: ${ALLOWED_RETURN_DOMAINS}
       REQUIRE_API_KEY: ${REQUIRE_API_KEY}
 
+  sidecar:
+    build:
+      context: .
+      dockerfile: nexus-sidecar/Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+    container_name: nexus-sidecar
+    depends_on:
+      - gateway
+    ports:
+      - "${PORT_SIDECAR}:${PORT_SIDECAR}"
+    environment:
+      PORT: ${PORT_SIDECAR}
+      GATEWAY_BASE_URL: ${SIDECAR_GATEWAY_BASE_URL}
+      NEXUS_ROUTES: ${NEXUS_ROUTES}
+      TOKEN_CACHE_TTL: ${TOKEN_CACHE_TTL}
+      REQUEST_BODY_LIMIT: ${REQUEST_BODY_LIMIT}
+
 volumes:
   postgres_data:

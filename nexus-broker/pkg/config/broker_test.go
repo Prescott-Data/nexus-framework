@@ -2,7 +2,9 @@ package config
 
 import (
 	"encoding/base64"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 func testKey() string {
@@ -75,6 +77,47 @@ func TestLoad_Success(t *testing.T) {
 	}
 	if cfg.RedirectPath != "/auth/callback" {
 		t.Errorf("expected default redirect path, got %s", cfg.RedirectPath)
+	}
+}
+
+func TestLoad_APIKeyFilesAndReloadInterval(t *testing.T) {
+	apiKeyFile := filepath.Join(t.TempDir(), "api-key")
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
+	t.Setenv("BASE_URL", "http://localhost:8080")
+	t.Setenv("ENCRYPTION_KEY", testKey())
+	t.Setenv("STATE_KEY", testKey())
+	t.Setenv("API_KEY_FILE", apiKeyFile)
+	t.Setenv("API_KEYS_FILE", " /var/run/secrets/api-keys ")
+	t.Setenv("API_KEY_RELOAD_INTERVAL", "5s")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.APIKeyReloadInterval != 5*time.Second {
+		t.Errorf("expected reload interval 5s, got %v", cfg.APIKeyReloadInterval)
+	}
+	if len(cfg.APIKeyFiles) != 2 {
+		t.Fatalf("expected 2 api key files, got %d", len(cfg.APIKeyFiles))
+	}
+	if cfg.APIKeyFiles[0] != apiKeyFile {
+		t.Errorf("expected first api key file %q, got %q", apiKeyFile, cfg.APIKeyFiles[0])
+	}
+	if cfg.APIKeyFiles[1] != "/var/run/secrets/api-keys" {
+		t.Errorf("expected trimmed second api key file, got %q", cfg.APIKeyFiles[1])
+	}
+}
+
+func TestLoad_InvalidAPIKeyReloadInterval(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
+	t.Setenv("BASE_URL", "http://localhost:8080")
+	t.Setenv("ENCRYPTION_KEY", testKey())
+	t.Setenv("STATE_KEY", testKey())
+	t.Setenv("API_KEY_RELOAD_INTERVAL", "0s")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected invalid reload interval error")
 	}
 }
 

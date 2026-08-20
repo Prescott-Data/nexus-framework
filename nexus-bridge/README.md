@@ -181,6 +181,8 @@ type Metrics interface {
 	IncConnections()
 	IncDisconnects()
 	IncTokenRefreshes()
+	ObserveConnectionDuration(duration time.Duration)
+	ObserveTokenRefreshLatency(duration time.Duration)
 	SetConnectionStatus(status float64)
 }
 ```

@@ -145,10 +145,12 @@ func (b *Bridge) MaintainGRPCConnection(
 		b.metrics.IncConnections()
 		b.metrics.SetConnectionStatus(1)
 		b.logger.Info("gRPC connection established", "target", target)
+		connectedAt := time.Now()
 
 		err = run(ctx, conn)
 
 		conn.Close()
+		b.metrics.ObserveConnectionDuration(time.Since(connectedAt))
 		b.metrics.SetConnectionStatus(0)
 		b.metrics.IncDisconnects()
 
@@ -193,10 +195,13 @@ func (b *Bridge) manageConnection(parentCtx context.Context, connectionID string
 		return err
 	}
 	defer conn.Close()
+	connectedAt := time.Now()
+	// Wrap in a closure so the duration is measured at exit, not at defer time.
+	defer func() { b.metrics.ObserveConnectionDuration(time.Since(connectedAt)) }()
 
 	// --- Concurrency and Shutdown Management ---
-	done := make(chan struct{})       // Channel to signal shutdown to goroutines
-	defer close(done) // Ensure done is closed when manageConnection exits to clean up pumps
+	done := make(chan struct{}) // Channel to signal shutdown to goroutines
+	defer close(done)           // Ensure done is closed when manageConnection exits to clean up pumps
 
 	// Explicitly tie connection closure to context cancellation to prevent goroutine
 	// leaks if ReadMessage blocks indefinitely without a set read deadline.
@@ -224,7 +229,7 @@ func (b *Bridge) manageConnection(parentCtx context.Context, connectionID string
 	handler.OnConnect(sendFunc)
 
 	readErrChan := make(chan error, 1)
-	
+
 	b.startPumps(ctx, conn, handler, writeChan, readErrChan, done, connectionID)
 
 	return b.runEventLoop(ctx, connectionID, token, handler, readErrChan, done)
@@ -376,7 +381,9 @@ func (b *Bridge) runEventLoop(ctx context.Context, connectionID string, token *a
 			b.metrics.IncTokenRefreshes()
 			b.logger.Info("Starting background token refresh", "connectionID", connectionID)
 			go func() {
+				refreshStartedAt := time.Now()
 				refreshedToken, refreshErr := b.oauthClient.RefreshConnection(ctx, connectionID)
+				b.metrics.ObserveTokenRefreshLatency(time.Since(refreshStartedAt))
 				if refreshErr != nil {
 					select {
 					case refreshErrChan <- refreshErr:

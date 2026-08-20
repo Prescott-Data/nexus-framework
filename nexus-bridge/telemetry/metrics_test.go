@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -74,4 +75,44 @@ func TestNewMetrics_NilLabels(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestNewMetrics_RegistersTimingHistograms(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	m := NewMetrics(registry, map[string]string{"agent_id": "test-agent"})
+
+	m.ObserveConnectionDuration(2 * time.Minute)
+	m.ObserveTokenRefreshLatency(1500 * time.Millisecond)
+
+	metricFamilies, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("failed to gather metrics: %v", err)
+	}
+
+	assertHistogram := func(name string) {
+		t.Helper()
+
+		for _, mf := range metricFamilies {
+			if mf.GetName() != name {
+				continue
+			}
+
+			for _, metric := range mf.GetMetric() {
+				if metric.GetHistogram().GetSampleCount() != 1 {
+					t.Fatalf("%s expected sample count 1, got %d", name, metric.GetHistogram().GetSampleCount())
+				}
+
+				labels := metric.GetLabel()
+				if len(labels) != 1 || labels[0].GetName() != "agent_id" || labels[0].GetValue() != "test-agent" {
+					t.Fatalf("%s expected agent_id label, got %v", name, labels)
+				}
+			}
+			return
+		}
+
+		t.Fatalf("metric %s not found", name)
+	}
+
+	assertHistogram("bridge_connection_duration_seconds")
+	assertHistogram("bridge_token_refresh_latency_seconds")
 }
