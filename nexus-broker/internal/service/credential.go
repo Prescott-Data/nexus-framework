@@ -155,6 +155,8 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 	switch conn.AuthType {
 	case "api_key", "basic_auth":
 		return nil, ErrBadRequest("static_token", "Static credentials cannot be refreshed")
+	case "saml":
+		return nil, ErrBadRequest("saml_not_refreshable", "SAML assertions cannot be refreshed; re-authentication is required")
 	case "oauth2", "":
 		p, err := s.providerStore.GetProfile(conn.ProviderID)
 		if err != nil {

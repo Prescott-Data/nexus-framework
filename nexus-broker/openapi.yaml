@@ -31,7 +31,7 @@ components:
           description: Unique slug for the provider (e.g. "google", "github")
         auth_type:
           type: string
-          enum: [oauth2, api_key, basic_auth, header, query_param, hmac_payload, aws_sigv4]
+          enum: [oauth2, saml, api_key, basic_auth, header, query_param, hmac_payload, aws_sigv4]
           default: oauth2
         auth_header:
           type: string
@@ -63,7 +63,19 @@ components:
         category:
           type: string
           description: Category grouping for the provider (e.g. "CRM & Sales", "Analytics")
-
+        saml_idp_entity_id:
+          type: string
+          description: SAML IdP entity ID. Required when auth_type is saml.
+        saml_idp_sso_url:
+          type: string
+          format: uri
+          description: SAML IdP SSO endpoint. Required when auth_type is saml.
+        saml_idp_x509_cert:
+          type: string
+          description: SAML IdP signing certificate as PEM or base64 DER. Required when auth_type is saml.
+        saml_sp_entity_id:
+          type: string
+          description: SAML SP entity ID used by Nexus. Required when auth_type is saml.
     ProviderProfilePatch:
       type: object
       properties:
@@ -76,7 +88,7 @@ components:
           description: Unique slug for the provider (e.g. "google", "github")
         auth_type:
           type: string
-          enum: [oauth2, api_key, basic_auth, header, query_param, hmac_payload, aws_sigv4]
+          enum: [oauth2, saml, api_key, basic_auth, header, query_param, hmac_payload, aws_sigv4]
         auth_header:
           type: string
           enum: [client_secret_post, client_secret_basic]
@@ -107,7 +119,19 @@ components:
         category:
           type: string
           description: Category grouping for the provider (e.g. "CRM & Sales", "Analytics")
-
+        saml_idp_entity_id:
+          type: string
+          description: SAML IdP entity ID. Required when auth_type is saml.
+        saml_idp_sso_url:
+          type: string
+          format: uri
+          description: SAML IdP SSO endpoint. Required when auth_type is saml.
+        saml_idp_x509_cert:
+          type: string
+          description: SAML IdP signing certificate as PEM or base64 DER. Required when auth_type is saml.
+        saml_sp_entity_id:
+          type: string
+          description: SAML SP entity ID used by Nexus. Required when auth_type is saml.
     ConsentSpecRequest:
       type: object
       required: [workspace_id, return_url]
@@ -188,7 +212,7 @@ components:
           type: string
         auth_type:
           type: string
-          enum: [oauth2, api_key, basic_auth]
+          enum: [oauth2, saml, api_key, basic_auth]
         status:
           type: string
         scopes:
@@ -390,6 +414,53 @@ paths:
         '302':
           description: Redirects to the stored return_url with connection_id
 
+  /saml/acs:
+    post:
+      summary: SAML assertion consumer service (Public)
+      description: IdPs POST SAMLResponse and RelayState here after the user authenticates. The Broker validates the signed response, stores assertion attributes, activates the connection, and redirects to the stored return_url.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [SAMLResponse, RelayState]
+              properties:
+                SAMLResponse:
+                  type: string
+                  description: Base64-encoded SAML response from the IdP
+                RelayState:
+                  type: string
+                  description: Signed Nexus state from the consent-spec response
+      responses:
+        '302':
+          description: Redirects to the stored return_url with status=success and connection_id
+        '400':
+          description: Invalid form, RelayState, or provider configuration
+        '401':
+          description: SAML assertion validation failed
+
+  /saml/metadata/{providerID}:
+    get:
+      summary: Get SAML service provider metadata
+      description: Returns Nexus SP metadata for a SAML provider. This endpoint is protected so administrators can retrieve and upload metadata to their IdP.
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: path
+          name: providerID
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: SAML SP metadata XML
+          content:
+            application/samlmetadata+xml:
+              schema:
+                type: string
+        '400':
+          description: Invalid provider ID or provider is not SAML
+        '404':
+          description: Provider not found
   /auth/capture-schema:
     get:
       summary: Get credential capture schema for API-key providers

@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
+
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/samlutil"
 )
 
 // Store provides provider profile management
@@ -25,26 +27,30 @@ func NewStore(db *sqlx.DB) *Store {
 
 // Profile represents a provider profile
 type Profile struct {
-	ID               uuid.UUID        `json:"id" db:"id"`
-	Name             string           `json:"name" db:"name"`
-	Description      string           `json:"description,omitempty" db:"description"`
-	Category         string           `json:"category,omitempty" db:"category"`
-	AuthType         string           `json:"auth_type,omitempty" db:"auth_type"`
-	AuthHeader       string           `json:"auth_header,omitempty" db:"auth_header"`
-	ClientID         *string          `json:"client_id,omitempty" db:"client_id"`
-	ClientSecret     *string          `json:"client_secret,omitempty" db:"client_secret"`
-	AuthURL          *string          `json:"auth_url,omitempty" db:"auth_url"`
-	TokenURL         *string          `json:"token_url,omitempty" db:"token_url"`
-	Issuer           *string          `json:"issuer,omitempty" db:"issuer"`
-	EnableDiscovery  bool             `json:"enable_discovery" db:"enable_discovery"`
-	Scopes           []string         `json:"scopes" db:"scopes"`
-	APIBaseURL       string           `json:"api_base_url,omitempty" db:"api_base_url"`
-	UserInfoEndpoint string           `json:"user_info_endpoint,omitempty" db:"user_info_endpoint"`
-	Params           *json.RawMessage `json:"params,omitempty" db:"params"`
-	DeletedAt        *time.Time       `json:"-" db:"deleted_at"`
-	LastHealthCheckAt *time.Time      `json:"last_health_check_at,omitempty" db:"last_health_check_at"`
-	HealthStatus     string           `json:"health_status" db:"health_status"`
-	HealthMessage    *string          `json:"health_message,omitempty" db:"health_message"`
+	ID                uuid.UUID        `json:"id" db:"id"`
+	Name              string           `json:"name" db:"name"`
+	Description       string           `json:"description,omitempty" db:"description"`
+	Category          string           `json:"category,omitempty" db:"category"`
+	AuthType          string           `json:"auth_type,omitempty" db:"auth_type"`
+	AuthHeader        string           `json:"auth_header,omitempty" db:"auth_header"`
+	ClientID          *string          `json:"client_id,omitempty" db:"client_id"`
+	ClientSecret      *string          `json:"client_secret,omitempty" db:"client_secret"`
+	AuthURL           *string          `json:"auth_url,omitempty" db:"auth_url"`
+	TokenURL          *string          `json:"token_url,omitempty" db:"token_url"`
+	Issuer            *string          `json:"issuer,omitempty" db:"issuer"`
+	EnableDiscovery   bool             `json:"enable_discovery" db:"enable_discovery"`
+	Scopes            []string         `json:"scopes" db:"scopes"`
+	APIBaseURL        string           `json:"api_base_url,omitempty" db:"api_base_url"`
+	UserInfoEndpoint  string           `json:"user_info_endpoint,omitempty" db:"user_info_endpoint"`
+	Params            *json.RawMessage `json:"params,omitempty" db:"params"`
+	SAMLIdpEntityID   *string          `json:"saml_idp_entity_id,omitempty" db:"saml_idp_entity_id"`
+	SAMLIdpSSOURL     *string          `json:"saml_idp_sso_url,omitempty" db:"saml_idp_sso_url"`
+	SAMLIdpX509Cert   *string          `json:"saml_idp_x509_cert,omitempty" db:"saml_idp_x509_cert"`
+	SAMLSPEntityID    *string          `json:"saml_sp_entity_id,omitempty" db:"saml_sp_entity_id"`
+	DeletedAt         *time.Time       `json:"-" db:"deleted_at"`
+	LastHealthCheckAt *time.Time       `json:"last_health_check_at,omitempty" db:"last_health_check_at"`
+	HealthStatus      string           `json:"health_status" db:"health_status"`
+	HealthMessage     *string          `json:"health_message,omitempty" db:"health_message"`
 }
 
 // Redacted returns a copy of the profile with sensitive fields removed so it is
@@ -107,6 +113,11 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 			}
 		}
 
+	case "saml":
+		if err := validateSAMLProfile(p); err != nil {
+			return nil, err
+		}
+
 	case "api_key", "basic_auth", "header", "query_param", "hmac_payload", "aws_sigv4":
 		// Only name is required for static auth types
 
@@ -148,8 +159,8 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	// Insert into DB
 	query := `
 		INSERT INTO provider_profiles
-		(name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, api_base_url, user_info_endpoint, params, description, category)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		(name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, api_base_url, user_info_endpoint, params, description, category, saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		RETURNING id`
 
 	var id uuid.UUID
@@ -157,6 +168,7 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		p.Name, p.ClientID, p.ClientSecret, authURL, tokenURL, issuer,
 		p.EnableDiscovery, scopes, p.AuthType, p.AuthHeader,
 		p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category,
+		p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID,
 	).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("database: failed to create provider profile: %w", err)
@@ -169,10 +181,10 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 // GetProfile retrieves a provider profile by ID
 func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 	var p Profile
-	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params, COALESCE(description, ''), COALESCE(category, ''), last_health_check_at, COALESCE(health_status, 'unknown'), health_message FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
+	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params, COALESCE(description, ''), COALESCE(category, ''), last_health_check_at, COALESCE(health_status, 'unknown'), health_message, saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
 
 	row := s.db.QueryRow(query, id)
-	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category, &p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage)
+	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category, &p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage, &p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider profile: %w", err)
 	}
@@ -191,7 +203,8 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 		       enable_discovery, scopes, auth_type, COALESCE(auth_header, ''),
 		       COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params,
 		       COALESCE(description, ''), COALESCE(category, ''), last_health_check_at,
-		       COALESCE(health_status, 'unknown'), health_message
+		       COALESCE(health_status, 'unknown'), health_message,
+	       saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id
 		FROM provider_profiles
 		WHERE LOWER(name) = $1 AND deleted_at IS NULL
 	`
@@ -210,6 +223,7 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 			&p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType,
 			&p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category,
 			&p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage,
+			&p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan provider profile: %w", err)
@@ -235,6 +249,15 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 
 // UpdateProfile updates an existing provider profile
 func (s *Store) UpdateProfile(p *Profile) error {
+	if p == nil {
+		return fmt.Errorf("provider profile is required")
+	}
+	if p.AuthType == "saml" {
+		if err := validateSAMLProfile(*p); err != nil {
+			return err
+		}
+	}
+
 	query := `
 		UPDATE provider_profiles
 		SET
@@ -253,10 +276,14 @@ func (s *Store) UpdateProfile(p *Profile) error {
 			params = $13,
 			description = $14,
 			category = $15,
+			saml_idp_entity_id = $16,
+			saml_idp_sso_url = $17,
+			saml_idp_x509_cert = $18,
+			saml_sp_entity_id = $19,
 			updated_at = NOW()
-		WHERE id = $16 AND deleted_at IS NULL`
+		WHERE id = $20 AND deleted_at IS NULL`
 
-	_, err := s.db.Exec(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.ID)
+	_, err := s.db.Exec(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID, p.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update provider profile: %w", err)
 	}
@@ -268,6 +295,9 @@ func (s *Store) UpdateProfile(p *Profile) error {
 func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error {
 	if len(updates) == 0 {
 		return nil
+	}
+	if err := s.validateSAMLProfilePatch(id, updates); err != nil {
+		return err
 	}
 
 	query := "UPDATE provider_profiles SET "
@@ -323,6 +353,14 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 			column = "description"
 		case "category":
 			column = "category"
+		case "saml_idp_entity_id":
+			column = "saml_idp_entity_id"
+		case "saml_idp_sso_url":
+			column = "saml_idp_sso_url"
+		case "saml_idp_x509_cert":
+			column = "saml_idp_x509_cert"
+		case "saml_sp_entity_id":
+			column = "saml_sp_entity_id"
 		default:
 			// Ignore unknown fields
 			continue
@@ -394,7 +432,8 @@ func (s *Store) GetAllProfiles() ([]Profile, error) {
 		       enable_discovery, scopes, auth_type, COALESCE(auth_header, ''),
 		       COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params,
 		       COALESCE(description, ''), COALESCE(category, ''), last_health_check_at,
-		       COALESCE(health_status, 'unknown'), health_message
+		       COALESCE(health_status, 'unknown'), health_message,
+	       saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id
 		FROM provider_profiles
 		WHERE deleted_at IS NULL
 	`
@@ -413,6 +452,7 @@ func (s *Store) GetAllProfiles() ([]Profile, error) {
 			&p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType,
 			&p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category,
 			&p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage,
+			&p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan provider profile: %w", err)
@@ -497,6 +537,7 @@ func (s *Store) GetAllHealthStatuses() ([]ProviderHealthSummary, error) {
 
 	return summaries, nil
 }
+
 // GetMetadata retrieves integration metadata for all providers, grouped by auth_type
 func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
 
@@ -552,4 +593,106 @@ func (s *Store) GetMetadata() (map[string]map[string]interface{}, error) {
 	}
 
 	return result, nil
+}
+
+func (s *Store) validateSAMLProfilePatch(id uuid.UUID, updates map[string]interface{}) error {
+	if !touchesSAMLProfile(updates) {
+		return nil
+	}
+
+	current, err := s.GetProfile(id)
+	if err != nil {
+		return fmt.Errorf("failed to load provider profile for patch validation: %w", err)
+	}
+	merged := *current
+
+	for key, value := range updates {
+		switch key {
+		case "auth_type":
+			authType, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("auth_type: must be a string")
+			}
+			merged.AuthType = authType
+		case "saml_idp_entity_id":
+			v, err := patchStringPointer(key, value)
+			if err != nil {
+				return err
+			}
+			merged.SAMLIdpEntityID = v
+		case "saml_idp_sso_url":
+			v, err := patchStringPointer(key, value)
+			if err != nil {
+				return err
+			}
+			merged.SAMLIdpSSOURL = v
+		case "saml_idp_x509_cert":
+			v, err := patchStringPointer(key, value)
+			if err != nil {
+				return err
+			}
+			merged.SAMLIdpX509Cert = v
+		case "saml_sp_entity_id":
+			v, err := patchStringPointer(key, value)
+			if err != nil {
+				return err
+			}
+			merged.SAMLSPEntityID = v
+		}
+	}
+
+	if merged.AuthType != "saml" {
+		return nil
+	}
+	return validateSAMLProfile(merged)
+}
+
+func touchesSAMLProfile(updates map[string]interface{}) bool {
+	for key := range updates {
+		switch key {
+		case "auth_type", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id":
+			return true
+		}
+	}
+	return false
+}
+
+func patchStringPointer(field string, value interface{}) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	str, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("%s: must be a string", field)
+	}
+	return &str, nil
+}
+func validateSAMLProfile(p Profile) error {
+	idpEntityID := strings.TrimSpace(stringValue(p.SAMLIdpEntityID))
+	idpSSOURL := strings.TrimSpace(stringValue(p.SAMLIdpSSOURL))
+	idpCert := strings.TrimSpace(stringValue(p.SAMLIdpX509Cert))
+	spEntityID := strings.TrimSpace(stringValue(p.SAMLSPEntityID))
+
+	switch {
+	case idpEntityID == "":
+		return fmt.Errorf("saml_idp_entity_id: missing required field for saml")
+	case idpSSOURL == "":
+		return fmt.Errorf("saml_idp_sso_url: missing required field for saml")
+	case idpCert == "":
+		return fmt.Errorf("saml_idp_x509_cert: missing required field for saml")
+	case spEntityID == "":
+		return fmt.Errorf("saml_sp_entity_id: missing required field for saml")
+	}
+
+	if err := samlutil.ValidateProviderConfig(idpEntityID, idpSSOURL, idpCert, spEntityID); err != nil {
+		return fmt.Errorf("saml: %w", err)
+	}
+	return nil
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

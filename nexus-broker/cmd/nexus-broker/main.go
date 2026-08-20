@@ -103,6 +103,7 @@ func main() {
 	})
 	auditHandler := handlers.NewAuditHandler(db)
 	connectionsHandler := handlers.NewConnectionsHandler(connSvc)
+	samlHandler := handlers.NewSAMLHandler(connSvc)
 	apiKeySource, err := server.NewReloadingAPIKeySource(cfg.APIKeys, cfg.APIKeyFiles, cfg.APIKeyReloadInterval)
 	if err != nil {
 		log.Fatalf("Fatal API key configuration error: %v", err)
@@ -113,6 +114,7 @@ func main() {
 	router.Method("GET", "/metrics", server.MetricsHandler())
 	router.Get("/auth/capture-schema", callbackHandler.GetCaptureSchema)
 	router.Post("/auth/capture-credential", callbackHandler.SaveCredential)
+	router.Post("/saml/acs", samlHandler.ACS)
 
 	protected := router.With(
 		server.ApiKeySourceMiddleware(cfg.RequireAPIKey, apiKeySource),
@@ -136,6 +138,7 @@ func main() {
 	protected.Get("/connections/resolve", callbackHandler.ResolveToken)
 	protected.Get("/connections/{connectionID}/token", callbackHandler.GetToken)
 	protected.Post("/connections/{connectionID}/refresh", callbackHandler.Refresh)
+	protected.Get("/saml/metadata/{providerID}", samlHandler.Metadata)
 
 	router.Get("/health", server.HealthHandler)
 
