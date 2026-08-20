@@ -87,6 +87,18 @@ func (m *MockConnectionService) ExchangeCodeForTokens(ctx context.Context, state
 	return args.String(0), args.Bool(1), args.Error(2)
 }
 
+func (m *MockConnectionService) ExchangeSAMLResponse(ctx context.Context, r *http.Request) (string, error) {
+	args := m.Called(ctx, r)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockConnectionService) GetSAMLMetadata(ctx context.Context, providerID uuid.UUID) ([]byte, error) {
+	args := m.Called(ctx, providerID)
+	if args.Get(0) != nil {
+		return args.Get(0).([]byte), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
 func (m *MockConnectionService) GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, string, error) {
 	args := m.Called(ctx, connectionID)
 	if args.Get(0) != nil {

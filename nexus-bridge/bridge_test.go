@@ -64,15 +64,25 @@ func (h *mockHandler) OnDisconnect(err error) {
 
 // mockMetrics is a mock implementation of the Metrics interface for testing.
 type mockMetrics struct {
-	connections      int32
-	disconnects      int32
-	tokenRefreshes   int32
-	connectionStatus atomic.Value
+	connections           int32
+	disconnects           int32
+	tokenRefreshes        int32
+	connectionDurations   int32
+	tokenRefreshLatencies int32
+	connectionStatus      atomic.Value
 }
 
-func (m *mockMetrics) IncConnections()                    { atomic.AddInt32(&m.connections, 1) }
-func (m *mockMetrics) IncDisconnects()                    { atomic.AddInt32(&m.disconnects, 1) }
-func (m *mockMetrics) IncTokenRefreshes()                 { atomic.AddInt32(&m.tokenRefreshes, 1) }
+func (m *mockMetrics) IncConnections() { atomic.AddInt32(&m.connections, 1) }
+func (m *mockMetrics) IncDisconnects() { atomic.AddInt32(&m.disconnects, 1) }
+func (m *mockMetrics) IncTokenRefreshes() {
+	atomic.AddInt32(&m.tokenRefreshes, 1)
+}
+func (m *mockMetrics) ObserveConnectionDuration(time.Duration) {
+	atomic.AddInt32(&m.connectionDurations, 1)
+}
+func (m *mockMetrics) ObserveTokenRefreshLatency(time.Duration) {
+	atomic.AddInt32(&m.tokenRefreshLatencies, 1)
+}
 func (m *mockMetrics) SetConnectionStatus(status float64) { m.connectionStatus.Store(status) }
 
 // testLogger is a mock implementation of the Logger interface for testing.
@@ -89,6 +99,26 @@ func (l *testLogger) Error(err error, msg string, keysAndValues ...interface{}) 
 }
 
 var upgrader = websocket.Upgrader{}
+
+func waitForAtomicCount(t *testing.T, value *int32, expected int32) {
+	t.Helper()
+
+	deadline := time.After(2 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if atomic.LoadInt32(value) == expected {
+			return
+		}
+
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for metric count %d, got %d", expected, atomic.LoadInt32(value))
+		case <-ticker.C:
+		}
+	}
+}
 
 // --- Tests ---
 
@@ -151,6 +181,9 @@ func TestBridge_PermanentCloseCode(t *testing.T) {
 	}
 	if atomic.LoadInt32(&metrics.disconnects) != 1 {
 		t.Errorf("Expected 1 disconnect, got %d", metrics.disconnects)
+	}
+	if atomic.LoadInt32(&metrics.connectionDurations) != 1 {
+		t.Errorf("Expected 1 connection duration observation, got %d", metrics.connectionDurations)
 	}
 }
 
@@ -221,7 +254,9 @@ func TestBridge_ContextCancellation(t *testing.T) {
 		},
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upgrader.Upgrade(w, r, nil)
+		conn, _ := upgrader.Upgrade(w, r, nil)
+		defer conn.Close()
+		<-r.Context().Done()
 	}))
 	defer server.Close()
 
@@ -249,6 +284,9 @@ func TestBridge_ContextCancellation(t *testing.T) {
 	}
 	if metrics.connectionStatus.Load() != 0.0 {
 		t.Errorf("Expected connection status to be 0, but got %v", metrics.connectionStatus.Load())
+	}
+	if atomic.LoadInt32(&metrics.connectionDurations) != 1 {
+		t.Errorf("Expected 1 connection duration observation, got %d", metrics.connectionDurations)
 	}
 }
 
@@ -442,6 +480,7 @@ func TestBridge_TokenRefreshWithoutDisconnect(t *testing.T) {
 	if atomic.LoadInt32(&metrics.tokenRefreshes) != 1 {
 		t.Errorf("Expected 1 token refresh, got %d", metrics.tokenRefreshes)
 	}
+	waitForAtomicCount(t, &metrics.tokenRefreshLatencies, 1)
 	if metrics.connectionStatus.Load() != 1.0 {
 		t.Errorf("Expected connection status to be 1, but got %v", metrics.connectionStatus.Load())
 	}
@@ -483,6 +522,9 @@ func TestGRPC_CleanExit(t *testing.T) {
 	}
 	if atomic.LoadInt32(&metrics.connections) != 1 {
 		t.Errorf("expected 1 connection, got %d", metrics.connections)
+	}
+	if atomic.LoadInt32(&metrics.connectionDurations) != 1 {
+		t.Errorf("expected 1 connection duration observation, got %d", metrics.connectionDurations)
 	}
 }
 

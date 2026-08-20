@@ -26,6 +26,8 @@ import (
 type ConnectionService interface {
 	CreateConsentSpec(ctx context.Context, req CreateConsentRequest) (*ConsentSpecResponse, error)
 	ExchangeCodeForTokens(ctx context.Context, state, code, errorParam, errorDesc string) (string, bool, error)
+	ExchangeSAMLResponse(ctx context.Context, r *http.Request) (string, error)
+	GetSAMLMetadata(ctx context.Context, providerID uuid.UUID) ([]byte, error)
 	GetToken(ctx context.Context, connectionID uuid.UUID) (map[string]interface{}, string, error)
 	GetTokenByWorkspaceAndProvider(ctx context.Context, workspaceID, providerName string) (map[string]interface{}, string, error)
 	GetCaptureSchema(ctx context.Context, state string) (string, json.RawMessage, error)
@@ -182,6 +184,9 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 			Scopes:     req.Scopes,
 			ProviderID: req.ProviderID,
 		}, nil
+
+	case "saml":
+		return s.createSAMLConsentSpec(ctx, req, providerID, p)
 
 	case "api_key", "basic_auth":
 		connID := uuid.New()
@@ -395,6 +400,10 @@ func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID
 	}
 
 	if token.ExpiresAt != nil && token.ExpiresAt.Before(time.Now()) {
+		if conn.AuthType == "saml" {
+			_ = s.connRepo.UpdateStatus(ctx, connectionID, "attention")
+			return nil, "", ErrConflict("attention_required", "SAML assertion has expired. The user must re-authenticate.")
+		}
 		if conn.AuthType == "oauth2" || conn.AuthType == "" {
 			if _, refreshErr := s.Refresh(ctx, connectionID); refreshErr != nil {
 				return nil, "", ErrConflict("token_expired", "Token has expired and could not be refreshed. Re-authentication is required.")

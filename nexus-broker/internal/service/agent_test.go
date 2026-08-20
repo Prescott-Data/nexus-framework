@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
@@ -120,6 +121,19 @@ func (m *MockAgentConnectionService) ListConnections(ctx context.Context, worksp
 	return nil, args.Error(1)
 }
 
+func (m *MockAgentConnectionService) ExchangeSAMLResponse(ctx context.Context, r *http.Request) (string, error) {
+	args := m.Called(ctx, r)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockAgentConnectionService) GetSAMLMetadata(ctx context.Context, providerID uuid.UUID) ([]byte, error) {
+	args := m.Called(ctx, providerID)
+	if args.Get(0) != nil {
+		return args.Get(0).([]byte), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func setupAgentService() (*MockAgentRepository, *MockConnectionRepository, *MockAgentConnectionService, service.AgentService) {
 	agentRepo := new(MockAgentRepository)
 	connRepo := new(MockConnectionRepository)
@@ -222,6 +236,26 @@ func TestAgentService_RequestAgentSession_RejectsUnallowedScope(t *testing.T) {
 	assert.True(t, errors.As(err, &svcErr))
 	assert.Equal(t, "scope_not_allowed", svcErr.Code)
 	assert.Equal(t, 403, svcErr.HTTPStatus)
+	connRepo.AssertNotCalled(t, "GetActiveByWorkspaceAndProvider", mock.Anything, mock.Anything, mock.Anything)
+	connSvc.AssertNotCalled(t, "GetToken", mock.Anything, mock.Anything)
+}
+
+func TestAgentService_RequestAgentSession_RejectsTTLAboveMax(t *testing.T) {
+	_, connRepo, connSvc, svc := setupAgentService()
+
+	resp, err := svc.RequestAgentSession(context.Background(), service.AgentSessionRequest{
+		AgentID:      "crm-agent",
+		WorkspaceID:  "ws-123",
+		ProviderName: "salesforce",
+		Scopes:       []string{"crm:contacts:read"},
+		TTLSeconds:   3601,
+	})
+
+	assert.Nil(t, resp)
+	var svcErr *service.ServiceError
+	assert.True(t, errors.As(err, &svcErr))
+	assert.Equal(t, "invalid_ttl", svcErr.Code)
+	assert.Equal(t, 400, svcErr.HTTPStatus)
 	connRepo.AssertNotCalled(t, "GetActiveByWorkspaceAndProvider", mock.Anything, mock.Anything, mock.Anything)
 	connSvc.AssertNotCalled(t, "GetToken", mock.Anything, mock.Anything)
 }

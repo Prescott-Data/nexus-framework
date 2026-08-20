@@ -11,10 +11,11 @@ import (
 )
 
 type StateData struct {
-	WorkspaceID string    `json:"workspace_id"`
-	ProviderID  string    `json:"provider_id"`
-	Nonce       string    `json:"nonce"` // connection ID
-	IAT         time.Time `json:"iat"`
+	WorkspaceID   string    `json:"workspace_id"`
+	ProviderID    string    `json:"provider_id"`
+	Nonce         string    `json:"nonce"` // connection ID
+	SAMLRequestID string    `json:"saml_request_id,omitempty"`
+	IAT           time.Time `json:"iat"`
 }
 
 // SignState signs state data with HMAC and returns base64 encoded state

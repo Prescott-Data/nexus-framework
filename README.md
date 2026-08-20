@@ -15,7 +15,7 @@ Generate a secure key with: `openssl rand -base64 32`
 
 ## Quick Start
 
-The fastest way to get started is with Docker Compose. This will spin up the Broker, Gateway, Postgres, and Redis.
+The fastest way to get started is with Docker Compose. This will spin up the Broker, Gateway, Sidecar, Postgres, and Redis.
 
 ```bash
 # 1. Configure environment
@@ -30,6 +30,7 @@ docker-compose up -d --build
 
 - **Broker**: http://localhost:8080
 - **Gateway**: http://localhost:8090
+- **Sidecar**: http://localhost:8070
 - **Admin API Key**: Configured in `.env` (Default: `nexus-admin-key`)
 
 ## Client SDKs
@@ -60,6 +61,7 @@ All SDKs provide full feature parity: connection management, token retrieval, MC
 - **[Broker Service](nexus-broker/README.md)**: Backend service details.
 - **[Gateway Service](nexus-gateway/README.md)**: Frontend API service details.
 - **[Bridge Library](nexus-bridge/README.md)**: Go persistent connection client.
+- **[Sidecar Service](nexus-sidecar/README.md)**: Polyglot HTTP proxy with Nexus-managed auth injection.
 - **[Go SDK](nexus-sdk/README.md)**: Go client SDK.
 - **[TypeScript SDK](nexus-sdk-ts/README.md)**: TypeScript/JavaScript client SDK.
 - **[Python SDK](nexus-sdk-python/README.md)**: Python client SDK.

@@ -14,7 +14,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const defaultAgentSessionTTL = 15 * time.Minute
+const (
+	defaultAgentSessionTTL = 15 * time.Minute
+	maxAgentSessionTTL     = time.Hour
+)
 
 var validAgentIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]*$`)
 
@@ -267,7 +270,11 @@ func sessionTTL(ttlSeconds int) (time.Duration, error) {
 	if ttlSeconds == 0 {
 		return defaultAgentSessionTTL, nil
 	}
-	return time.Duration(ttlSeconds) * time.Second, nil
+	ttl := time.Duration(ttlSeconds) * time.Second
+	if ttl > maxAgentSessionTTL {
+		return 0, ErrBadRequest("invalid_ttl", fmt.Sprintf("ttl_seconds must not exceed %d", int(maxAgentSessionTTL/time.Second)))
+	}
+	return ttl, nil
 }
 
 func validAgentID(agentID string) bool {

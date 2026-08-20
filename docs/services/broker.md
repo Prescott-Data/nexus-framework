@@ -69,5 +69,9 @@ See [Health Checks Architecture](../healthchecks.md) for details on the monitori
 | `REDIS_URL` | Redis URL for caching discovery and state. | Required |
 | `ENCRYPTION_KEY` | 32-byte Base64 key for AES-GCM. | Required |
 | `STATE_KEY` | 32-byte Base64 key for signing state. Must match the Gateway. The Broker will **fatal-exit** on startup if absent. | Required |
-| `API_KEY` | Key for Gateway-to-Broker authentication. | Required |
+| `API_KEY` | Single key for Gateway-to-Broker authentication. | Conditional |
+| `API_KEYS` | Comma-separated Gateway-to-Broker keys for rollover. | Optional |
+| `API_KEY_FILE` | Mounted secret file containing one Broker API key; reloaded without restart. | Optional |
+| `API_KEYS_FILE` | Mounted secret file containing comma- or newline-separated Broker API keys; reloaded without restart. | Optional |
+| `API_KEY_RELOAD_INTERVAL` | File reload interval for API key secret files. | `30s` |
 

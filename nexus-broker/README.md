@@ -1,11 +1,12 @@
 ## Nexus Broker
 
-Minimal, internal OAuth 2.0/OIDC broker written in Go. It initiates consent (PKCE + state), exchanges codes for tokens, and stores tokens encrypted in PostgreSQL. Tokens are treated as opaque; we do not rely on id_token claims by default.
+Minimal, internal OAuth 2.0/OIDC and SAML 2.0 broker written in Go. It initiates consent, exchanges OAuth codes, validates SAML assertions, and stores credential material encrypted in PostgreSQL. Tokens and assertions are treated as opaque; we do not rely on id_token claims by default.
 
 ### Key Capabilities
 - Provider registry (DB-backed)
 - Consent-spec builder (PKCE + HMAC state)
 - OAuth callback and code exchange
+- SAML SP AuthnRequest generation and ACS validation
 - AES-GCM token vault (encrypted at rest)
 - Token retrieval and on-demand refresh
 - Security gates (API key, IP allowlist, return URL validation)
@@ -37,6 +38,9 @@ ENCRYPTION_KEY=<32-byte base64, stable>
 STATE_KEY=<32-byte base64, stable>
 REDIRECT_PATH=/auth/callback
 API_KEY=dev-api-key-12345
+API_KEY_FILE=
+API_KEYS_FILE=
+API_KEY_RELOAD_INTERVAL=30s
 ALLOWED_CIDRS=127.0.0.1/32,::1/128
 ALLOWED_RETURN_DOMAINS=localhost,127.0.0.1,::1
 PORT=8080
@@ -48,6 +52,11 @@ openssl rand -base64 32  # use output for STATE_KEY
 ```
 
 Keep ENCRYPTION_KEY and STATE_KEY constant; changing them breaks decrypting stored tokens.
+
+For production API key rotation, mount a secret file and set `API_KEY_FILE`
+or `API_KEYS_FILE`. `API_KEY_FILE` may contain one key, while `API_KEYS_FILE`
+may contain comma- or newline-separated keys. The broker reloads these files at
+`API_KEY_RELOAD_INTERVAL` without requiring a process restart.
 
 ### 3) Run the broker
 ```bash
@@ -77,6 +86,7 @@ curl -X PATCH http://localhost:8080/providers/<id> \
 - `api_base_url`: Root URL for the provider's API (e.g., `https://api.github.com`). Used by frontend.
 - `user_info_endpoint`: Path to fetch user profile (e.g., `/user`). Used by frontend.
 - `description`: Human-readable description of what this provider is used for. Shown in the connected apps UI. Optional but recommended.
+- `saml_idp_entity_id`, `saml_idp_sso_url`, `saml_idp_x509_cert`, `saml_sp_entity_id`: SAML metadata fields required for `auth_type: "saml"`.
 
 ### Google
 ```bash
@@ -133,6 +143,30 @@ jq -n '{
 }' | curl -s -X POST http://localhost:8080/providers -H "Content-Type: application/json" -d @- | jq .
 ```
 **Note:** Ensure your Azure App Registration has a **Web** platform configured with the correct Redirect URI.
+
+### SAML 2.0
+```bash
+jq -n '{
+  profile: {
+    name: "okta-saml",
+    auth_type: "saml",
+    description: "Authenticate users with the enterprise Okta SAML application.",
+    saml_idp_entity_id: "https://idp.example.com/app/abc123",
+    saml_idp_sso_url: "https://idp.example.com/app/abc123/sso/saml",
+    saml_idp_x509_cert: "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
+    saml_sp_entity_id: "https://broker.example.com/saml/sp/okta"
+  }
+}' | curl -s -X POST http://localhost:8080/providers -H "Content-Type: application/json" -d @- | jq .
+```
+
+After registration, retrieve Nexus SP metadata and upload it to the IdP:
+
+```bash
+curl -H "X-API-Key: $API_KEY" \
+  http://localhost:8080/saml/metadata/<provider_id>
+```
+
+SAML connections use the same consent-spec endpoint as OAuth. The returned `authUrl` points to the IdP with a SAML AuthnRequest and signed RelayState. The IdP must POST responses to `BASE_URL` + `/saml/acs`.
 
 ### OIDC & Self-Discovery
 If you request the `openid` scope, the Broker attempts **OIDC Discovery**:
@@ -246,7 +280,8 @@ Access logs are structured; audit events are recorded in `audit_events`.
 ---
 
 ## Security
-- PKCE and HMAC-signed state on every consent
+- PKCE and HMAC-signed state on every OAuth consent
+- HMAC-signed SAML RelayState bound to the pending connection and AuthnRequest
 - AES-GCM token encryption; keys never logged
 - API key required for sensitive endpoints (use `X-API-Key`)
 - IP allowlisting via `ALLOWED_CIDRS`
@@ -275,7 +310,7 @@ OIDC hardening (id_token verification via JWKS, nonce, discovery) is fully imple
 ## Production Notes
 - Use managed Postgres (e.g., Azure Flexible Server). Set `sslmode=require`.
 - Restrict DB network (VNet/private DNS or firewall IPs). Restrict broker sensitive routes by IP.
-- Keep keys constant; rotate API key; monitor `/metrics`.
+- Keep encryption/state keys constant; rotate API keys through `API_KEY_FILE` or `API_KEYS_FILE`; monitor `/metrics`.
 - Document each provider in `docs/PROVIDERS.md` when added.
 
 ---
