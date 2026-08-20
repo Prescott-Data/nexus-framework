@@ -25,6 +25,8 @@ const (
 	providerHeader     = "X-Nexus-Provider"
 )
 
+var errBodyTooLarge = errors.New("request body exceeds limit")
+
 type Route struct {
 	Name   string
 	Target *url.URL
@@ -121,6 +123,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	outbound, err := p.prepareOutboundRequest(r, route, rest, token)
+	if errors.Is(err, errBodyTooLarge) {
+		p.writeProxyError(w, route.Name, http.StatusRequestEntityTooLarge, "body_too_large", fmt.Sprintf("request body exceeds %d byte limit", p.requestBodyLimit))
+		return
+	}
 	if err != nil {
 		log.Printf("sidecar auth injection failed route=%s connection_id=%s error=%v", route.Name, connectionID, err)
 		p.writeProxyError(w, route.Name, http.StatusBadGateway, "auth_injection_failed", "failed to apply Nexus credentials")
@@ -247,7 +253,7 @@ func readBodyWithinLimit(body io.ReadCloser, limit int64) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read request body: %w", err)
 	}
 	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("request body exceeds %d byte limit", limit)
+		return nil, fmt.Errorf("%w (%d bytes allowed)", errBodyTooLarge, limit)
 	}
 	return data, nil
 }

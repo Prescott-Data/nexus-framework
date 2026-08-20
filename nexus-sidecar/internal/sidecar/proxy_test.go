@@ -300,7 +300,7 @@ func TestProxyRejectsBodiesAboveLimit(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	proxy.ServeHTTP(rr, req)
-	assertErrorCode(t, rr, http.StatusBadGateway, "auth_injection_failed")
+	assertErrorCode(t, rr, http.StatusRequestEntityTooLarge, "body_too_large")
 	if upstreamCalled {
 		t.Fatal("upstream was called")
 	}
