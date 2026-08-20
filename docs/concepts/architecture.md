@@ -10,7 +10,7 @@ Understanding this separation is the mental model for everything else in this do
 
 ---
 
-## The four components
+## The five components
 
 ### The Broker
 
@@ -35,6 +35,14 @@ The Bridge is a Go library that runs inside your agent process. You instantiate 
 Use the Bridge when your agent is written in Go and makes ongoing connections to provider services.
 
 See [The Bridge](bridge.md) for transport details, the authentication engine, and observability hooks.
+
+### The Sidecar
+
+The Sidecar is a standalone HTTP proxy that runs next to an agent process, typically in the same pod or compose network. It exists for agents that are not written in Go and that should never hold raw provider credentials, not even short-lived access tokens. The agent sends a plain HTTP request to the Sidecar with an `X-Nexus-Connection-ID` header. The Sidecar fetches the credential payload from the Gateway, applies the returned auth strategy using the same authentication engine as the Bridge, and forwards the request to an explicitly allowlisted upstream route. The agent receives only the provider's response; the token never enters its process.
+
+Use the Sidecar when your agent is written in Python, TypeScript, or any other language, or when your security posture requires that a compromised agent process yields no credentials at all.
+
+See [The Sidecar](sidecar.md) for route configuration, supported strategies, and operations details.
 
 ### The SDKs
 
@@ -78,4 +86,4 @@ Your application should surface `attention_required` to the user so they can rec
 
 ## What Nexus does not do
 
-Nexus does not make API calls to providers on behalf of agents. It provides credentials; agents make the calls. Nexus does not manage authorization within your own application (which users can access which connections). It manages authentication with external providers. Nexus does not run inside your agent. The Bridge is an in-process library, but the Broker and Gateway are network services that you deploy separately.
+Nexus does not make API calls to providers on the agent's initiative; agents decide what to call and when. The one place Nexus touches provider traffic is the optional Sidecar, which forwards agent requests after injecting credentials, and only to routes you explicitly allowlist. Nexus does not manage authorization within your own application (which users can access which connections). It manages authentication with external providers. Nexus does not run inside your agent. The Bridge is an in-process library and the Sidecar is a co-located proxy, but the Broker and Gateway are network services that you deploy separately.
