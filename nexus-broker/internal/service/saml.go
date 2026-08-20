@@ -129,6 +129,15 @@ func (s *connectionService) ExchangeSAMLResponse(ctx context.Context, r *http.Re
 		return "", ErrNotFoundWithErr(err, "connection_not_found", "Connection not found or expired")
 	}
 
+	// Validate the redirect target before any credential is stored.
+	if !server.IsReturnURLAllowed(conn.ReturnURL, s.enforceReturnURL, s.allowedReturnDomains) {
+		return "", ErrBadRequest("return_url_not_allowed", "return_url not allowed")
+	}
+	returnURL, err := url.Parse(conn.ReturnURL)
+	if err != nil {
+		return "", ErrInternalWithErr(err, "invalid_return_url", "Invalid return_url")
+	}
+
 	p, err := s.providerStore.GetProfile(conn.ProviderID)
 	if err != nil {
 		return "", ErrNotFoundWithErr(err, "provider_not_found", "Provider not found")
@@ -173,14 +182,6 @@ func (s *connectionService) ExchangeSAMLResponse(ctx context.Context, r *http.Re
 		return "", err
 	}
 
-	if !server.IsReturnURLAllowed(conn.ReturnURL, s.enforceReturnURL, s.allowedReturnDomains) {
-		return "", ErrBadRequest("return_url_not_allowed", "return_url not allowed")
-	}
-
-	returnURL, err := url.Parse(conn.ReturnURL)
-	if err != nil {
-		return "", ErrInternalWithErr(err, "invalid_return_url", "Invalid return_url")
-	}
 	query := returnURL.Query()
 	query.Set("status", "success")
 	query.Set("connection_id", connID.String())
