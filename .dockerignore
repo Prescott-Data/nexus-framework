@@ -1,0 +1,10 @@
+.git
+site
+**/bin
+**/tmp
+**/node_modules
+**/dist
+**/__pycache__
+*.exe
+*.test
+.DS_Store

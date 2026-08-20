@@ -52,6 +52,18 @@ Both the Broker and the Gateway must receive the same value for `STATE_KEY`. If 
 
 ---
 
+## Sidecar
+
+| Variable | Required | Description |
+|---|---|---|
+| `GATEWAY_BASE_URL` | Yes | URL of the Gateway the Sidecar fetches credentials from. Example: `http://nexus-gateway:8090` |
+| `NEXUS_ROUTES` | Yes | Comma-separated allowlist of named upstream routes in `name=https://target` format. Example: `github=https://api.github.com,slack=https://slack.com/api` |
+| `TOKEN_CACHE_TTL` | No | Fallback cache lifetime for credential payloads that carry no expiry of their own (Go duration, e.g. `5m`). Default: no fallback caching. |
+| `REQUEST_BODY_LIMIT` | No | Maximum request body size buffered for body-signing strategies. Accepts sizes like `10MiB`. Default: `10MiB` |
+| `PORT` | No | Port the Sidecar listens on. Default: `8070` |
+
+---
+
 ## Key generation
 
 Both `ENCRYPTION_KEY` and `STATE_KEY` are 32-byte values encoded as Base64. Generate them with:

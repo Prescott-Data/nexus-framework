@@ -89,6 +89,7 @@ nav:
       - The Broker: concepts/broker.md
       - The Gateway: concepts/gateway.md
       - The Bridge: concepts/bridge.md
+      - The Sidecar: concepts/sidecar.md
       - Connections: concepts/connections.md
       - Provider Types: concepts/provider-types.md
       - Auth Strategies: concepts/auth-strategies.md

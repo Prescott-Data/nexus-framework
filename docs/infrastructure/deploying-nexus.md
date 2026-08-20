@@ -50,6 +50,18 @@ Store these in your secret manager (AWS Secrets Manager, Azure Key Vault, HashiC
 | `BROKER_API_KEY` | yes | The Broker's `API_KEY` |
 | `PORT` | no | Port to listen on (default: `8090`) |
 
+## Sidecar environment variables
+
+The Sidecar is optional. Deploy it next to each agent that needs it (same pod or compose network), not as a shared central service, and never expose it publicly: it authenticates callers by network locality alone.
+
+| Variable | Required | Description |
+|---|---|---|
+| `GATEWAY_BASE_URL` | yes | URL of the Gateway, e.g. `http://gateway:8090` |
+| `NEXUS_ROUTES` | yes | Allowlisted upstream routes, e.g. `github=https://api.github.com` |
+| `TOKEN_CACHE_TTL` | no | Fallback credential cache lifetime for payloads without an expiry, e.g. `5m` |
+| `REQUEST_BODY_LIMIT` | no | Body buffer cap for signing strategies (default: `10MiB`) |
+| `PORT` | no | Port to listen on (default: `8070`) |
+
 ## Network topology
 
 ```
@@ -110,6 +122,17 @@ services:
       - internal
       - public
 
+  # Optional: co-located proxy for non-Go agents. Keep it on the internal
+  # network only; it has no caller authentication of its own.
+  sidecar:
+    image: ghcr.io/prescott-data/nexus-sidecar:latest
+    environment:
+      GATEWAY_BASE_URL: http://gateway:8090
+      NEXUS_ROUTES: "github=https://api.github.com"
+      TOKEN_CACHE_TTL: 5m
+    networks:
+      - internal
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -141,7 +164,7 @@ For Broker API key rotation, prefer `API_KEY_FILE` or `API_KEYS_FILE` backed by 
 
 ## Health checks
 
-The Broker exposes `GET /health` and the Gateway exposes `GET /health`. Both return `200 OK` when the service is ready. Configure your load balancer to use these endpoints.
+The Broker exposes `GET /health` and the Gateway exposes `GET /health`. Both return `200 OK` when the service is ready. Configure your load balancer to use these endpoints. The Sidecar also exposes `GET /health` plus Prometheus metrics at `GET /metrics`.
 
 ## Upgrading
 

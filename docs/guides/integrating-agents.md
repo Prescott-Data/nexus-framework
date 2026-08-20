@@ -50,6 +50,28 @@ For gRPC, use `MaintainGRPC` instead of `MaintainWebSocket`. The API is the same
 
 ---
 
+## Sidecar proxy integration
+
+Use the Sidecar when an agent is not written in Go and should not receive raw provider tokens. The agent calls the local proxy with a connection ID, while the sidecar fetches credentials from the Gateway, applies the configured auth strategy, and forwards the request upstream.
+
+```python
+import os
+import requests
+
+resp = requests.get(
+    "http://localhost:8070/user/repos",
+    headers={
+        "X-Nexus-Provider": "github",
+        "X-Nexus-Connection-ID": os.environ["NEXUS_CONNECTION_ID"],
+    },
+    timeout=30,
+)
+resp.raise_for_status()
+```
+
+See [The Sidecar](../concepts/sidecar.md) for route configuration and operations details.
+
+---
 ## Manual HTTP integration
 
 Use this approach if your agent is not written in Go, or if you want explicit control over when credentials are fetched rather than having the Bridge manage them.
