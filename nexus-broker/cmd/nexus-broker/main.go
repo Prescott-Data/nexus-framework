@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/migrate"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository/instrumented"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository/postgres"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/service"
@@ -58,6 +59,17 @@ func main() {
 		log.Fatal("Failed to ping database:", err)
 	}
 	log.Println("Successfully connected to database")
+
+	if cfg.AutoMigrate {
+		result, err := migrate.Run(db.DB, cfg.MigrationsDir)
+		if err != nil {
+			log.Fatal("Failed to apply migrations:", err)
+		}
+		if len(result.Applied) > 0 {
+			log.Printf("Applied %d migration(s): %v", len(result.Applied), result.Applied)
+		}
+		log.Printf("Schema up to date (%d already applied)", result.Skipped)
+	}
 
 	opts, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {

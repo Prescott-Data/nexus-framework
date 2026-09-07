@@ -25,6 +25,11 @@ RUN addgroup -S app && adduser -S app -G app \
 
 COPY --from=builder /out/nexus-broker /usr/local/bin/nexus-broker
 
+# The schema the binary expects travels with the binary. Without this a
+# deployment has to source the migrations separately and keep them in step by
+# hand, and the mismatch only shows up when a request hits a missing column.
+COPY --from=builder /app/migrations /app/migrations
+
 # Port and environment
 ENV PORT=8080
 EXPOSE 8080

@@ -1,2 +1,2 @@
 ALTER TABLE provider_profiles
-ADD COLUMN params JSONB;
+ADD COLUMN IF NOT EXISTS params JSONB;

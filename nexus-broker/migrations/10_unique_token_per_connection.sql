@@ -10,5 +10,14 @@ WHERE t1.connection_id = t2.connection_id
 
 -- Step 2: Add unique constraint so only one token row per connection can exist.
 -- INSERT ... ON CONFLICT (connection_id) DO UPDATE will use this constraint.
-ALTER TABLE tokens
-    ADD CONSTRAINT tokens_connection_id_unique UNIQUE (connection_id);
+-- ADD CONSTRAINT has no IF NOT EXISTS, so the constraint is added only when it
+-- is absent. Replaying this migration then costs nothing.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'tokens_connection_id_unique'
+    ) THEN
+        ALTER TABLE tokens
+            ADD CONSTRAINT tokens_connection_id_unique UNIQUE (connection_id);
+    END IF;
+END $$;

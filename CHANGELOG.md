@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The broker applies its own migrations on boot.** The image now carries
+  `migrations/`, and the broker applies whatever the database has not recorded
+  in a new `schema_migrations` ledger, keyed by filename. Running twice is a
+  no-op, and a partly-migrated database continues from where it stopped. Set
+  `AUTO_MIGRATE=false` where migrations are run as a separate step, and
+  `MIGRATIONS_DIR` to relocate them. (#101, #102)
+
+### Fixed
+- **Migrations are replayable.** `ADD COLUMN`, `CREATE TABLE`, `CREATE INDEX`
+  and the `tokens_connection_id_unique` constraint are now guarded, so a
+  database adopting the ledger does not fail on migrations whose effect is
+  already present. Previously a deployment that had applied migrations by hand
+  could not start the new broker at all. (#102)
+- **Two migrations no longer share the prefix `11`**, which would have caused
+  any version-keyed runner to apply one and skip the other permanently. They
+  are now `11a_add_provider_description.sql` and
+  `11b_add_audit_created_at_index.sql`, preserving their order. (#103)
+
 ### Fixed
 - **Static credential validation now fails closed**: `api_key`/`basic_auth` connections are no longer marked `active` when the provider has no `api_base_url` + `user_info_endpoint` to validate against — capture now returns `provider_not_validatable` instead of accepting any key. When a validation endpoint is configured, a `401`/`403` from the provider rejects the key with `invalid_credentials`.
 
