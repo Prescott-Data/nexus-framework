@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-07
+
 ### Added
 - **The broker applies its own migrations on boot.** The image now carries
   `migrations/`, and the broker applies whatever the database has not recorded
@@ -25,8 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   any version-keyed runner to apply one and skip the other permanently. They
   are now `11a_add_provider_description.sql` and
   `11b_add_audit_created_at_index.sql`, preserving their order. (#103)
-
-### Fixed
+- **`make stamp` works on macOS.** It relied on GNU-only `sed -i -E` and the
+  `0,/re/` address, so on BSD sed it wrote files named `-E` and stamped nothing,
+  while reporting success. A contributor on macOS could not pass the version
+  consistency check.
 - **Static credential validation now fails closed**: `api_key`/`basic_auth` connections are no longer marked `active` when the provider has no `api_base_url` + `user_info_endpoint` to validate against — capture now returns `provider_not_validatable` instead of accepting any key. When a validation endpoint is configured, a `401`/`403` from the provider rejects the key with `invalid_credentials`.
 
 ## [0.2.4] - 2026-05-19

@@ -21,17 +21,32 @@ if [[ -z "$VERSION" ]]; then
   exit 1
 fi
 
+# In-place edit that works with both GNU and BSD sed. BSD sed reads the argument
+# after -i as a backup suffix, so `sed -i -E` there writes a file named `-E` and
+# leaves the original untouched, which stamps nothing and looks like it worked.
+edit_in_place() {
+  local expression="$1" file="$2" temporary
+  temporary="$(mktemp)"
+  sed -E "$expression" "$file" > "$temporary" && mv "$temporary" "$file"
+}
+
 # OpenAPI info.version — the first 2-space-indented `version:` key (under info:)
+# Uses awk rather than sed's `0,/re/` address, which is a GNU extension that BSD
+# sed rejects, so the stamp silently did nothing on macOS.
 stamp_openapi() {
-  local file="$1"
+  local file="$1" temporary
   [[ -f "$file" ]] || return 0
-  sed -i -E "0,/^  version:.*/s//  version: ${VERSION}/" "$file"
+  temporary="$(mktemp)"
+  awk -v version="$VERSION" '
+    !stamped && /^  version:/ { print "  version: " version; stamped = 1; next }
+    { print }
+  ' "$file" > "$temporary" && mv "$temporary" "$file"
 }
 
 stamp_openapi "$ROOT/openapi.yaml"
 stamp_openapi "$ROOT/nexus-broker/openapi.yaml"
 
 # mkdocs extra.version (quoted string)
-sed -i -E "s/^  version: \".*\"/  version: \"${VERSION}\"/" "$ROOT/mkdocs.yml"
+edit_in_place "s/^  version: \".*\"/  version: \"${VERSION}\"/" "$ROOT/mkdocs.yml"
 
 echo "Stamped version ${VERSION} into: openapi.yaml, nexus-broker/openapi.yaml, mkdocs.yml"
