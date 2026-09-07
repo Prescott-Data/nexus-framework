@@ -4,7 +4,7 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Provider profiles store OAuth provider configurations
-CREATE TABLE provider_profiles (
+CREATE TABLE IF NOT EXISTS provider_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     client_id VARCHAR(255) NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE provider_profiles (
 );
 
 -- Connections track OAuth flows in progress and completed
-CREATE TABLE connections (
+CREATE TABLE IF NOT EXISTS connections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id VARCHAR(255) NOT NULL,
     provider_id UUID NOT NULL REFERENCES provider_profiles(id),
@@ -31,7 +31,7 @@ CREATE TABLE connections (
 );
 
 -- Tokens store encrypted OAuth tokens
-CREATE TABLE tokens (
+CREATE TABLE IF NOT EXISTS tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     connection_id UUID NOT NULL REFERENCES connections(id),
     encrypted_data TEXT NOT NULL, -- AES-GCM encrypted JSON
@@ -40,7 +40,7 @@ CREATE TABLE tokens (
 );
 
 -- Audit events for security and debugging
-CREATE TABLE audit_events (
+CREATE TABLE IF NOT EXISTS audit_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     connection_id UUID REFERENCES connections(id),
     event_type VARCHAR(100) NOT NULL,
@@ -51,8 +51,8 @@ CREATE TABLE audit_events (
 );
 
 -- Indexes for performance
-CREATE INDEX idx_connections_workspace_provider ON connections(workspace_id, provider_id);
-CREATE INDEX idx_connections_status_expires ON connections(status, expires_at);
-CREATE INDEX idx_tokens_connection ON tokens(connection_id);
-CREATE INDEX idx_audit_connection ON audit_events(connection_id);
-CREATE INDEX idx_audit_event_type ON audit_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_connections_workspace_provider ON connections(workspace_id, provider_id);
+CREATE INDEX IF NOT EXISTS idx_connections_status_expires ON connections(status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_tokens_connection ON tokens(connection_id);
+CREATE INDEX IF NOT EXISTS idx_audit_connection ON audit_events(connection_id);
+CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_events(event_type);

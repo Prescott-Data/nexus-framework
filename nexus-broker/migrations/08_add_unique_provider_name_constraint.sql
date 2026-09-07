@@ -31,7 +31,7 @@ WHERE id IN (
 
 -- Now add a unique partial index that enforces uniqueness for non-deleted providers
 -- A partial index is used because we only want uniqueness when deleted_at IS NULL
-CREATE UNIQUE INDEX idx_provider_profiles_name_unique 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_profiles_name_unique 
 ON provider_profiles (name) 
 WHERE deleted_at IS NULL;
 

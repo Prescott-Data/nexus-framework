@@ -40,6 +40,13 @@ type BrokerConfig struct {
 	EnforceDBSSL  bool
 	DBSSLMode     string
 	DBSSLRootCert string
+
+	// Schema migrations applied on boot. On by default: the binary knows which
+	// schema it needs, and a deployment that has to supply that separately can
+	// disagree with it. Set AUTO_MIGRATE=false where migrations are run by a
+	// separate step, such as a Kubernetes job.
+	AutoMigrate   bool
+	MigrationsDir string
 }
 
 // Load reads all configuration from environment variables, validates required
@@ -63,6 +70,9 @@ func Load() (*BrokerConfig, error) {
 		EnforceDBSSL:  envBool("ENFORCE_DB_SSL"),
 		DBSSLMode:     envOr("DB_SSLMODE", "require"),
 		DBSSLRootCert: strings.TrimSpace(os.Getenv("DB_SSLROOTCERT")),
+
+		AutoMigrate:   envBoolDefault("AUTO_MIGRATE", true),
+		MigrationsDir: envOr("MIGRATIONS_DIR", "/app/migrations"),
 	}
 
 	// Parse allowed return domains
@@ -143,6 +153,15 @@ func envOr(key, fallback string) string {
 
 func envBool(key string) bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv(key)), "true")
+}
+
+// envBoolDefault reads a boolean that is on unless explicitly turned off.
+func envBoolDefault(key string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	return strings.EqualFold(raw, "true") || raw == "1"
 }
 
 func enforceDBSSL(dsn string, enforce bool, mode, rootCert string) string {
