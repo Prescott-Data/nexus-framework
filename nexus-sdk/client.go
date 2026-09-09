@@ -108,6 +108,33 @@ type ConnectionStatusResponse struct {
 	Status string `json:"status"`
 }
 
+// RevokeOptions carries the optional inputs of a revocation.
+type RevokeOptions struct {
+	// WorkspaceID, when set, must match the connection's workspace. Supplying it
+	// prevents a caller from revoking another workspace's connection.
+	WorkspaceID string
+	// Reason is recorded on the connection and in the audit log.
+	Reason string
+}
+
+// RevokeResult reports what a revocation accomplished.
+type RevokeResult struct {
+	ConnectionID string `json:"connection_id"`
+	ProviderName string `json:"provider_name"`
+	Status       string `json:"status"`
+	RevokedAt    string `json:"revoked_at"`
+	// AlreadyRevoked is true when an earlier request had already revoked it.
+	AlreadyRevoked bool `json:"already_revoked"`
+	// TokenDeleted reports that Nexus destroyed its copy of the credential.
+	TokenDeleted   bool  `json:"token_deleted"`
+	SessionsClosed int64 `json:"sessions_closed"`
+	// ProviderRevoked is true only when the provider accepted an RFC 7009
+	// revocation. When false the credential may remain valid at the provider
+	// until it expires, even though Nexus can no longer use it.
+	ProviderRevoked         bool   `json:"provider_revoked"`
+	ProviderRevocationError string `json:"provider_revocation_error,omitempty"`
+}
+
 // TokenResponse is minimally typed; extra fields are retained in Raw.
 type TokenResponse struct {
 	AccessToken  string                 `json:"access_token"`
@@ -195,6 +222,45 @@ func (c *Client) RefreshConnection(ctx context.Context, connectionID string) (*T
 	}
 	defer resp.Body.Close()
 	var out TokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// RevokeConnection wraps DELETE /v1/connections/{connection_id}.
+//
+// Revocation is permanent: the stored credential is destroyed and the
+// connection can never be used again. Inspect ProviderRevoked on the result to
+// tell whether the token was also invalidated at the provider — Nexus always
+// destroys its own copy, but not every provider supports RFC 7009 revocation.
+//
+// The call is idempotent, so retrying after a timeout is safe.
+func (c *Client) RevokeConnection(ctx context.Context, connectionID string, opts *RevokeOptions) (*RevokeResult, error) {
+	if strings.TrimSpace(connectionID) == "" {
+		return nil, errors.New("missing connection_id")
+	}
+
+	endpoint := c.GatewayBaseURL + "/v1/connections/" + url.PathEscape(connectionID)
+	if opts != nil {
+		q := url.Values{}
+		if strings.TrimSpace(opts.WorkspaceID) != "" {
+			q.Set("workspace_id", opts.WorkspaceID)
+		}
+		if strings.TrimSpace(opts.Reason) != "" {
+			q.Set("reason", opts.Reason)
+		}
+		if len(q) > 0 {
+			endpoint += "?" + q.Encode()
+		}
+	}
+
+	resp, err := c.do(ctx, http.MethodDelete, endpoint, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var out RevokeResult
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, err
 	}

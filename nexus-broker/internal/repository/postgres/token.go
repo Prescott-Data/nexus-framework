@@ -41,3 +41,10 @@ func (r *tokenRepository) Get(ctx context.Context, connectionID uuid.UUID) (*dom
 	token.ConnectionID = connectionID
 	return &token, nil
 }
+
+// Delete removes the credential row for a connection. Missing rows are not an
+// error so that revocation can be retried safely.
+func (r *tokenRepository) Delete(ctx context.Context, connectionID uuid.UUID) error {
+	_, err := execerFromContext(ctx, r.db).ExecContext(ctx, "DELETE FROM tokens WHERE connection_id = $1", connectionID)
+	return err
+}

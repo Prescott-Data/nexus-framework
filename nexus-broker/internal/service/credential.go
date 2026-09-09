@@ -149,6 +149,9 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 	}
 
 	if conn.Status != "active" {
+		if conn.Status == StatusRevoked {
+			return nil, ErrGone("connection_revoked", "Connection has been revoked. A new connection must be established.")
+		}
 		return nil, ErrBadRequest("connection_not_active", "Connection not active")
 	}
 

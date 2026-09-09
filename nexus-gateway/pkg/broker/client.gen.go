@@ -35,8 +35,18 @@ const (
 	ConnectionSummaryHealthStatusDegraded  ConnectionSummaryHealthStatus = "degraded"
 	ConnectionSummaryHealthStatusExpired   ConnectionSummaryHealthStatus = "expired"
 	ConnectionSummaryHealthStatusHealthy   ConnectionSummaryHealthStatus = "healthy"
+	ConnectionSummaryHealthStatusRevoked   ConnectionSummaryHealthStatus = "revoked"
 	ConnectionSummaryHealthStatusUnhealthy ConnectionSummaryHealthStatus = "unhealthy"
 	ConnectionSummaryHealthStatusUnknown   ConnectionSummaryHealthStatus = "unknown"
+)
+
+// Defines values for ConnectionSummaryStatus.
+const (
+	ConnectionSummaryStatusActive     ConnectionSummaryStatus = "active"
+	ConnectionSummaryStatusAttention  ConnectionSummaryStatus = "attention"
+	ConnectionSummaryStatusPending    ConnectionSummaryStatus = "pending"
+	ConnectionSummaryStatusRevoked    ConnectionSummaryStatus = "revoked"
+	ConnectionSummaryStatusSuperseded ConnectionSummaryStatus = "superseded"
 )
 
 // Defines values for ProviderHealthStatusHealthStatus.
@@ -83,13 +93,18 @@ const (
 	Saml        ProviderProfilePatchAuthType = "saml"
 )
 
+// Defines values for RevokeResultStatus.
+const (
+	Revoked RevokeResultStatus = "revoked"
+)
+
 // Defines values for TokenResponseHealthStatus.
 const (
-	Degraded  TokenResponseHealthStatus = "degraded"
-	Expired   TokenResponseHealthStatus = "expired"
-	Healthy   TokenResponseHealthStatus = "healthy"
-	Unhealthy TokenResponseHealthStatus = "unhealthy"
-	Unknown   TokenResponseHealthStatus = "unknown"
+	TokenResponseHealthStatusDegraded  TokenResponseHealthStatus = "degraded"
+	TokenResponseHealthStatusExpired   TokenResponseHealthStatus = "expired"
+	TokenResponseHealthStatusHealthy   TokenResponseHealthStatus = "healthy"
+	TokenResponseHealthStatusUnhealthy TokenResponseHealthStatus = "unhealthy"
+	TokenResponseHealthStatusUnknown   TokenResponseHealthStatus = "unknown"
 )
 
 // ConnectionSummary defines model for ConnectionSummary.
@@ -101,9 +116,12 @@ type ConnectionSummary struct {
 	LastHealthCheckAt *time.Time                     `json:"last_health_check_at"`
 	ProviderId        *openapi_types.UUID            `json:"provider_id,omitempty"`
 	ProviderName      *string                        `json:"provider_name,omitempty"`
-	Scopes            *[]string                      `json:"scopes,omitempty"`
-	Status            *string                        `json:"status,omitempty"`
-	UpdatedAt         *time.Time                     `json:"updated_at,omitempty"`
+
+	// RevokedAt Set when the connection was revoked; absent otherwise.
+	RevokedAt *time.Time               `json:"revoked_at"`
+	Scopes    *[]string                `json:"scopes,omitempty"`
+	Status    *ConnectionSummaryStatus `json:"status,omitempty"`
+	UpdatedAt *time.Time               `json:"updated_at,omitempty"`
 }
 
 // ConnectionSummaryAuthType defines model for ConnectionSummary.AuthType.
@@ -111,6 +129,9 @@ type ConnectionSummaryAuthType string
 
 // ConnectionSummaryHealthStatus defines model for ConnectionSummary.HealthStatus.
 type ConnectionSummaryHealthStatus string
+
+// ConnectionSummaryStatus defines model for ConnectionSummary.Status.
+type ConnectionSummaryStatus string
 
 // ConsentSpecRequest defines model for ConsentSpecRequest.
 type ConsentSpecRequest struct {
@@ -249,6 +270,31 @@ type ProviderProfilePatchAuthHeader string
 // ProviderProfilePatchAuthType defines model for ProviderProfilePatch.AuthType.
 type ProviderProfilePatchAuthType string
 
+// RevokeResult Outcome of a connection revocation.
+type RevokeResult struct {
+	// AlreadyRevoked True when the connection had been revoked by an earlier request.
+	AlreadyRevoked *bool               `json:"already_revoked,omitempty"`
+	ConnectionId   *openapi_types.UUID `json:"connection_id,omitempty"`
+	ProviderName   *string             `json:"provider_name,omitempty"`
+
+	// ProviderRevocationError Why upstream revocation did not happen or only partly happened.
+	ProviderRevocationError *string `json:"provider_revocation_error,omitempty"`
+
+	// ProviderRevoked True only when the provider accepted an RFC 7009 revocation. False means the credential was destroyed inside Nexus but may still be valid at the provider until it expires.
+	ProviderRevoked *bool      `json:"provider_revoked,omitempty"`
+	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
+
+	// SessionsClosed Number of open agent sessions closed as part of the revocation.
+	SessionsClosed *int64              `json:"sessions_closed,omitempty"`
+	Status         *RevokeResultStatus `json:"status,omitempty"`
+
+	// TokenDeleted True when the stored credential was destroyed by this request.
+	TokenDeleted *bool `json:"token_deleted,omitempty"`
+}
+
+// RevokeResultStatus defines model for RevokeResult.Status.
+type RevokeResultStatus string
+
 // TokenResponse defines model for TokenResponse.
 type TokenResponse struct {
 	AccessToken *string `json:"access_token,omitempty"`
@@ -303,6 +349,21 @@ type GetConnectionsResolveParams struct {
 	ProviderName string `form:"provider_name" json:"provider_name"`
 }
 
+// RevokeConnectionJSONBody defines parameters for RevokeConnection.
+type RevokeConnectionJSONBody struct {
+	Reason      *string `json:"reason,omitempty"`
+	WorkspaceId *string `json:"workspace_id,omitempty"`
+}
+
+// RevokeConnectionParams defines parameters for RevokeConnection.
+type RevokeConnectionParams struct {
+	// WorkspaceId When supplied, must match the connection's workspace or the request returns 404.
+	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+
+	// Reason Free-text reason recorded on the connection and in the audit log.
+	Reason *string `form:"reason,omitempty" json:"reason,omitempty"`
+}
+
 // PostProvidersJSONBody defines parameters for PostProviders.
 type PostProvidersJSONBody struct {
 	Profile *ProviderProfile `json:"profile,omitempty"`
@@ -322,6 +383,9 @@ type PostAuthCaptureCredentialJSONRequestBody PostAuthCaptureCredentialJSONBody
 
 // PostAuthConsentSpecJSONRequestBody defines body for PostAuthConsentSpec for application/json ContentType.
 type PostAuthConsentSpecJSONRequestBody = ConsentSpecRequest
+
+// RevokeConnectionJSONRequestBody defines body for RevokeConnection for application/json ContentType.
+type RevokeConnectionJSONRequestBody RevokeConnectionJSONBody
 
 // PostProvidersJSONRequestBody defines body for PostProviders for application/json ContentType.
 type PostProvidersJSONRequestBody PostProvidersJSONBody
@@ -429,6 +493,11 @@ type ClientInterface interface {
 
 	// GetConnectionsResolve request
 	GetConnectionsResolve(ctx context.Context, params *GetConnectionsResolveParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RevokeConnectionWithBody request with any body
+	RevokeConnectionWithBody(ctx context.Context, connectionID openapi_types.UUID, params *RevokeConnectionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	RevokeConnection(ctx context.Context, connectionID openapi_types.UUID, params *RevokeConnectionParams, body RevokeConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PostConnectionsConnectionIDRefresh request
 	PostConnectionsConnectionIDRefresh(ctx context.Context, connectionID string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -567,6 +636,30 @@ func (c *Client) GetConnections(ctx context.Context, params *GetConnectionsParam
 
 func (c *Client) GetConnectionsResolve(ctx context.Context, params *GetConnectionsResolveParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetConnectionsResolveRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RevokeConnectionWithBody(ctx context.Context, connectionID openapi_types.UUID, params *RevokeConnectionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRevokeConnectionRequestWithBody(c.Server, connectionID, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RevokeConnection(ctx context.Context, connectionID openapi_types.UUID, params *RevokeConnectionParams, body RevokeConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRevokeConnectionRequest(c.Server, connectionID, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1081,6 +1174,91 @@ func NewGetConnectionsResolveRequest(server string, params *GetConnectionsResolv
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewRevokeConnectionRequest calls the generic RevokeConnection builder with application/json body
+func NewRevokeConnectionRequest(server string, connectionID openapi_types.UUID, params *RevokeConnectionParams, body RevokeConnectionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRevokeConnectionRequestWithBody(server, connectionID, params, "application/json", bodyReader)
+}
+
+// NewRevokeConnectionRequestWithBody generates requests for RevokeConnection with any type of body
+func NewRevokeConnectionRequestWithBody(server string, connectionID openapi_types.UUID, params *RevokeConnectionParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "connectionID", runtime.ParamLocationPath, connectionID)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/connections/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.WorkspaceId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Reason != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "reason", runtime.ParamLocationQuery, *params.Reason); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -1636,6 +1814,11 @@ type ClientWithResponsesInterface interface {
 	// GetConnectionsResolveWithResponse request
 	GetConnectionsResolveWithResponse(ctx context.Context, params *GetConnectionsResolveParams, reqEditors ...RequestEditorFn) (*GetConnectionsResolveResponse, error)
 
+	// RevokeConnectionWithBodyWithResponse request with any body
+	RevokeConnectionWithBodyWithResponse(ctx context.Context, connectionID openapi_types.UUID, params *RevokeConnectionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RevokeConnectionResponse, error)
+
+	RevokeConnectionWithResponse(ctx context.Context, connectionID openapi_types.UUID, params *RevokeConnectionParams, body RevokeConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*RevokeConnectionResponse, error)
+
 	// PostConnectionsConnectionIDRefreshWithResponse request
 	PostConnectionsConnectionIDRefreshWithResponse(ctx context.Context, connectionID string, reqEditors ...RequestEditorFn) (*PostConnectionsConnectionIDRefreshResponse, error)
 
@@ -1816,6 +1999,28 @@ func (r GetConnectionsResolveResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetConnectionsResolveResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type RevokeConnectionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *RevokeResult
+}
+
+// Status returns HTTPResponse.Status
+func (r RevokeConnectionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RevokeConnectionResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -2202,6 +2407,23 @@ func (c *ClientWithResponses) GetConnectionsResolveWithResponse(ctx context.Cont
 	return ParseGetConnectionsResolveResponse(rsp)
 }
 
+// RevokeConnectionWithBodyWithResponse request with arbitrary body returning *RevokeConnectionResponse
+func (c *ClientWithResponses) RevokeConnectionWithBodyWithResponse(ctx context.Context, connectionID openapi_types.UUID, params *RevokeConnectionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RevokeConnectionResponse, error) {
+	rsp, err := c.RevokeConnectionWithBody(ctx, connectionID, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRevokeConnectionResponse(rsp)
+}
+
+func (c *ClientWithResponses) RevokeConnectionWithResponse(ctx context.Context, connectionID openapi_types.UUID, params *RevokeConnectionParams, body RevokeConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*RevokeConnectionResponse, error) {
+	rsp, err := c.RevokeConnection(ctx, connectionID, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRevokeConnectionResponse(rsp)
+}
+
 // PostConnectionsConnectionIDRefreshWithResponse request returning *PostConnectionsConnectionIDRefreshResponse
 func (c *ClientWithResponses) PostConnectionsConnectionIDRefreshWithResponse(ctx context.Context, connectionID string, reqEditors ...RequestEditorFn) (*PostConnectionsConnectionIDRefreshResponse, error) {
 	rsp, err := c.PostConnectionsConnectionIDRefresh(ctx, connectionID, reqEditors...)
@@ -2491,6 +2713,32 @@ func ParseGetConnectionsResolveResponse(rsp *http.Response) (*GetConnectionsReso
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest TokenResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRevokeConnectionResponse parses an HTTP response from a RevokeConnectionWithResponse call
+func ParseRevokeConnectionResponse(rsp *http.Response) (*RevokeConnectionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RevokeConnectionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RevokeResult
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

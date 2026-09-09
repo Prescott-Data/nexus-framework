@@ -119,6 +119,42 @@ class TokenResponse:
 
 
 @dataclass
+class RevokeResult:
+    """Outcome of a connection revocation."""
+
+    connection_id: str
+    """The connection that was revoked."""
+
+    status: str = "revoked"
+    """Always 'revoked' — the terminal state of a connection."""
+
+    provider_name: str = ""
+    """Provider the connection belonged to."""
+
+    revoked_at: str = ""
+    """ISO 8601 timestamp of the revocation."""
+
+    already_revoked: bool = False
+    """True when an earlier request had already revoked this connection."""
+
+    token_deleted: bool = False
+    """True when Nexus destroyed its stored copy of the credential."""
+
+    sessions_closed: int = 0
+    """How many open agent sessions were closed by the revocation."""
+
+    provider_revoked: bool = False
+    """
+    True only when the provider accepted an RFC 7009 revocation. When False the
+    credential is gone from Nexus but may remain valid at the provider until it
+    expires — treat that as an incomplete revocation.
+    """
+
+    provider_revocation_error: Optional[str] = None
+    """Why upstream revocation did not happen, or only partly happened."""
+
+
+@dataclass
 class CachedToken:
     """A resolved token with its expiration metadata."""
 

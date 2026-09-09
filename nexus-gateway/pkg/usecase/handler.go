@@ -557,6 +557,89 @@ func (h *Handler) RefreshConnection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tokenMap)
 }
 
+// RevokeConnectionInput describes a revocation forwarded to the broker.
+type RevokeConnectionInput struct {
+	ConnectionID string
+	WorkspaceID  string
+	Reason       string
+}
+
+// RevokeConnectionCore forwards a revocation to the broker and returns the
+// broker's result verbatim. The gateway does not interpret the outcome: the
+// distinction between "destroyed locally" and "revoked at the provider" must
+// reach the caller intact.
+func (h *Handler) RevokeConnectionCore(ctx context.Context, in RevokeConnectionInput) (map[string]any, int, error) {
+	connectionID, err := uuid.Parse(strings.TrimSpace(in.ConnectionID))
+	if err != nil {
+		return nil, http.StatusBadRequest, fmt.Errorf("%w: connection_id must be a UUID", ErrMissingFields)
+	}
+
+	params := &broker.RevokeConnectionParams{}
+	if ws := strings.TrimSpace(in.WorkspaceID); ws != "" {
+		params.WorkspaceId = &ws
+	}
+	if reason := strings.TrimSpace(in.Reason); reason != "" {
+		params.Reason = &reason
+	}
+
+	resp, err := h.brokerClient.RevokeConnectionWithResponse(ctx, connectionID, params, broker.RevokeConnectionJSONRequestBody{})
+	if err != nil {
+		return nil, http.StatusBadGateway, fmt.Errorf("broker request failed: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, resp.StatusCode(), nil
+	}
+
+	if resp.JSON200 == nil {
+		return nil, resp.StatusCode(), fmt.Errorf("empty response")
+	}
+
+	data, _ := json.Marshal(resp.JSON200)
+	var result map[string]any
+	_ = json.Unmarshal(data, &result)
+
+	return result, http.StatusOK, nil
+}
+
+// RevokeConnection handles DELETE /v1/connections/{connectionID}
+func (h *Handler) RevokeConnection(w http.ResponseWriter, r *http.Request) {
+	connectionID := strings.TrimSpace(chi.URLParam(r, "connectionID"))
+	if connectionID == "" {
+		writeError(w, http.StatusBadRequest, "missing_fields", "missing connection id", nil)
+		return
+	}
+
+	logging.Info(r.Context(), "revoke_connection.start", map[string]any{"connection_id": connectionID})
+
+	result, status, err := h.RevokeConnectionCore(r.Context(), RevokeConnectionInput{
+		ConnectionID: connectionID,
+		WorkspaceID:  r.URL.Query().Get("workspace_id"),
+		Reason:       r.URL.Query().Get("reason"),
+	})
+	if err != nil {
+		if errors.Is(err, ErrMissingFields) {
+			writeError(w, http.StatusBadRequest, "invalid_connection_id", "connection_id must be a UUID", nil)
+			return
+		}
+		logging.Error(r.Context(), "revoke_connection.broker_error", map[string]any{"error": err.Error()})
+		writeError(w, status, "broker_unavailable", "broker request failed", nil)
+		return
+	}
+
+	if status != http.StatusOK {
+		logging.Error(r.Context(), "revoke_connection.broker_status", map[string]any{"status": status})
+		w.WriteHeader(status)
+		return
+	}
+
+	logging.Info(r.Context(), "revoke_connection.success", map[string]any{
+		"connection_id":    connectionID,
+		"provider_revoked": result["provider_revoked"],
+	})
+	writeJSON(w, http.StatusOK, result)
+}
+
 // GetProvidersCore fetches provider metadata from the broker
 func (h *Handler) GetProvidersCore(ctx context.Context) (map[string]any, error) {
 	resp, err := h.brokerClient.GetProvidersMetadataWithResponse(ctx)

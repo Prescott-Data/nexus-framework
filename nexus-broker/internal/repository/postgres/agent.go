@@ -7,6 +7,7 @@ import (
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 )
@@ -128,6 +129,21 @@ func (r *agentRepository) CloseSession(ctx context.Context, sessionID string, cl
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// CloseSessionsForConnection closes every open session bound to a connection.
+// Closing nothing is a valid outcome (the connection may have no live grants),
+// so unlike CloseSession this does not treat zero rows as an error.
+func (r *agentRepository) CloseSessionsForConnection(ctx context.Context, connectionID uuid.UUID, closedAt time.Time) (int64, error) {
+	result, err := execerFromContext(ctx, r.db).ExecContext(ctx, `
+		UPDATE agent_sessions
+		SET closed_at = $2
+		WHERE connection_id = $1 AND closed_at IS NULL`,
+		connectionID, closedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func nullString(value string) interface{} {

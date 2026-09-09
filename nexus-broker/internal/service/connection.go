@@ -34,6 +34,7 @@ type ConnectionService interface {
 	SaveCredential(ctx context.Context, state string, credentials map[string]interface{}) (string, error)
 	Refresh(ctx context.Context, connectionID uuid.UUID) (*RefreshResponse, error)
 	ListConnections(ctx context.Context, workspaceID string) ([]domain.ConnectionSummary, error)
+	RevokeConnection(ctx context.Context, req RevokeRequest) (*RevokeResult, error)
 }
 
 type connectionService struct {
@@ -51,6 +52,21 @@ type connectionService struct {
 	probeClient          *http.Client
 	enforceReturnURL     bool
 	allowedReturnDomains []string
+	// agentRepo is optional. When present, revoking a connection also closes the
+	// agent sessions that were issued against it.
+	agentRepo sessionCloser
+}
+
+// ConnectionServiceOption customises an optional dependency of the service.
+type ConnectionServiceOption func(*connectionService)
+
+// WithAgentSessionCloser lets revocation cascade into outstanding agent
+// sessions. Without it a revoked connection still refuses to mint tokens, but
+// its sessions are left open in the registry.
+func WithAgentSessionCloser(closer sessionCloser) ConnectionServiceOption {
+	return func(s *connectionService) {
+		s.agentRepo = closer
+	}
 }
 
 type txRunner interface {
@@ -81,8 +97,9 @@ func NewConnectionService(
 	httpClient *http.Client,
 	enforceReturnURL bool,
 	allowedReturnDomains []string,
+	opts ...ConnectionServiceOption,
 ) ConnectionService {
-	return &connectionService{
+	svc := &connectionService{
 		connRepo:             connRepo,
 		tokenRepo:            tokenRepo,
 		providerStore:        providerStore,
@@ -96,6 +113,10 @@ func NewConnectionService(
 		enforceReturnURL:     enforceReturnURL,
 		allowedReturnDomains: allowedReturnDomains,
 	}
+	for _, opt := range opts {
+		opt(svc)
+	}
+	return svc
 }
 
 func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateConsentRequest) (*ConsentSpecResponse, error) {
@@ -380,6 +401,9 @@ func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID
 	if conn.Status != "active" {
 		if conn.Status == "attention" {
 			return nil, "", ErrConflict("attention_required", "Connection requires attention. The user must re-authenticate.")
+		}
+		if conn.Status == StatusRevoked {
+			return nil, "", ErrGone("connection_revoked", "Connection has been revoked. A new connection must be established.")
 		}
 		return nil, "", ErrBadRequest("connection_not_active", "Connection not active")
 	}

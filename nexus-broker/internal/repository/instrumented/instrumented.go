@@ -98,6 +98,11 @@ func (r *ConnectionRepository) DeactivateOtherActive(ctx context.Context, worksp
 	return r.inner.DeactivateOtherActive(ctx, workspaceID, providerID, exceptID)
 }
 
+func (r *ConnectionRepository) MarkRevoked(ctx context.Context, id uuid.UUID, reason string, revokedAt time.Time) error {
+	defer observe("connection", "MarkRevoked", time.Now())
+	return r.inner.MarkRevoked(ctx, id, reason, revokedAt)
+}
+
 // InTx forwards transactional execution when the wrapped repository supports it.
 func (r *ConnectionRepository) InTx(ctx context.Context, fn func(context.Context) error) error {
 	if runner, ok := r.inner.(txRunner); ok {
@@ -127,6 +132,11 @@ func (r *TokenRepository) Upsert(ctx context.Context, token *domain.Token) error
 func (r *TokenRepository) Get(ctx context.Context, connectionID uuid.UUID) (*domain.Token, error) {
 	defer observe("token", "Get", time.Now())
 	return r.inner.Get(ctx, connectionID)
+}
+
+func (r *TokenRepository) Delete(ctx context.Context, connectionID uuid.UUID) error {
+	defer observe("token", "Delete", time.Now())
+	return r.inner.Delete(ctx, connectionID)
 }
 
 // --- AgentRepository decorator ---
@@ -169,4 +179,9 @@ func (r *AgentRepository) GetSession(ctx context.Context, sessionID string) (*do
 func (r *AgentRepository) CloseSession(ctx context.Context, sessionID string, closedAt time.Time) error {
 	defer observe("agent", "CloseSession", time.Now())
 	return r.inner.CloseSession(ctx, sessionID, closedAt)
+}
+
+func (r *AgentRepository) CloseSessionsForConnection(ctx context.Context, connectionID uuid.UUID, closedAt time.Time) (int64, error) {
+	defer observe("agent", "CloseSessionsForConnection", time.Now())
+	return r.inner.CloseSessionsForConnection(ctx, connectionID, closedAt)
 }
