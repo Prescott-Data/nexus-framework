@@ -728,6 +728,82 @@ func TestConnectionService_ExchangeCodeForTokens_Success(t *testing.T) {
 	providerStore.AssertExpectations(t)
 	tokenRepo.AssertExpectations(t)
 }
+
+func TestConnectionService_ExchangeCodeForTokens_ExplicitEndpointSkipsDiscovery(t *testing.T) {
+	var server *httptest.Server
+	explicitCalls := 0
+	discoveredCalls := 0
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"issuer":         server.URL,
+				"jwks_uri":       server.URL + "/jwks",
+				"token_endpoint": server.URL + "/openid-token",
+			})
+		case "/oauth-token":
+			explicitCalls++
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "bot-access-token",
+				"token_type":   "bot",
+			})
+		case "/openid-token":
+			discoveredCalls++
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"id_token":   "identity-only-token",
+				"token_type": "Bearer",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	connRepo, tokenRepo, providerStore, svc, stateKey := setupTestServiceWithHTTPClient(t, server.Client())
+	connID := uuid.New()
+	providerID := uuid.New()
+	stateData := auth.StateData{
+		WorkspaceID: "ws-explicit",
+		ProviderID:  providerID.String(),
+		Nonce:       connID.String(),
+		IAT:         time.Now(),
+	}
+	signedState, err := auth.SignState(stateKey, stateData)
+	assert.NoError(t, err)
+	conn := &domain.Connection{
+		ID:           connID,
+		ProviderID:   providerID,
+		CodeVerifier: sql.NullString{String: "test-verifier", Valid: true},
+		Scopes:       []string{"chat:write"},
+		ReturnURL:    "http://app.example.com/done",
+	}
+	prof := &provider.Profile{
+		ID:              providerID,
+		Name:            "slack-shaped",
+		AuthType:        "oauth2",
+		TokenURL:        ptr(server.URL + "/oauth-token"),
+		ClientID:        ptr("client-123"),
+		ClientSecret:    ptr("secret-456"),
+		EnableDiscovery: false,
+	}
+	connRepo.On("GetPending", mock.Anything, connID).Return(conn, nil)
+	providerStore.On("GetProfile", providerID).Return(prof, nil)
+	tokenRepo.On("Upsert", mock.Anything, mock.MatchedBy(func(token *domain.Token) bool {
+		return token.ConnectionID == connID && token.EncryptedData != ""
+	})).Return(nil)
+	connRepo.On("UpdateStatus", mock.Anything, connID, "active").Return(nil)
+	connRepo.On("DeactivateOtherActive", mock.Anything, "ws-explicit", providerID, connID).Return(nil)
+
+	_, _, err = svc.ExchangeCodeForTokens(
+		context.Background(), signedState, "auth-code-xyz", "", "",
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 1, explicitCalls)
+	assert.Equal(t, 0, discoveredCalls)
+}
+
 func TestConnectionService_CreateConsentSpec_SAML(t *testing.T) {
 	connRepo, _, providerStore, svc, stateKey := setupTestServiceWithHTTPClient(t, http.DefaultClient)
 
