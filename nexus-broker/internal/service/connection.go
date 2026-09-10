@@ -273,8 +273,17 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	if p.TokenURL != nil {
 		useTokenURL = *p.TokenURL
 	}
-	if md, errD := discovery.Discover(ctx, s.httpClient, discovery.Hint{AuthURL: useTokenURL}); errD == nil && strings.TrimSpace(md.TokenEndpoint) != "" {
-		useTokenURL = md.TokenEndpoint
+	if p.EnableDiscovery {
+		issuer := ""
+		if p.Issuer != nil {
+			issuer = *p.Issuer
+		}
+		if md, errD := discovery.Discover(ctx, s.httpClient, discovery.Hint{
+			Issuer:  issuer,
+			AuthURL: useTokenURL,
+		}); errD == nil && strings.TrimSpace(md.TokenEndpoint) != "" {
+			useTokenURL = md.TokenEndpoint
+		}
 	}
 
 	clientID := ""

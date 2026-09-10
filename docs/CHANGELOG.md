@@ -34,6 +34,12 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 **Fixed**
 
+- **Broker OAuth endpoint selection:** explicit provider `auth_url` and
+  `token_url` values are now authoritative when `enable_discovery=false`.
+  Previously, token exchange still attempted OIDC discovery and could replace a
+  provider's configured endpoint; for Slack this exchanged the authorization
+  code against the OpenID endpoint and stored an ID token without the bot access
+  token.
 - **Broker: static credentials are now validated before activation.** `api_key`/`basic_auth` connections fail closed (`provider_not_validatable`) when the provider has no `api_base_url` + `user_info_endpoint`, instead of accepting any key and reporting `active`. When configured, a `401`/`403` from the provider rejects the key with `invalid_credentials`.
 - TypeScript SDK: `Bearer` token type normalized to RFC 6750 capitalization (was `bearer`).
 - TypeScript SDK: package entry pointed at compiled `dist/`, not `.ts` source.

@@ -124,7 +124,7 @@ nav:
 
 
 extra:
-  version: "0.3.0"
+  version: "0.3.1"
   social:
     - icon: material/web
       link: https://developers.prescottdata.io
