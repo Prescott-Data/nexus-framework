@@ -67,6 +67,14 @@ func ErrForbidden(code, message string) *ServiceError {
 	return NewServiceError(http.StatusForbidden, nil, code, message)
 }
 
+// ErrGone marks a resource that existed and was deliberately destroyed, such as
+// a revoked connection. It is distinct from 404 (never existed) and from 400
+// (retryable input problem): a client that sees 410 must stop retrying and
+// start a fresh connection flow instead.
+func ErrGone(code, message string) *ServiceError {
+	return NewServiceError(http.StatusGone, nil, code, message)
+}
+
 // ErrBadGatewayWithErr is for failures reaching an upstream provider (e.g. the
 // broker cannot reach a provider's API to validate a credential). Status 502 so
 // the cause is logged by writeServiceError and clients can distinguish it from

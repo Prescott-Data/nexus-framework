@@ -90,6 +90,14 @@ func (m *MockConnectionService) ListConnections(ctx context.Context, workspaceID
 	return nil, args.Error(1)
 }
 
+func (m *MockConnectionService) RevokeConnection(ctx context.Context, req service.RevokeRequest) (*service.RevokeResult, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) != nil {
+		return args.Get(0).(*service.RevokeResult), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func TestGetSpec_Success(t *testing.T) {
 	mockSvc := new(MockConnectionService)
 	handler := NewConsentHandler(ConsentHandlerConfig{

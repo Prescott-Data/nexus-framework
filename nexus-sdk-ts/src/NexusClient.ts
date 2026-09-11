@@ -8,6 +8,8 @@ import type {
   RequestConnectionInput,
   RequestConnectionResponse,
   RetryPolicy,
+  RevokeOptions,
+  RevokeResult,
   TokenResponse,
 } from './types.js';
 
@@ -262,6 +264,60 @@ export class NexusClient {
 
     const raw = (await resp.json()) as Record<string, unknown>;
     return NexusClient.parseTokenResponse(raw);
+  }
+
+  /**
+   * Permanently revokes a connection.
+   * Wraps DELETE /v1/connections/{connectionId}
+   *
+   * The stored credential is always destroyed inside Nexus. Check
+   * `providerRevoked` on the result to tell whether the token was also
+   * invalidated at the provider — not every provider supports RFC 7009
+   * revocation, and the call is best-effort.
+   *
+   * The operation is idempotent, so retrying after a timeout is safe.
+   *
+   * @param connectionId - The connection to revoke.
+   * @param options - Optional workspace scoping and audit reason.
+   * @returns What the revocation accomplished.
+   */
+  public async revokeConnection(
+    connectionId: string,
+    options?: RevokeOptions,
+  ): Promise<RevokeResult> {
+    if (!connectionId.trim()) {
+      throw new NexusError('invalid_input', 'connectionId must not be empty');
+    }
+
+    const query = new URLSearchParams();
+    if (options?.workspaceId?.trim()) {
+      query.set('workspace_id', options.workspaceId);
+    }
+    if (options?.reason?.trim()) {
+      query.set('reason', options.reason);
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+
+    const resp = await this.doRequest(
+      'DELETE',
+      `${this.gatewayUrl}/v1/connections/${encodeURIComponent(connectionId)}${suffix}`,
+    );
+
+    const raw = (await resp.json()) as Record<string, unknown>;
+    return {
+      connectionId: String(raw.connection_id ?? connectionId),
+      providerName: String(raw.provider_name ?? ''),
+      status: String(raw.status ?? 'revoked'),
+      revokedAt: String(raw.revoked_at ?? ''),
+      alreadyRevoked: Boolean(raw.already_revoked),
+      tokenDeleted: Boolean(raw.token_deleted),
+      sessionsClosed: Number(raw.sessions_closed ?? 0),
+      providerRevoked: Boolean(raw.provider_revoked),
+      providerRevocationError:
+        typeof raw.provider_revocation_error === 'string'
+          ? raw.provider_revocation_error
+          : undefined,
+    };
   }
 
   /**

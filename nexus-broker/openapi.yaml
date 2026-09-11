@@ -215,22 +215,63 @@ components:
           enum: [oauth2, saml, api_key, basic_auth]
         status:
           type: string
+          enum: [pending, active, attention, superseded, revoked]
         scopes:
           type: array
           items: { type: string }
         health_status:
           type: string
-          enum: [healthy, unhealthy, degraded, expired, unknown]
+          enum: [healthy, unhealthy, degraded, expired, revoked, unknown]
         last_health_check_at:
           type: string
           format: date-time
           nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set when the connection was revoked; absent otherwise.
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
+
+    RevokeResult:
+      type: object
+      description: Outcome of a connection revocation.
+      properties:
+        connection_id:
+          type: string
+          format: uuid
+        provider_name:
+          type: string
+        status:
+          type: string
+          enum: [revoked]
+        revoked_at:
+          type: string
+          format: date-time
+        already_revoked:
+          type: boolean
+          description: True when the connection had been revoked by an earlier request.
+        token_deleted:
+          type: boolean
+          description: True when the stored credential was destroyed by this request.
+        sessions_closed:
+          type: integer
+          format: int64
+          description: Number of open agent sessions closed as part of the revocation.
+        provider_revoked:
+          type: boolean
+          description: >
+            True only when the provider accepted an RFC 7009 revocation. False
+            means the credential was destroyed inside Nexus but may still be
+            valid at the provider until it expires.
+        provider_revocation_error:
+          type: string
+          description: Why upstream revocation did not happen or only partly happened.
     
     MetadataResponse:
       type: object
@@ -575,6 +616,60 @@ paths:
                 $ref: '#/components/schemas/TokenResponse'
         '404':
           description: Connection not found
+
+  /connections/{connectionID}:
+    delete:
+      summary: Revoke a connection
+      operationId: revokeConnection
+      description: >
+        Permanently revokes a connection. Nexus attempts an RFC 7009 revocation
+        at the provider (when the provider advertises a revocation endpoint),
+        deletes the stored credential, closes any open agent sessions bound to
+        the connection, and moves it to the terminal `revoked` status.
+
+
+        The local credential is always destroyed, even when the upstream call
+        fails; inspect `provider_revoked` to see whether the provider also
+        invalidated the token. The operation is idempotent — revoking an
+        already-revoked connection returns 200 with `already_revoked: true`.
+      security: [{ ApiKeyAuth: [] }]
+      parameters:
+        - in: path
+          name: connectionID
+          required: true
+          schema: { type: string, format: uuid }
+        - in: query
+          name: workspace_id
+          required: false
+          schema: { type: string }
+          description: When supplied, must match the connection's workspace or the request returns 404.
+        - in: query
+          name: reason
+          required: false
+          schema: { type: string }
+          description: Free-text reason recorded on the connection and in the audit log.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                workspace_id:
+                  type: string
+      responses:
+        '200':
+          description: Revocation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokeResult'
+        '400':
+          description: connectionID is not a UUID, or the body is not valid JSON
+        '404':
+          description: Connection not found, or it belongs to a different workspace
 
   /connections/{connectionID}/token:
     get:

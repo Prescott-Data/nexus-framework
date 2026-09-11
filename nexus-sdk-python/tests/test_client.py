@@ -15,33 +15,57 @@ class MockHandler(BaseHTTPRequestHandler):
 
     routes: dict = {}
 
-    def do_GET(self):
+    def _dispatch(self, method: str):
+        # Drain the request body before responding. Closing a socket with
+        # unread data in the receive buffer makes the OS send RST instead of
+        # FIN, which surfaces client-side as an intermittent
+        # ConnectionResetError.
+        length = int(self.headers.get("Content-Length") or 0)
+        if length:
+            self.rfile.read(length)
+
         path = self.path.split("?")[0]
-        handler = self.routes.get(("GET", path))
+        handler = self.routes.get((method, path))
         if handler:
             handler(self)
         else:
             self.send_error(404)
 
+    def do_GET(self):
+        self._dispatch("GET")
+
     def do_POST(self):
-        path = self.path.split("?")[0]
-        handler = self.routes.get(("POST", path))
-        if handler:
-            handler(self)
-        else:
-            self.send_error(404)
+        self._dispatch("POST")
+
+    def do_DELETE(self):
+        self._dispatch("DELETE")
 
     def log_message(self, *args):
         pass  # Suppress logs during tests
 
 
-def _start_mock_server(routes: dict) -> tuple[HTTPServer, str]:
-    """Start a mock HTTP server and return (server, base_url)."""
-    MockHandler.routes = routes
-    server = HTTPServer(("127.0.0.1", 0), MockHandler)
+class _MockServer(HTTPServer):
+    """Server that fully tears down so tests cannot leak threads or sockets."""
+
+    def close(self):
+        self.shutdown()
+        self.server_close()
+        self._thread.join(timeout=5)
+
+
+def _start_mock_server(routes: dict) -> tuple[_MockServer, str]:
+    """Start a mock HTTP server and return (server, base_url).
+
+    Each server gets its own handler subclass: a shared class-level route table
+    would let concurrently-running servers from other tests observe each other's
+    routes, which made the suite flaky.
+    """
+    handler_cls = type("ScopedMockHandler", (MockHandler,), {"routes": routes})
+    server = _MockServer(("127.0.0.1", 0), handler_cls)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    server._thread = thread
     return server, f"http://127.0.0.1:{port}"
 
 
@@ -93,7 +117,7 @@ class TestRequestConnection(unittest.TestCase):
             self.assertEqual(resp.connection_id, "abc-123")
             self.assertEqual(resp.auth_url, "https://example.com/auth")
         finally:
-            server.shutdown()
+            server.close()
 
 
 class TestCheckConnection(unittest.TestCase):
@@ -110,7 +134,7 @@ class TestCheckConnection(unittest.TestCase):
             status = client.check_connection("abc")
             self.assertEqual(status, "active")
         finally:
-            server.shutdown()
+            server.close()
 
 
 class TestResolveToken(unittest.TestCase):
@@ -136,7 +160,7 @@ class TestResolveToken(unittest.TestCase):
             self.assertEqual(token.access_token, "gho_abc123")
             self.assertEqual(token.token_type, "bearer")
         finally:
-            server.shutdown()
+            server.close()
 
     def test_resolve_missing_params(self):
         client = NexusClient(NexusClientOptions(gateway_url="http://localhost"))
@@ -179,7 +203,7 @@ class TestGetCachedToken(unittest.TestCase):
             self.assertEqual(t2.access_token, "fresh-token")
             self.assertEqual(call_count, 1)  # Still 1
         finally:
-            server.shutdown()
+            server.close()
 
 
 class TestAuthenticatedFetch(unittest.TestCase):
@@ -226,7 +250,76 @@ class TestAuthenticatedFetch(unittest.TestCase):
             data = json.loads(body)
             self.assertEqual(data["login"], "testuser")
         finally:
-            server.shutdown()
+            server.close()
+
+
+class TestRevokeConnection(unittest.TestCase):
+    def test_revoke_sends_delete_and_parses_result(self):
+        captured = {}
+
+        def revoke_handler(h):
+            captured["path"] = h.path
+            h.send_response(200)
+            h.send_header("Content-Type", "application/json")
+            h.end_headers()
+            h.wfile.write(json.dumps({
+                "connection_id": "conn-1",
+                "provider_name": "google",
+                "status": "revoked",
+                "revoked_at": "2026-01-01T00:00:00Z",
+                "token_deleted": True,
+                "provider_revoked": True,
+                "sessions_closed": 2,
+            }).encode())
+
+        server, base_url = _start_mock_server({
+            ("DELETE", "/v1/connections/conn-1"): revoke_handler,
+        })
+        try:
+            client = NexusClient(NexusClientOptions(gateway_url=base_url))
+            result = client.revoke_connection("conn-1", workspace_id="ws-1", reason="offboarding")
+
+            self.assertEqual(result.status, "revoked")
+            self.assertTrue(result.token_deleted)
+            self.assertTrue(result.provider_revoked)
+            self.assertEqual(result.sessions_closed, 2)
+            self.assertIn("workspace_id=ws-1", captured["path"])
+            self.assertIn("reason=offboarding", captured["path"])
+        finally:
+            server.close()
+
+    def test_revoke_reports_provider_failure(self):
+        """The local credential is destroyed even when upstream revocation fails."""
+
+        def revoke_handler(h):
+            h.send_response(200)
+            h.send_header("Content-Type", "application/json")
+            h.end_headers()
+            h.wfile.write(json.dumps({
+                "connection_id": "conn-2",
+                "status": "revoked",
+                "token_deleted": True,
+                "provider_revoked": False,
+                "provider_revocation_error": "provider does not advertise a revocation endpoint",
+            }).encode())
+
+        server, base_url = _start_mock_server({
+            ("DELETE", "/v1/connections/conn-2"): revoke_handler,
+        })
+        try:
+            client = NexusClient(NexusClientOptions(gateway_url=base_url))
+            result = client.revoke_connection("conn-2")
+
+            self.assertTrue(result.token_deleted)
+            self.assertFalse(result.provider_revoked)
+            self.assertIn("revocation endpoint", result.provider_revocation_error)
+        finally:
+            server.close()
+
+    def test_revoke_rejects_empty_connection_id(self):
+        client = NexusClient(NexusClientOptions(gateway_url="http://localhost:1"))
+        with self.assertRaises(NexusError):
+            client.revoke_connection("  ")
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ The stable, public-facing surface for all agent integrations. Versioned at `/v1`
 | `GET` | `/v1/check-connection/{id}` | Poll connection status |
 | `GET` | `/v1/token/{id}` | Retrieve credentials for an active connection |
 | `POST` | `/v1/refresh/{id}` | Force a token refresh for a connection |
+| `DELETE` | `/v1/connections/{id}` | Revoke a connection and destroy its stored credential |
 | `GET` | `/v1/capture-schema` | Fetch the credential schema for a static provider |
 | `POST` | `/v1/capture-credential` | Submit credentials for a static provider |
 
@@ -72,6 +73,35 @@ Provider management and agent session endpoints require the `X-API-Key` header.
 ```
 
 The `strategy.type` field tells you how to apply the credentials. See [Authentication Strategies](../concepts/auth-strategies.md) for all strategy types and their credential shapes.
+
+### Revoking a connection
+
+`DELETE /v1/connections/{id}` permanently terminates a connection. It:
+
+1. Attempts an [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation at the provider, when the provider advertises a revocation endpoint.
+2. Deletes the encrypted credential from the database.
+3. Closes every open agent session bound to the connection.
+4. Moves the connection to the terminal `revoked` status.
+
+Optional `workspace_id` and `reason` may be sent as query parameters or in a JSON body. When `workspace_id` is supplied it must match the connection's workspace, otherwise the call returns `404` — a workspace-scoped caller cannot revoke another workspace's connection.
+
+```json
+{
+  "connection_id": "b1f0…",
+  "provider_name": "google",
+  "status": "revoked",
+  "revoked_at": "2026-01-01T12:00:00Z",
+  "already_revoked": false,
+  "token_deleted": true,
+  "sessions_closed": 2,
+  "provider_revoked": true
+}
+```
+
+!!! warning "`provider_revoked` is not the same as `token_deleted`"
+    Nexus **always** destroys its own copy of the credential, so a revoked connection can never be used through Nexus again. Whether the token was *also* invalidated upstream depends on the provider supporting RFC 7009 and being reachable at the time of the call. If `provider_revoked` is `false`, read `provider_revocation_error` and, for incident response, revoke the grant manually in the provider's console. Static credentials (`api_key`, `basic_auth`) have no revocation endpoint and must always be rotated at the provider.
+
+Revocation is idempotent: revoking an already-revoked connection returns `200` with `already_revoked: true`, so a client that retries after a timeout can still confirm the outcome. After revocation, `GET /v1/token/{id}` returns `410 Gone` with code `connection_revoked`.
 
 ---
 

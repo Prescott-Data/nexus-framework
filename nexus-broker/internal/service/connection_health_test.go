@@ -69,6 +69,11 @@ func (m *MockConnectionRepository) DeactivateOtherActive(ctx context.Context, wo
 	return args.Error(0)
 }
 
+func (m *MockConnectionRepository) MarkRevoked(ctx context.Context, id uuid.UUID, reason string, revokedAt time.Time) error {
+	args := m.Called(ctx, id, reason, revokedAt)
+	return args.Error(0)
+}
+
 // MockConnectionService mocks the ConnectionService
 type MockConnectionService struct {
 	mock.Mock
@@ -140,6 +145,14 @@ func (m *MockConnectionService) ListConnections(ctx context.Context, workspaceID
 	args := m.Called(ctx, workspaceID)
 	if args.Get(0) != nil {
 		return args.Get(0).([]domain.ConnectionSummary), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockConnectionService) RevokeConnection(ctx context.Context, req service.RevokeRequest) (*service.RevokeResult, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) != nil {
+		return args.Get(0).(*service.RevokeResult), args.Error(1)
 	}
 	return nil, args.Error(1)
 }

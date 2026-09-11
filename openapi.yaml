@@ -124,6 +124,54 @@ paths:
           $ref: '#/components/responses/UpstreamError'
         '503':
           $ref: '#/components/responses/UpstreamError'
+  /v1/connections/{connection_id}:
+    delete:
+      summary: Revoke a connection
+      operationId: revokeConnection
+      description: >
+        Permanently revokes a connection. The stored credential is destroyed and
+        the connection moves to the terminal `revoked` status; subsequent token
+        requests return 410. Where the provider supports RFC 7009, the token is
+        also revoked upstream — check `provider_revoked` to confirm, since the
+        local credential is destroyed either way.
+
+
+        The call is idempotent: revoking an already-revoked connection returns
+        200 with `already_revoked: true`.
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: workspace_id
+          required: false
+          schema:
+            type: string
+          description: When supplied, must match the connection's workspace or the request returns 404.
+        - in: query
+          name: reason
+          required: false
+          schema:
+            type: string
+          description: Recorded on the connection and in the audit log.
+      responses:
+        '200':
+          description: Revocation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokeResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Connection not found
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/UpstreamError'
 components:
   schemas:
     ProviderMetadataResponse:
@@ -139,6 +187,36 @@ components:
             scopes:
               type: array
               items: { type: string }
+    RevokeResult:
+      type: object
+      description: Outcome of a connection revocation.
+      properties:
+        connection_id:
+          type: string
+          format: uuid
+        provider_name:
+          type: string
+        status:
+          type: string
+          enum: [revoked]
+        revoked_at:
+          type: string
+          format: date-time
+        already_revoked:
+          type: boolean
+        token_deleted:
+          type: boolean
+        sessions_closed:
+          type: integer
+          format: int64
+        provider_revoked:
+          type: boolean
+          description: >
+            True only when the provider accepted an RFC 7009 revocation. False
+            means the credential was destroyed inside Nexus but may remain valid
+            at the provider until it expires.
+        provider_revocation_error:
+          type: string
     RequestConnectionInput:
       type: object
       additionalProperties: false

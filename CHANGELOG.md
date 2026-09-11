@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Connections can be revoked.** `DELETE /v1/connections/{id}` on the Gateway
+  (`DELETE /connections/{id}` on the Broker) permanently terminates a
+  connection: it attempts an RFC 7009 revocation at the provider, deletes the
+  encrypted credential, closes every open agent session bound to the
+  connection, and moves it to the terminal `revoked` status. Until now a stored
+  credential had no off-switch — it lived in the database until the connection
+  was superseded by a fresh consent — which left no answer for an offboarded
+  user, a leaked token, or a deletion request.
+
+  The local credential is destroyed even when the upstream call fails, so a
+  provider outage can never leave a live token behind. The response reports
+  `token_deleted` and `provider_revoked` separately, because "Nexus can no
+  longer use this token" and "this token is dead at the provider" are different
+  guarantees and incident response needs to tell them apart. Providers that do
+  not advertise a revocation endpoint, and static `api_key`/`basic_auth`
+  credentials, are destroyed locally only and say so in
+  `provider_revocation_error`.
+
+  Revocation is idempotent, so a client retrying after a timeout still gets a
+  confirmable result. Passing `workspace_id` scopes the request: a mismatch
+  returns 404 rather than 403, so the endpoint does not confirm the existence
+  of connection IDs to a caller that does not own them. `reason` is recorded on
+  the connection and in the new `connection.revoked` audit event.
+
+  Available in all three SDKs as `RevokeConnection` / `revokeConnection` /
+  `revoke_connection`.
+
+### Changed
+- **Requesting a token for a revoked connection returns `410 Gone`** with code
+  `connection_revoked`, rather than the generic `400 connection_not_active`. A
+  revoked connection is never coming back, and a client must start a fresh
+  connection flow instead of retrying.
+- `ConnectionSummary` now carries `revoked_at`.
+- **`make test-integration` runs tests against a real PostgreSQL instance.**
+  These live behind the `integration` build tag and are excluded from
+  `make test`, which has no database. Point `NEXUS_TEST_DATABASE_URL` at a
+  migrated database to run them. Revocation is the first feature covered:
+  transaction boundaries, the agent-session cascade and the `revoked_at`
+  columns are all things sqlmock will accept but a real server can reject.
+
 ## [0.3.0] - 2026-09-07
 
 ### Added
