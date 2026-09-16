@@ -273,6 +273,16 @@ components:
           type: string
           description: Why upstream revocation did not happen or only partly happened.
     
+    ErrorResponse:
+      type: object
+      description: >
+        Standard error envelope. `code` is stable and machine-readable; treat it,
+        not `message`, as the contract.
+      properties:
+        code: { type: string }
+        message: { type: string }
+      required: [code, message]
+
     MetadataResponse:
       type: object
       description: Grouped provider metadata
@@ -667,9 +677,21 @@ paths:
               schema:
                 $ref: '#/components/schemas/RevokeResult'
         '400':
-          description: connectionID is not a UUID, or the body is not valid JSON
+          description: >
+            connectionID is not a UUID, the body could not be read or is not
+            valid JSON, or `reason` exceeds 512 characters
+            (`invalid_connection_id`, `invalid_body`, `invalid_json`,
+            `reason_too_long`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Connection not found, or it belongs to a different workspace
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /connections/{connectionID}/token:
     get:
@@ -687,6 +709,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Connection is not active (`connection_not_active`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Connection or token not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: >
+            The connection has been revoked (`connection_revoked`). This is
+            terminal: the credential no longer exists and never will again.
+            Clients must stop retrying and start a new connection flow.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /connections/{connectionID}/refresh:
     post:
@@ -704,6 +747,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: >
+            Connection is not active, or the credential cannot be refreshed
+            (`connection_not_active`, `static_token`, `no_refresh_token`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Connection or token not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: >
+            The connection has been revoked (`connection_revoked`). Terminal —
+            re-authentication is required, retrying will never succeed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /health:
     get:

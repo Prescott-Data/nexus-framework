@@ -114,7 +114,7 @@ func TestRevokeConnection_OAuth2_RevokesUpstreamAndLocally(t *testing.T) {
 	}, nil).Once()
 
 	tokenRepo.On("Delete", mock.Anything, connID).Return(nil).Once()
-	connRepo.On("MarkRevoked", mock.Anything, connID, "user disconnected", mock.Anything).Return(nil).Once()
+	connRepo.On("MarkRevoked", mock.Anything, connID, "user disconnected", mock.Anything, mock.Anything).Return(int64(1), nil).Once()
 	closer.On("CloseSessionsForConnection", mock.Anything, connID, mock.Anything).Return(int64(3), nil).Once()
 
 	result, err := svc.RevokeConnection(context.Background(), service.RevokeRequest{
@@ -176,7 +176,7 @@ func TestRevokeConnection_ProviderFailure_StillDeletesLocalToken(t *testing.T) {
 		EncryptedData: encryptCreds(t, map[string]interface{}{"refresh_token": "rt-1"}),
 	}, nil).Once()
 	tokenRepo.On("Delete", mock.Anything, connID).Return(nil).Once()
-	connRepo.On("MarkRevoked", mock.Anything, connID, "", mock.Anything).Return(nil).Once()
+	connRepo.On("MarkRevoked", mock.Anything, connID, "", mock.Anything, mock.Anything).Return(int64(1), nil).Once()
 
 	result, err := svc.RevokeConnection(context.Background(), service.RevokeRequest{ConnectionID: connID})
 
@@ -212,16 +212,26 @@ func TestRevokeConnection_WorkspaceMismatchIsNotFound(t *testing.T) {
 	tokenRepo.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
 }
 
-// Revoking twice must succeed rather than error, so a client retrying after a
-// timeout can confirm the outcome.
+// Revoking twice must succeed rather than error, and must report the *original*
+// revocation — its timestamp and whether the provider was actually revoked —
+// so a client retrying after a timeout gets a confirmable result rather than a
+// fabricated one.
 func TestRevokeConnection_AlreadyRevokedIsIdempotent(t *testing.T) {
 	connRepo, tokenRepo, _, svc := setupRevokeService(t, nil)
 
 	connID := uuid.New()
+	originalRevokedAt := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
+	providerRevoked := true
+
 	connRepo.On("GetWithProvider", mock.Anything, connID).Return(&domain.ConnectionWithProvider{
 		Connection:   domain.Connection{ID: connID, WorkspaceID: "ws-1", Status: service.StatusRevoked},
 		ProviderName: "google",
 		AuthType:     "oauth2",
+	}, nil).Once()
+	connRepo.On("GetRevocation", mock.Anything, connID).Return(&domain.ConnectionRevocation{
+		RevokedAt:       &originalRevokedAt,
+		Reason:          "offboarding",
+		ProviderRevoked: &providerRevoked,
 	}, nil).Once()
 
 	result, err := svc.RevokeConnection(context.Background(), service.RevokeRequest{ConnectionID: connID})
@@ -229,8 +239,52 @@ func TestRevokeConnection_AlreadyRevokedIsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.AlreadyRevoked)
 	assert.Equal(t, service.StatusRevoked, result.Status)
+	assert.True(t, result.TokenDeleted)
+	assert.True(t, result.ProviderRevoked)
+	assert.Equal(t, originalRevokedAt, result.RevokedAt)
+	assert.Empty(t, result.ProviderRevocationError)
 	tokenRepo.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
-	connRepo.AssertNotCalled(t, "MarkRevoked", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	connRepo.AssertNotCalled(t, "MarkRevoked", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	connRepo.AssertExpectations(t)
+}
+
+// Two revocations can race past the status pre-check, which is outside the
+// transaction. The loser's MarkRevoked changes no rows, and it must say so
+// rather than claiming it performed the revocation.
+func TestRevokeConnection_ConcurrentLoserReportsAlreadyRevoked(t *testing.T) {
+	connRepo, tokenRepo, _, svc := setupRevokeService(t, nil)
+
+	connID := uuid.New()
+	winnerRevokedAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
+	providerRevoked := true
+
+	connRepo.On("GetWithProvider", mock.Anything, connID).Return(&domain.ConnectionWithProvider{
+		Connection:   domain.Connection{ID: connID, WorkspaceID: "ws-1", Status: "active"},
+		ProviderName: "stripe",
+		AuthType:     "api_key",
+	}, nil).Once()
+
+	tokenRepo.On("Get", mock.Anything, connID).Return(&domain.Token{
+		ConnectionID:  connID,
+		EncryptedData: encryptCreds(t, map[string]interface{}{"api_key": "sk-live-123"}),
+	}, nil).Once()
+	// Zero rows: another revocation already stamped revoked_at.
+	connRepo.On("MarkRevoked", mock.Anything, connID, "", mock.Anything, mock.Anything).Return(int64(0), nil).Once()
+	tokenRepo.On("Delete", mock.Anything, connID).Return(nil).Once()
+	connRepo.On("GetRevocation", mock.Anything, connID).Return(&domain.ConnectionRevocation{
+		RevokedAt:       &winnerRevokedAt,
+		ProviderRevoked: &providerRevoked,
+	}, nil).Once()
+
+	result, err := svc.RevokeConnection(context.Background(), service.RevokeRequest{ConnectionID: connID})
+
+	require.NoError(t, err)
+	assert.True(t, result.AlreadyRevoked)
+	assert.True(t, result.TokenDeleted)
+	assert.Equal(t, winnerRevokedAt, result.RevokedAt)
+	assert.True(t, result.ProviderRevoked)
+	connRepo.AssertExpectations(t)
+	tokenRepo.AssertExpectations(t)
 }
 
 // Static credentials have no upstream revocation endpoint, but must still be
@@ -250,7 +304,7 @@ func TestRevokeConnection_APIKeyDestroysLocallyOnly(t *testing.T) {
 		EncryptedData: encryptCreds(t, map[string]interface{}{"api_key": "sk-live-123"}),
 	}, nil).Once()
 	tokenRepo.On("Delete", mock.Anything, connID).Return(nil).Once()
-	connRepo.On("MarkRevoked", mock.Anything, connID, "", mock.Anything).Return(nil).Once()
+	connRepo.On("MarkRevoked", mock.Anything, connID, "", mock.Anything, mock.Anything).Return(int64(1), nil).Once()
 
 	result, err := svc.RevokeConnection(context.Background(), service.RevokeRequest{ConnectionID: connID})
 

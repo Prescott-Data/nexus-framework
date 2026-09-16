@@ -49,6 +49,16 @@ type ConnectionSummary struct {
 	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
+// ConnectionRevocation is the persisted record of a revocation. It exists so a
+// repeated revoke request can report the original outcome — when the credential
+// was destroyed and whether the provider actually invalidated it — rather than
+// inventing a fresh timestamp and a default "not revoked upstream".
+type ConnectionRevocation struct {
+	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
+	Reason          string     `json:"revocation_reason,omitempty"`
+	ProviderRevoked *bool      `json:"provider_revoked,omitempty"`
+}
+
 // Token represents an encrypted token at rest
 type Token struct {
 	ConnectionID  uuid.UUID

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
 	"github.com/google/uuid"
@@ -116,6 +118,11 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 			ConnectionID:  connID,
 			EncryptedData: encryptedData,
 		}); err != nil {
+			// The connection was revoked while this capture was in flight.
+			// Revocation is terminal, so the credential must not be written.
+			if errors.Is(err, repository.ErrConnectionRevoked) {
+				return ErrGone("connection_revoked", "Connection has been revoked. A new connection must be established.")
+			}
 			return ErrInternalWithErr(err, "credential_store_failed", "Failed to store credentials")
 		}
 		if err := s.connRepo.UpdateStatus(txCtx, connID, "active"); err != nil {
@@ -241,6 +248,12 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 			ExpiresAt:     expiresAt,
 		})
 		if err != nil {
+			// A revocation committed while this refresh was in flight. The
+			// refreshed token must not be stored: it would resurrect the
+			// credential revocation just destroyed.
+			if errors.Is(err, repository.ErrConnectionRevoked) {
+				return nil, ErrGone("connection_revoked", "Connection has been revoked. A new connection must be established.")
+			}
 			return nil, ErrInternalWithErr(err, "token_store_failed", "Failed to store refreshed token")
 		}
 

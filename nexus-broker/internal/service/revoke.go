@@ -22,7 +22,17 @@ const StatusRevoked = "revoked"
 
 // maxRevocationBody bounds how much of a provider's error response we read
 // before giving up, so a misbehaving endpoint cannot stream into the broker.
+// The body is logged, never returned: see postRevocation.
 const maxRevocationBody = 4 << 10
+
+// providerRevocationTimeout bounds the upstream RFC 7009 call, and
+// revocationCleanupTimeout bounds local teardown. They are separate budgets on
+// purpose — a provider that hangs must not be able to starve the transaction
+// that destroys the local credential.
+const (
+	providerRevocationTimeout = 10 * time.Second
+	revocationCleanupTimeout  = 15 * time.Second
+)
 
 // RevokeRequest describes a revocation. WorkspaceID is optional but, when
 // supplied, is enforced: a caller scoped to one workspace must not be able to
@@ -91,11 +101,12 @@ func (s *connectionService) RevokeConnection(ctx context.Context, req RevokeRequ
 	}
 
 	// Idempotent: a second revoke reports success without touching the provider
-	// again. Clients retrying after a timeout must not get a 404 or a 409.
+	// again. Clients retrying after a timeout must not get a 404 or a 409, and
+	// the retry must describe the *original* revocation — a fabricated
+	// timestamp or a reset provider_revoked would make the confirmation this
+	// endpoint promises worthless.
 	if conn.Status == StatusRevoked {
-		result.AlreadyRevoked = true
-		result.RevokedAt = time.Now().UTC()
-		result.ProviderRevocationError = "connection was already revoked"
+		s.applyPriorRevocation(ctx, result)
 		return result, nil
 	}
 
@@ -104,17 +115,41 @@ func (s *connectionService) RevokeConnection(ctx context.Context, req RevokeRequ
 
 	credentials := s.loadCredentials(ctx, conn.ID)
 	if credentials != nil {
-		result.ProviderRevoked, result.ProviderRevocationError = s.revokeUpstream(ctx, conn.ProviderID, conn.AuthType, credentials)
+		// The upstream call gets its own deadline so an unreachable revocation
+		// endpoint cannot consume the request budget that local teardown needs.
+		upstreamCtx, cancel := context.WithTimeout(ctx, providerRevocationTimeout)
+		result.ProviderRevoked, result.ProviderRevocationError = s.revokeUpstream(upstreamCtx, conn.ProviderID, conn.AuthType, credentials)
+		cancel()
 	} else {
 		result.ProviderRevocationError = "no stored credential to revoke upstream"
 	}
 
-	if err := s.inTx(ctx, func(txCtx context.Context) error {
+	// Local teardown runs on a context detached from cancellation: a client
+	// disconnect, or a request deadline already burned by a dead provider, must
+	// never abort the transaction that destroys the credential. Deleting the
+	// token is the one part of revocation that has no second chance.
+	cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), revocationCleanupTimeout)
+	defer cancelCleanup()
+
+	if err := s.inTx(cleanupCtx, func(txCtx context.Context) error {
+		// MarkRevoked runs first so its row-exclusive lock on the connection is
+		// held for the rest of the transaction. Credential writers
+		// (TokenRepository.Upsert, AgentRepository.CreateSession) take a
+		// FOR SHARE lock on the same row and are gated on revoked_at, so from
+		// here on they either already committed — and are cleaned up below — or
+		// block until this commits and are then rejected.
+		rows, err := s.connRepo.MarkRevoked(txCtx, conn.ID, req.Reason, revokedAt, result.ProviderRevoked)
+		if err != nil {
+			return ErrInternalWithErr(err, "revoke_failed", "Failed to mark connection revoked")
+		}
+		// Zero rows means a concurrent revocation won: the status pre-check
+		// above is outside this transaction, so two callers can both reach here.
+		// The loser must not claim it performed the revocation.
+		if rows == 0 {
+			result.AlreadyRevoked = true
+		}
 		if err := s.tokenRepo.Delete(txCtx, conn.ID); err != nil {
 			return ErrInternalWithErr(err, "token_delete_failed", "Failed to delete stored credential")
-		}
-		if err := s.connRepo.MarkRevoked(txCtx, conn.ID, req.Reason, revokedAt); err != nil {
-			return ErrInternalWithErr(err, "revoke_failed", "Failed to mark connection revoked")
 		}
 		if s.agentRepo != nil {
 			closed, err := s.agentRepo.CloseSessionsForConnection(txCtx, conn.ID, revokedAt)
@@ -129,7 +164,38 @@ func (s *connectionService) RevokeConnection(ctx context.Context, req RevokeRequ
 	}
 
 	result.TokenDeleted = true
+	if result.AlreadyRevoked {
+		// The winner's record is authoritative; report it rather than this
+		// call's own outcome.
+		s.applyPriorRevocation(cleanupCtx, result)
+	}
 	return result, nil
+}
+
+// applyPriorRevocation fills the result from the stored revocation record so a
+// retry (or the loser of a concurrent revoke) confirms the original outcome.
+// If the record cannot be read we fall back to "now" and say so, rather than
+// silently presenting a made-up timestamp as fact.
+func (s *connectionService) applyPriorRevocation(ctx context.Context, result *RevokeResult) {
+	result.AlreadyRevoked = true
+	result.TokenDeleted = true
+
+	rec, err := s.connRepo.GetRevocation(ctx, result.ConnectionID)
+	if err != nil || rec == nil || rec.RevokedAt == nil {
+		result.RevokedAt = time.Now().UTC()
+		result.ProviderRevocationError = "connection was already revoked; original revocation record unavailable"
+		return
+	}
+
+	result.RevokedAt = rec.RevokedAt.UTC()
+	if rec.ProviderRevoked != nil {
+		result.ProviderRevoked = *rec.ProviderRevoked
+	}
+	if !result.ProviderRevoked {
+		result.ProviderRevocationError = "connection was already revoked; the provider was not revoked upstream at that time"
+	} else {
+		result.ProviderRevocationError = ""
+	}
 }
 
 // loadCredentials decrypts the stored credential blob, or returns nil if there
@@ -282,7 +348,10 @@ func (s *connectionService) postRevocation(ctx context.Context, endpoint, client
 	// may legitimately live on a self-hosted, non-public host.
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return err
+		// Transport errors carry the endpoint URL, which may be an internal
+		// host. Log the detail, report only the class.
+		log.Printf("revoke: %s revocation request to %s failed: %v", hint, endpoint, err)
+		return fmt.Errorf("revocation endpoint unreachable")
 	}
 	defer resp.Body.Close()
 
@@ -290,6 +359,12 @@ func (s *connectionService) postRevocation(ctx context.Context, endpoint, client
 		return nil
 	}
 
+	// Drain a bounded amount of the body so the connection can be reused, and
+	// log it for operators — but never return it. A revocation endpoint is
+	// free to echo the submitted token back in its error response, and this
+	// error string is surfaced to the API caller in provider_revocation_error.
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxRevocationBody))
-	return fmt.Errorf("status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	log.Printf("revoke: provider %s rejected %s revocation with status %d: %s",
+		endpoint, hint, resp.StatusCode, strings.TrimSpace(string(body)))
+	return fmt.Errorf("provider returned status %d", resp.StatusCode)
 }

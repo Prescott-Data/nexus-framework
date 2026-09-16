@@ -100,8 +100,15 @@ func (r *connectionRepository) GetReturnURL(ctx context.Context, id uuid.UUID) (
 	return returnURL, err
 }
 
+// UpdateStatus moves a connection to a new status. The revoked_at guard makes
+// "revoked" terminal: an OAuth exchange or static-credential capture that was
+// already in flight when revocation committed cannot flip the row back to
+// active behind it. Losing the race is silent here — the caller that matters
+// (a credential write) is rejected by TokenRepository.Upsert, which takes the
+// same lock and fails loudly.
 func (r *connectionRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
-	_, err := execerFromContext(ctx, r.db).ExecContext(ctx, "UPDATE connections SET status = $1, updated_at = NOW() WHERE id = $2", status, id)
+	_, err := execerFromContext(ctx, r.db).ExecContext(ctx,
+		"UPDATE connections SET status = $1, updated_at = NOW() WHERE id = $2 AND revoked_at IS NULL", status, id)
 	return err
 }
 
@@ -191,19 +198,47 @@ func (r *connectionRepository) UpdateHealthStatus(ctx context.Context, id uuid.U
 	return err
 }
 
-// MarkRevoked stamps the connection as revoked. The revoked_at guard makes a
-// second revoke of the same connection a no-op rather than overwriting the
-// original revocation timestamp and reason.
-func (r *connectionRepository) MarkRevoked(ctx context.Context, id uuid.UUID, reason string, revokedAt time.Time) error {
-	_, err := execerFromContext(ctx, r.db).ExecContext(ctx, `
+// MarkRevoked stamps the connection as revoked and reports how many rows it
+// changed. The revoked_at guard makes a second revoke of the same connection a
+// no-op rather than overwriting the original revocation timestamp, reason and
+// upstream outcome; the zero row count lets the caller report that honestly as
+// already_revoked even when two revocations race past the pre-check.
+//
+// This UPDATE takes the row-exclusive lock on the connection that every
+// credential write (TokenRepository.Upsert, AgentRepository.CreateSession)
+// contends for, and it runs first in the revocation transaction, so those
+// writers either committed before revocation started or block until it commits
+// and are then rejected by their revoked_at predicate.
+func (r *connectionRepository) MarkRevoked(ctx context.Context, id uuid.UUID, reason string, revokedAt time.Time, providerRevoked bool) (int64, error) {
+	result, err := execerFromContext(ctx, r.db).ExecContext(ctx, `
 		UPDATE connections
 		SET status = 'revoked',
 		    revoked_at = $2,
 		    revocation_reason = NULLIF($3, ''),
+		    provider_revoked = $4,
 		    health_status = 'revoked',
 		    updated_at = NOW()
-		WHERE id = $1 AND revoked_at IS NULL`, id, revokedAt, reason)
-	return err
+		WHERE id = $1 AND revoked_at IS NULL`, id, revokedAt, reason, providerRevoked)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// GetRevocation reads the persisted revocation record for a connection. It is
+// how a repeated revoke reports the *original* outcome instead of fabricating a
+// new timestamp and claiming the provider was never called.
+func (r *connectionRepository) GetRevocation(ctx context.Context, id uuid.UUID) (*domain.ConnectionRevocation, error) {
+	var rec domain.ConnectionRevocation
+	err := r.db.QueryRowContext(ctx, `
+		SELECT revoked_at, COALESCE(revocation_reason, ''), provider_revoked
+		FROM connections
+		WHERE id = $1`, id).
+		Scan(&rec.RevokedAt, &rec.Reason, &rec.ProviderRevoked)
+	if err != nil {
+		return nil, err
+	}
+	return &rec, nil
 }
 
 func (r *connectionRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.ConnectionSummary, error) {

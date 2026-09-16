@@ -24,6 +24,7 @@ import (
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository/postgres"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
@@ -309,6 +310,70 @@ func TestIntegrationRevokeIsIdempotent(t *testing.T) {
 	}
 	if reason != "first" {
 		t.Errorf("revocation_reason = %q, want %q (second revoke must not overwrite)", reason, "first")
+	}
+
+	// The retry must confirm the original outcome, not fabricate a new one.
+	var revokedAt time.Time
+	var providerRevoked bool
+	if err := db.QueryRow(`SELECT revoked_at, provider_revoked FROM connections WHERE id = $1`,
+		connectionID).Scan(&revokedAt, &providerRevoked); err != nil {
+		t.Fatalf("read revocation record: %v", err)
+	}
+	if !second.ProviderRevoked {
+		t.Error("second revoke reported provider_revoked=false; it must report the original upstream outcome")
+	}
+	if !second.RevokedAt.Equal(revokedAt.UTC()) {
+		t.Errorf("second revoke RevokedAt = %s, want the stored %s", second.RevokedAt, revokedAt.UTC())
+	}
+}
+
+// A revoked connection is terminal. A credential write that was in flight when
+// revocation committed — a refresh, an OAuth exchange, a static capture — must
+// be rejected rather than recreating the credential that revocation destroyed,
+// and it must not be able to flip the row back to active.
+func TestIntegrationRevokedConnectionRejectsCredentialWrites(t *testing.T) {
+	db := requireDB(t)
+	recorder := &revocationRecorder{}
+	srv := recorder.server(t, http.StatusOK)
+
+	workspaceID := "ws-" + uuid.New().String()[:8]
+	_, connectionID, _, _ := seedFixture(t, db, workspaceID, srv.URL+"/revoke")
+
+	svc := newIntegrationService(t, db, true)
+	if _, err := svc.RevokeConnection(context.Background(), RevokeRequest{
+		ConnectionID: connectionID, WorkspaceID: workspaceID,
+	}); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+
+	tokenRepo := postgres.NewTokenRepository(db)
+	err := tokenRepo.Upsert(context.Background(), &domain.Token{
+		ConnectionID:  connectionID,
+		EncryptedData: "resurrected",
+	})
+	if !errors.Is(err, repository.ErrConnectionRevoked) {
+		t.Fatalf("Upsert after revoke = %v, want ErrConnectionRevoked", err)
+	}
+
+	var tokenCount int
+	if err := db.QueryRow(`SELECT count(*) FROM tokens WHERE connection_id = $1`, connectionID).Scan(&tokenCount); err != nil {
+		t.Fatalf("count tokens: %v", err)
+	}
+	if tokenCount != 0 {
+		t.Errorf("tokens rows = %d, want 0 (revocation must be terminal)", tokenCount)
+	}
+
+	connRepo := postgres.NewConnectionRepository(db)
+	if err := connRepo.UpdateStatus(context.Background(), connectionID, "active"); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+
+	var status string
+	if err := db.QueryRow(`SELECT status FROM connections WHERE id = $1`, connectionID).Scan(&status); err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	if status != StatusRevoked {
+		t.Errorf("status = %q, want %q (a revoked connection must not be reactivated)", status, StatusRevoked)
 	}
 }
 

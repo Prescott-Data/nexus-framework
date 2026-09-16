@@ -98,9 +98,14 @@ func (r *ConnectionRepository) DeactivateOtherActive(ctx context.Context, worksp
 	return r.inner.DeactivateOtherActive(ctx, workspaceID, providerID, exceptID)
 }
 
-func (r *ConnectionRepository) MarkRevoked(ctx context.Context, id uuid.UUID, reason string, revokedAt time.Time) error {
+func (r *ConnectionRepository) MarkRevoked(ctx context.Context, id uuid.UUID, reason string, revokedAt time.Time, providerRevoked bool) (int64, error) {
 	defer observe("connection", "MarkRevoked", time.Now())
-	return r.inner.MarkRevoked(ctx, id, reason, revokedAt)
+	return r.inner.MarkRevoked(ctx, id, reason, revokedAt, providerRevoked)
+}
+
+func (r *ConnectionRepository) GetRevocation(ctx context.Context, id uuid.UUID) (*domain.ConnectionRevocation, error) {
+	defer observe("connection", "GetRevocation", time.Now())
+	return r.inner.GetRevocation(ctx, id)
 }
 
 // InTx forwards transactional execution when the wrapped repository supports it.

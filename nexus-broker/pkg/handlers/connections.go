@@ -75,6 +75,11 @@ type revokeRequestBody struct {
 // more is a client bug or an attempt to make the broker buffer.
 const maxRevokeBody = 4 << 10
 
+// maxRevokeReasonLen caps the revocation reason after query and body sources
+// are resolved. The body is already bounded by maxRevokeBody, but a query-string
+// reason is not, and it lands in a TEXT column and in the audit log.
+const maxRevokeReasonLen = 512
+
 // Revoke handles DELETE /connections/{connectionID}
 //
 // Revocation destroys the stored credential and puts the connection in the
@@ -92,7 +97,14 @@ func (h *ConnectionsHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 	var body revokeRequestBody
 	if r.Body != nil {
 		raw, readErr := io.ReadAll(io.LimitReader(r.Body, maxRevokeBody))
-		if readErr == nil && len(strings.TrimSpace(string(raw))) > 0 {
+		// A truncated or unreadable body must not be treated as "no body":
+		// workspace_id may have been in it, and silently dropping it would run
+		// a destructive, unscoped revocation the caller never asked for.
+		if readErr != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "invalid_body", "Could not read request body")
+			return
+		}
+		if len(strings.TrimSpace(string(raw))) > 0 {
 			if err := json.Unmarshal(raw, &body); err != nil {
 				httputil.WriteError(w, http.StatusBadRequest, "invalid_json", "Request body must be a JSON object")
 				return
@@ -109,6 +121,11 @@ func (h *ConnectionsHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 	reason := strings.TrimSpace(body.Reason)
 	if reason == "" {
 		reason = strings.TrimSpace(r.URL.Query().Get("reason"))
+	}
+	if len(reason) > maxRevokeReasonLen {
+		httputil.WriteError(w, http.StatusBadRequest, "reason_too_long",
+			"reason must be at most 512 characters")
+		return
 	}
 
 	result, err := h.svc.RevokeConnection(r.Context(), service.RevokeRequest{

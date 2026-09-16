@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
 )
 
 // The gateway must forward the revocation to the broker with the connection ID
@@ -96,5 +98,90 @@ func TestRevokeConnectionCore_PropagatesBrokerStatus(t *testing.T) {
 	}
 	if result != nil {
 		t.Fatalf("want nil result, got %v", result)
+	}
+}
+
+// The API contract allows workspace_id and reason in a JSON body. A body-only
+// request must not be silently stripped of both on the way through the gateway,
+// which would turn a scoped revocation into an unscoped one.
+func TestRevokeConnection_ReadsWorkspaceAndReasonFromBody(t *testing.T) {
+	const connID = "3f1b0f4e-0b3a-4e5e-9d61-2b8a5f4c1d77"
+
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"connection_id":"` + connID + `","status":"revoked","token_deleted":true}`))
+	}))
+	defer srv.Close()
+
+	h := NewHandler(srv.URL, []byte("test-key"), srv.Client())
+
+	router := chi.NewRouter()
+	router.Delete("/v1/connections/{connectionID}", h.RevokeConnection)
+
+	body := strings.NewReader(`{"workspace_id":"ws-body","reason":"offboarding"}`)
+	req := httptest.NewRequest(http.MethodDelete, "/v1/connections/"+connID, body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(gotQuery, "workspace_id=ws-body") {
+		t.Fatalf("workspace_id from the body did not reach the broker; query was %q", gotQuery)
+	}
+	if !strings.Contains(gotQuery, "reason=offboarding") {
+		t.Fatalf("reason from the body did not reach the broker; query was %q", gotQuery)
+	}
+}
+
+// A revoked connection is terminal, and the broker says so with a 410 and a
+// connection_revoked code. The gateway must forward that body: a bare 410 tells
+// a client nothing it can act on.
+func TestGetToken_ForwardsBrokerRevokedBody(t *testing.T) {
+	const connID = "3f1b0f4e-0b3a-4e5e-9d61-2b8a5f4c1d77"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusGone)
+		_, _ = w.Write([]byte(`{"code":"connection_revoked","message":"Connection has been revoked."}`))
+	}))
+	defer srv.Close()
+
+	h := NewHandler(srv.URL, []byte("test-key"), srv.Client())
+
+	rec := httptest.NewRecorder()
+	h.GetToken(rec, httptest.NewRequest(http.MethodGet, "/v1/token/"+connID, nil))
+
+	if rec.Code != http.StatusGone {
+		t.Fatalf("want 410, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"connection_revoked"`) {
+		t.Fatalf("broker error code was dropped; body was %q", rec.Body.String())
+	}
+}
+
+func TestRefreshConnection_ForwardsBrokerRevokedBody(t *testing.T) {
+	const connID = "3f1b0f4e-0b3a-4e5e-9d61-2b8a5f4c1d77"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusGone)
+		_, _ = w.Write([]byte(`{"code":"connection_revoked","message":"Connection has been revoked."}`))
+	}))
+	defer srv.Close()
+
+	h := NewHandler(srv.URL, []byte("test-key"), srv.Client())
+
+	rec := httptest.NewRecorder()
+	h.RefreshConnection(rec, httptest.NewRequest(http.MethodPost, "/v1/refresh/"+connID, nil))
+
+	if rec.Code != http.StatusGone {
+		t.Fatalf("want 410, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"connection_revoked"`) {
+		t.Fatalf("broker error code was dropped; body was %q", rec.Body.String())
 	}
 }

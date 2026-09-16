@@ -27,12 +27,15 @@ func TestInTx_Commit(t *testing.T) {
 
 	connID := uuid.New()
 	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE connections SET status = $1, updated_at = NOW() WHERE id = $2")).
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE connections SET status = $1, updated_at = NOW() WHERE id = $2 AND revoked_at IS NULL")).
 		WithArgs("active", connID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`
+		WITH live_connection AS (
+			SELECT id FROM connections WHERE id = $1 AND revoked_at IS NULL FOR SHARE
+		)
 		INSERT INTO tokens (connection_id, encrypted_data, expires_at)
-		VALUES ($1, $2, $3)
+		SELECT $1, $2, $3 FROM live_connection
 		ON CONFLICT (connection_id)
 		DO UPDATE SET
 			encrypted_data = EXCLUDED.encrypted_data,
@@ -81,7 +84,7 @@ func TestInTx_Rollback(t *testing.T) {
 	connID := uuid.New()
 
 	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE connections SET status = $1, updated_at = NOW() WHERE id = $2")).
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE connections SET status = $1, updated_at = NOW() WHERE id = $2 AND revoked_at IS NULL")).
 		WithArgs("active", connID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectRollback()

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -135,4 +136,42 @@ func TestConnectionsRevoke_MalformedBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 	assert.Contains(t, rr.Body.String(), "invalid_json")
 	mockSvc.AssertNotCalled(t, "RevokeConnection")
+}
+
+// errReader fails partway through, simulating a truncated or aborted upload.
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errors.New("connection reset") }
+
+// A body that cannot be read must not be treated as an absent body: it may have
+// carried workspace_id, and dropping it would turn a scoped revocation into an
+// unscoped one against a destructive endpoint.
+func TestConnectionsRevoke_UnreadableBodyIsRejected(t *testing.T) {
+	mockSvc := new(MockConnectionService)
+	handler := NewConnectionsHandler(mockSvc)
+
+	connID := uuid.New()
+	req := httptest.NewRequest(http.MethodDelete, "/connections/"+connID.String(), errReader{})
+	rr := routeRevoke(handler, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "invalid_body")
+	mockSvc.AssertNotCalled(t, "RevokeConnection", mock.Anything, mock.Anything)
+}
+
+// The body is bounded by maxRevokeBody, but a query-string reason is not, and it
+// lands in a TEXT column and the audit log.
+func TestConnectionsRevoke_OverlongReasonIsRejected(t *testing.T) {
+	mockSvc := new(MockConnectionService)
+	handler := NewConnectionsHandler(mockSvc)
+
+	connID := uuid.New()
+	longReason := strings.Repeat("a", maxRevokeReasonLen+1)
+	req := httptest.NewRequest(http.MethodDelete,
+		"/connections/"+connID.String()+"?reason="+longReason, nil)
+	rr := routeRevoke(handler, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "reason_too_long")
+	mockSvc.AssertNotCalled(t, "RevokeConnection", mock.Anything, mock.Anything)
 }

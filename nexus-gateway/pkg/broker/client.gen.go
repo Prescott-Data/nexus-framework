@@ -149,6 +149,12 @@ type ConsentSpecResponse struct {
 	State      *string   `json:"state,omitempty"`
 }
 
+// ErrorResponse Standard error envelope. `code` is stable and machine-readable; treat it, not `message`, as the contract.
+type ErrorResponse struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 // MetadataResponse Grouped provider metadata
 type MetadataResponse map[string]map[string]struct {
 	ApiBaseUrl       *string   `json:"api_base_url,omitempty"`
@@ -2009,6 +2015,8 @@ type RevokeConnectionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *RevokeResult
+	JSON400      *ErrorResponse
+	JSON404      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -2031,6 +2039,9 @@ type PostConnectionsConnectionIDRefreshResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *TokenResponse
+	JSON400      *ErrorResponse
+	JSON404      *ErrorResponse
+	JSON410      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -2053,6 +2064,9 @@ type GetConnectionsConnectionIDTokenResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *TokenResponse
+	JSON400      *ErrorResponse
+	JSON404      *ErrorResponse
+	JSON410      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -2744,6 +2758,20 @@ func ParseRevokeConnectionResponse(rsp *http.Response) (*RevokeConnectionRespons
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
 	}
 
 	return response, nil
@@ -2770,6 +2798,27 @@ func ParsePostConnectionsConnectionIDRefreshResponse(rsp *http.Response) (*PostC
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 410:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON410 = &dest
+
 	}
 
 	return response, nil
@@ -2795,6 +2844,27 @@ func ParseGetConnectionsConnectionIDTokenResponse(rsp *http.Response) (*GetConne
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 410:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON410 = &dest
 
 	}
 

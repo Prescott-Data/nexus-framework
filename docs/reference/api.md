@@ -83,7 +83,7 @@ The `strategy.type` field tells you how to apply the credentials. See [Authentic
 3. Closes every open agent session bound to the connection.
 4. Moves the connection to the terminal `revoked` status.
 
-Optional `workspace_id` and `reason` may be sent as query parameters or in a JSON body. When `workspace_id` is supplied it must match the connection's workspace, otherwise the call returns `404` — a workspace-scoped caller cannot revoke another workspace's connection.
+Optional `workspace_id` and `reason` may be sent as query parameters or in a JSON body; body values take precedence. When `workspace_id` is supplied it must match the connection's workspace, otherwise the call returns `404` — a workspace-scoped caller cannot revoke another workspace's connection. `reason` is capped at 512 characters, and a request body that cannot be read is rejected with `400 invalid_body` rather than being treated as an unscoped revocation.
 
 ```json
 {
@@ -101,7 +101,9 @@ Optional `workspace_id` and `reason` may be sent as query parameters or in a JSO
 !!! warning "`provider_revoked` is not the same as `token_deleted`"
     Nexus **always** destroys its own copy of the credential, so a revoked connection can never be used through Nexus again. Whether the token was *also* invalidated upstream depends on the provider supporting RFC 7009 and being reachable at the time of the call. If `provider_revoked` is `false`, read `provider_revocation_error` and, for incident response, revoke the grant manually in the provider's console. Static credentials (`api_key`, `basic_auth`) have no revocation endpoint and must always be rotated at the provider.
 
-Revocation is idempotent: revoking an already-revoked connection returns `200` with `already_revoked: true`, so a client that retries after a timeout can still confirm the outcome. After revocation, `GET /v1/token/{id}` returns `410 Gone` with code `connection_revoked`.
+Revocation is idempotent: revoking an already-revoked connection returns `200` with `already_revoked: true`. The retry reports the **original** revocation — the stored `revoked_at` and the upstream outcome that was recorded at the time — rather than a fresh timestamp, so a client retrying after a timeout confirms what actually happened instead of reading a plausible-looking fiction.
+
+After revocation, `GET /v1/token/{id}` and `POST /v1/refresh/{id}` return `410 Gone` with code `connection_revoked`. The status is terminal: a revoked connection is never reactivated, so clients must stop retrying and start a new connection flow. A credential write that was already in flight when the revocation committed — a refresh, an OAuth exchange, a static capture — is rejected with the same `410`, so it cannot recreate the credential that was just destroyed.
 
 ---
 

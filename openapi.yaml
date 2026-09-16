@@ -95,6 +95,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           description: Connection not found
+        '410':
+          $ref: '#/components/responses/Gone'
         '502':
           $ref: '#/components/responses/UpstreamError'
         '503':
@@ -120,6 +122,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           description: Connection not found
+        '410':
+          $ref: '#/components/responses/Gone'
         '502':
           $ref: '#/components/responses/UpstreamError'
         '503':
@@ -157,6 +161,20 @@ paths:
           schema:
             type: string
           description: Recorded on the connection and in the audit log.
+      requestBody:
+        required: false
+        description: >
+          Optional JSON body. `workspace_id` and `reason` may be supplied here
+          instead of as query parameters; body values take precedence.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                workspace_id:
+                  type: string
       responses:
         '200':
           description: Revocation result
@@ -293,6 +311,16 @@ components:
             $ref: '#/components/schemas/ErrorEnvelope'
     UpstreamError:
       description: Upstream service error (Broker or provider)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Gone:
+      description: >
+        The connection has been revoked (`connection_revoked`). This is
+        terminal: the credential was destroyed and will never be reissued.
+        Clients must stop retrying and start a new connection flow. The
+        Broker's error body is forwarded verbatim.
       content:
         application/json:
           schema:
