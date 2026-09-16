@@ -14,6 +14,7 @@ from nexus_sdk.types import (
     RequestConnectionInput,
     RequestConnectionResponse,
     RetryPolicy,
+    RevokeResult,
     TokenResponse,
     CachedToken,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "RequestConnectionInput",
     "RequestConnectionResponse",
     "RetryPolicy",
+    "RevokeResult",
     "TokenResponse",
     "CachedToken",
 ]

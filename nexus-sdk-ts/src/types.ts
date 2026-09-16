@@ -181,6 +181,61 @@ export interface TokenResponse {
   raw?: Record<string, unknown> | undefined;
 }
 
+// ─── Revocation ──────────────────────────────
+
+export interface RevokeOptions {
+  /**
+   * When supplied, must match the connection's workspace. Supplying it stops a
+   * caller from revoking another workspace's connection by guessing an ID.
+   */
+  workspaceId?: string | undefined;
+
+  /**
+   * Free-text reason recorded on the connection and in the audit log.
+   */
+  reason?: string | undefined;
+}
+
+export interface RevokeResult {
+  connectionId: string;
+
+  providerName: string;
+
+  /**
+   * Always "revoked" — the terminal state of a connection.
+   */
+  status: string;
+
+  revokedAt: string;
+
+  /**
+   * True when an earlier request had already revoked this connection.
+   */
+  alreadyRevoked: boolean;
+
+  /**
+   * True when Nexus destroyed its stored copy of the credential.
+   */
+  tokenDeleted: boolean;
+
+  /**
+   * How many open agent sessions were closed by the revocation.
+   */
+  sessionsClosed: number;
+
+  /**
+   * True only when the provider accepted an RFC 7009 revocation. When false,
+   * the credential is gone from Nexus but may stay valid at the provider until
+   * it expires — treat that as an incomplete revocation.
+   */
+  providerRevoked: boolean;
+
+  /**
+   * Why upstream revocation did not happen, or only partly happened.
+   */
+  providerRevocationError?: string | undefined;
+}
+
 // ─── Cached Token Info (for TokenManager) ────
 
 export interface NexusTokenInfo {

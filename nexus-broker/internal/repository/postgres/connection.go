@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"time"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
@@ -58,13 +59,13 @@ func (r *connectionRepository) GetPending(ctx context.Context, id uuid.UUID) (*d
 func (r *connectionRepository) GetWithProvider(ctx context.Context, id uuid.UUID) (*domain.ConnectionWithProvider, error) {
 	var conn domain.ConnectionWithProvider
 	err := r.db.QueryRowContext(ctx, `
-		SELECT c.id, c.provider_id, c.status, c.scopes, c.return_url,
+		SELECT c.id, c.workspace_id, c.provider_id, c.status, c.scopes, c.return_url,
 		       p.name, p.auth_type, COALESCE(p.auth_header, ''), COALESCE(p.api_base_url, ''), COALESCE(p.user_info_endpoint, ''), p.params,
 		       COALESCE(c.health_status, 'unknown')
 		FROM connections c
 		JOIN provider_profiles p ON p.id = c.provider_id
 		WHERE c.id = $1`, id).
-		Scan(&conn.ID, &conn.ProviderID, &conn.Status, pq.Array(&conn.Scopes), &conn.ReturnURL,
+		Scan(&conn.ID, &conn.WorkspaceID, &conn.ProviderID, &conn.Status, pq.Array(&conn.Scopes), &conn.ReturnURL,
 			&conn.ProviderName, &conn.AuthType, &conn.AuthHeader, &conn.APIBaseURL, &conn.UserInfoEndpoint, &conn.ProviderParams,
 			&conn.HealthStatus)
 	if err != nil {
@@ -76,7 +77,7 @@ func (r *connectionRepository) GetWithProvider(ctx context.Context, id uuid.UUID
 func (r *connectionRepository) GetActiveByWorkspaceAndProvider(ctx context.Context, workspaceID, providerName string) (*domain.ConnectionWithProvider, error) {
 	var conn domain.ConnectionWithProvider
 	err := r.db.QueryRowContext(ctx, `
-		SELECT c.id, c.provider_id, c.status, c.scopes, c.return_url,
+		SELECT c.id, c.workspace_id, c.provider_id, c.status, c.scopes, c.return_url,
 		       p.name, p.auth_type, COALESCE(p.auth_header, ''), COALESCE(p.api_base_url, ''), COALESCE(p.user_info_endpoint, ''), p.params,
 		       COALESCE(c.health_status, 'unknown')
 		FROM connections c
@@ -84,7 +85,7 @@ func (r *connectionRepository) GetActiveByWorkspaceAndProvider(ctx context.Conte
 		WHERE c.workspace_id = $1 AND p.name = $2 AND c.status = 'active'
 		ORDER BY c.updated_at DESC
 		LIMIT 1`, workspaceID, providerName).
-		Scan(&conn.ID, &conn.ProviderID, &conn.Status, pq.Array(&conn.Scopes), &conn.ReturnURL,
+		Scan(&conn.ID, &conn.WorkspaceID, &conn.ProviderID, &conn.Status, pq.Array(&conn.Scopes), &conn.ReturnURL,
 			&conn.ProviderName, &conn.AuthType, &conn.AuthHeader, &conn.APIBaseURL, &conn.UserInfoEndpoint, &conn.ProviderParams,
 			&conn.HealthStatus)
 	if err != nil {
@@ -99,8 +100,15 @@ func (r *connectionRepository) GetReturnURL(ctx context.Context, id uuid.UUID) (
 	return returnURL, err
 }
 
+// UpdateStatus moves a connection to a new status. The revoked_at guard makes
+// "revoked" terminal: an OAuth exchange or static-credential capture that was
+// already in flight when revocation committed cannot flip the row back to
+// active behind it. Losing the race is silent here — the caller that matters
+// (a credential write) is rejected by TokenRepository.Upsert, which takes the
+// same lock and fails loudly.
 func (r *connectionRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
-	_, err := execerFromContext(ctx, r.db).ExecContext(ctx, "UPDATE connections SET status = $1, updated_at = NOW() WHERE id = $2", status, id)
+	_, err := execerFromContext(ctx, r.db).ExecContext(ctx,
+		"UPDATE connections SET status = $1, updated_at = NOW() WHERE id = $2 AND revoked_at IS NULL", status, id)
 	return err
 }
 
@@ -182,18 +190,65 @@ func (r *connectionRepository) DeactivateOtherActive(ctx context.Context, worksp
 	return err
 }
 
+// UpdateHealthStatus records the result of a health probe. Like UpdateStatus it
+// refuses revoked connections: a health worker can select a connection while it
+// is active and finish writing after a revocation commits, and a stale probe
+// result must not overwrite the revocation tombstone.
 func (r *connectionRepository) UpdateHealthStatus(ctx context.Context, id uuid.UUID, status string) error {
 	_, err := execerFromContext(ctx, r.db).ExecContext(ctx, `
 		UPDATE connections
 		SET health_status = $1, last_health_check_at = NOW(), updated_at = NOW()
-		WHERE id = $2`, status, id)
+		WHERE id = $2 AND revoked_at IS NULL`, status, id)
 	return err
+}
+
+// MarkRevoked stamps the connection as revoked and reports how many rows it
+// changed. The revoked_at guard makes a second revoke of the same connection a
+// no-op rather than overwriting the original revocation timestamp, reason and
+// upstream outcome; the zero row count lets the caller report that honestly as
+// already_revoked even when two revocations race past the pre-check.
+//
+// This UPDATE takes the row-exclusive lock on the connection that every
+// credential write (TokenRepository.Upsert, AgentRepository.CreateSession)
+// contends for, and it runs first in the revocation transaction, so those
+// writers either committed before revocation started or block until it commits
+// and are then rejected by their revoked_at predicate.
+func (r *connectionRepository) MarkRevoked(ctx context.Context, id uuid.UUID, reason string, revokedAt time.Time, providerRevoked bool) (int64, error) {
+	result, err := execerFromContext(ctx, r.db).ExecContext(ctx, `
+		UPDATE connections
+		SET status = 'revoked',
+		    revoked_at = $2,
+		    revocation_reason = NULLIF($3, ''),
+		    provider_revoked = $4,
+		    health_status = 'revoked',
+		    updated_at = NOW()
+		WHERE id = $1 AND revoked_at IS NULL`, id, revokedAt, reason, providerRevoked)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// GetRevocation reads the persisted revocation record for a connection. It is
+// how a repeated revoke reports the *original* outcome instead of fabricating a
+// new timestamp and claiming the provider was never called.
+func (r *connectionRepository) GetRevocation(ctx context.Context, id uuid.UUID) (*domain.ConnectionRevocation, error) {
+	var rec domain.ConnectionRevocation
+	err := r.db.QueryRowContext(ctx, `
+		SELECT revoked_at, COALESCE(revocation_reason, ''), provider_revoked
+		FROM connections
+		WHERE id = $1`, id).
+		Scan(&rec.RevokedAt, &rec.Reason, &rec.ProviderRevoked)
+	if err != nil {
+		return nil, err
+	}
+	return &rec, nil
 }
 
 func (r *connectionRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.ConnectionSummary, error) {
 	query := `
 		SELECT c.id, c.provider_id, p.name, p.auth_type, c.status, c.scopes,
-		       COALESCE(c.health_status, 'unknown'), c.last_health_check_at,
+		       COALESCE(c.health_status, 'unknown'), c.last_health_check_at, c.revoked_at,
 		       c.created_at, c.updated_at
 		FROM connections c
 		JOIN provider_profiles p ON c.provider_id = p.id AND p.deleted_at IS NULL
@@ -212,7 +267,7 @@ func (r *connectionRepository) ListByWorkspace(ctx context.Context, workspaceID 
 		var s domain.ConnectionSummary
 		err := rows.Scan(
 			&s.ID, &s.ProviderID, &s.ProviderName, &s.AuthType, &s.Status, pq.Array(&s.Scopes),
-			&s.HealthStatus, &s.LastHealthCheckAt,
+			&s.HealthStatus, &s.LastHealthCheckAt, &s.RevokedAt,
 			&s.CreatedAt, &s.UpdatedAt,
 		)
 		if err != nil {

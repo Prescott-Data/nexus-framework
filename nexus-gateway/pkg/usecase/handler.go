@@ -475,29 +475,49 @@ func (h *Handler) GetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If not 200 OK or error body, just forward the status and generic error
-	if resp.StatusCode() >= 400 {
-		w.WriteHeader(resp.StatusCode())
+	// Forward the broker's error body, not just its status. The broker
+	// distinguishes a revoked connection (410 connection_revoked, terminal —
+	// stop retrying and reconnect) from a merely inactive one (400
+	// connection_not_active), and that distinction is only in the body.
+	writeBrokerError(w, resp.StatusCode(), resp.Body)
+}
+
+// writeBrokerError forwards a non-success broker response to the caller with
+// its JSON error body intact, falling back to a bare status when the broker
+// sent no body. Error codes such as connection_revoked are part of the public
+// API contract, so dropping the body here would make the gateway's 4xx
+// responses unactionable.
+func writeBrokerError(w http.ResponseWriter, status int, body []byte) {
+	if len(bytes.TrimSpace(body)) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write(body)
 		return
 	}
-
-	w.WriteHeader(resp.StatusCode())
+	w.WriteHeader(status)
 }
 
 // GetTokenCore fetches the decrypted token JSON from the broker and returns it as a generic map.
 // Refactored to use generated client and convert struct back to map for backwards compat or generic usage.
 func (h *Handler) GetTokenCore(ctx context.Context, connectionID string) (map[string]any, int, error) {
+	result, status, _, err := h.getTokenRaw(ctx, connectionID)
+	return result, status, err
+}
+
+// getTokenRaw is GetTokenCore plus the broker's raw response body, which HTTP
+// callers forward so broker error codes survive the hop.
+func (h *Handler) getTokenRaw(ctx context.Context, connectionID string) (map[string]any, int, []byte, error) {
 	resp, err := h.brokerClient.GetConnectionsConnectionIDTokenWithResponse(ctx, connectionID)
 	if err != nil {
-		return nil, http.StatusBadGateway, fmt.Errorf("broker request failed: %w", err)
+		return nil, http.StatusBadGateway, nil, fmt.Errorf("broker request failed: %w", err)
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return nil, resp.StatusCode(), nil
+		return nil, resp.StatusCode(), resp.Body, nil
 	}
 
 	if resp.JSON200 == nil {
-		return nil, resp.StatusCode(), fmt.Errorf("empty response")
+		return nil, resp.StatusCode(), resp.Body, fmt.Errorf("empty response")
 	}
 
 	// Convert TokenResponse struct back to map[string]any
@@ -505,22 +525,29 @@ func (h *Handler) GetTokenCore(ctx context.Context, connectionID string) (map[st
 	var tokenMap map[string]any
 	_ = json.Unmarshal(data, &tokenMap)
 
-	return tokenMap, http.StatusOK, nil
+	return tokenMap, http.StatusOK, resp.Body, nil
 }
 
 // RefreshConnectionCore forces a token refresh via the broker.
 func (h *Handler) RefreshConnectionCore(ctx context.Context, connectionID string) (map[string]any, int, error) {
+	result, status, _, err := h.refreshConnectionRaw(ctx, connectionID)
+	return result, status, err
+}
+
+// refreshConnectionRaw is RefreshConnectionCore plus the broker's raw response
+// body, so the HTTP handler can forward broker error codes verbatim.
+func (h *Handler) refreshConnectionRaw(ctx context.Context, connectionID string) (map[string]any, int, []byte, error) {
 	resp, err := h.brokerClient.PostConnectionsConnectionIDRefreshWithResponse(ctx, connectionID)
 	if err != nil {
-		return nil, http.StatusBadGateway, fmt.Errorf("broker request failed: %w", err)
+		return nil, http.StatusBadGateway, nil, fmt.Errorf("broker request failed: %w", err)
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return nil, resp.StatusCode(), nil
+		return nil, resp.StatusCode(), resp.Body, nil
 	}
 
 	if resp.JSON200 == nil {
-		return nil, resp.StatusCode(), fmt.Errorf("empty response")
+		return nil, resp.StatusCode(), resp.Body, fmt.Errorf("empty response")
 	}
 
 	// Convert TokenResponse struct back to map[string]any
@@ -528,7 +555,7 @@ func (h *Handler) RefreshConnectionCore(ctx context.Context, connectionID string
 	var tokenMap map[string]any
 	_ = json.Unmarshal(data, &tokenMap)
 
-	return tokenMap, http.StatusOK, nil
+	return tokenMap, http.StatusOK, resp.Body, nil
 }
 
 func (h *Handler) RefreshConnection(w http.ResponseWriter, r *http.Request) {
@@ -540,7 +567,7 @@ func (h *Handler) RefreshConnection(w http.ResponseWriter, r *http.Request) {
 
 	logging.Info(r.Context(), "refresh_connection.start", map[string]any{"connection_id": connectionID})
 
-	tokenMap, status, err := h.RefreshConnectionCore(r.Context(), connectionID)
+	tokenMap, status, brokerBody, err := h.refreshConnectionRaw(r.Context(), connectionID)
 	if err != nil {
 		logging.Error(r.Context(), "refresh_connection.broker_error", map[string]any{"error": err.Error()})
 		writeError(w, status, "broker_unavailable", "broker request failed", nil)
@@ -549,12 +576,138 @@ func (h *Handler) RefreshConnection(w http.ResponseWriter, r *http.Request) {
 
 	if status != http.StatusOK {
 		logging.Error(r.Context(), "refresh_connection.broker_status", map[string]any{"status": status})
-		w.WriteHeader(status)
+		writeBrokerError(w, status, brokerBody)
 		return
 	}
 
 	logging.Info(r.Context(), "refresh_connection.success", map[string]any{"connection_id": connectionID})
 	writeJSON(w, http.StatusOK, tokenMap)
+}
+
+// RevokeConnectionInput describes a revocation forwarded to the broker.
+type RevokeConnectionInput struct {
+	ConnectionID string
+	WorkspaceID  string
+	Reason       string
+}
+
+// RevokeConnectionCore forwards a revocation to the broker and returns the
+// broker's result verbatim. The gateway does not interpret the outcome: the
+// distinction between "destroyed locally" and "revoked at the provider" must
+// reach the caller intact.
+func (h *Handler) RevokeConnectionCore(ctx context.Context, in RevokeConnectionInput) (map[string]any, int, error) {
+	result, status, _, err := h.revokeConnectionRaw(ctx, in)
+	return result, status, err
+}
+
+// revokeConnectionRaw is RevokeConnectionCore plus the broker's raw response
+// body, so the HTTP handler can forward broker error codes verbatim.
+func (h *Handler) revokeConnectionRaw(ctx context.Context, in RevokeConnectionInput) (map[string]any, int, []byte, error) {
+	connectionID, err := uuid.Parse(strings.TrimSpace(in.ConnectionID))
+	if err != nil {
+		return nil, http.StatusBadRequest, nil, fmt.Errorf("%w: connection_id must be a UUID", ErrMissingFields)
+	}
+
+	params := &broker.RevokeConnectionParams{}
+	if ws := strings.TrimSpace(in.WorkspaceID); ws != "" {
+		params.WorkspaceId = &ws
+	}
+	if reason := strings.TrimSpace(in.Reason); reason != "" {
+		params.Reason = &reason
+	}
+
+	resp, err := h.brokerClient.RevokeConnectionWithResponse(ctx, connectionID, params, broker.RevokeConnectionJSONRequestBody{})
+	if err != nil {
+		return nil, http.StatusBadGateway, nil, fmt.Errorf("broker request failed: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, resp.StatusCode(), resp.Body, nil
+	}
+
+	if resp.JSON200 == nil {
+		return nil, resp.StatusCode(), resp.Body, fmt.Errorf("empty response")
+	}
+
+	data, _ := json.Marshal(resp.JSON200)
+	var result map[string]any
+	_ = json.Unmarshal(data, &result)
+
+	return result, http.StatusOK, resp.Body, nil
+}
+
+// revokeRequestBody mirrors the broker's optional revoke body. The gateway
+// accepts the same shape so a client that sends workspace_id/reason in JSON —
+// which the API documentation and the broker both allow — is not silently
+// stripped of both on the way through.
+type revokeRequestBody struct {
+	Reason      string `json:"reason,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+}
+
+// maxRevokeBody caps the revoke request body; it carries two short strings.
+const maxRevokeBody = 4 << 10
+
+// RevokeConnection handles DELETE /v1/connections/{connectionID}
+func (h *Handler) RevokeConnection(w http.ResponseWriter, r *http.Request) {
+	connectionID := strings.TrimSpace(chi.URLParam(r, "connectionID"))
+	if connectionID == "" {
+		writeError(w, http.StatusBadRequest, "missing_fields", "missing connection id", nil)
+		return
+	}
+
+	var body revokeRequestBody
+	if r.Body != nil {
+		raw, readErr := io.ReadAll(io.LimitReader(r.Body, maxRevokeBody))
+		if readErr != nil {
+			writeError(w, http.StatusBadRequest, "invalid_body", "could not read request body", nil)
+			return
+		}
+		if len(strings.TrimSpace(string(raw))) > 0 {
+			if err := json.Unmarshal(raw, &body); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_json", "request body must be a JSON object", nil)
+				return
+			}
+		}
+	}
+
+	workspaceID := strings.TrimSpace(body.WorkspaceID)
+	if workspaceID == "" {
+		workspaceID = r.URL.Query().Get("workspace_id")
+	}
+	reason := strings.TrimSpace(body.Reason)
+	if reason == "" {
+		reason = r.URL.Query().Get("reason")
+	}
+
+	logging.Info(r.Context(), "revoke_connection.start", map[string]any{"connection_id": connectionID})
+
+	result, status, brokerBody, err := h.revokeConnectionRaw(r.Context(), RevokeConnectionInput{
+		ConnectionID: connectionID,
+		WorkspaceID:  workspaceID,
+		Reason:       reason,
+	})
+	if err != nil {
+		if errors.Is(err, ErrMissingFields) {
+			writeError(w, http.StatusBadRequest, "invalid_connection_id", "connection_id must be a UUID", nil)
+			return
+		}
+		logging.Error(r.Context(), "revoke_connection.broker_error", map[string]any{"error": err.Error()})
+		writeError(w, status, "broker_unavailable", "broker request failed", nil)
+		return
+	}
+
+	if status != http.StatusOK {
+		logging.Error(r.Context(), "revoke_connection.broker_status", map[string]any{"status": status})
+		writeBrokerError(w, status, brokerBody)
+		return
+	}
+
+	logging.Info(r.Context(), "revoke_connection.success", map[string]any{
+		"connection_id":    connectionID,
+		"provider_revoked": result["provider_revoked"],
+	})
+	writeJSON(w, http.StatusOK, result)
 }
 
 // GetProvidersCore fetches provider metadata from the broker

@@ -7,6 +7,7 @@ import (
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 )
@@ -63,13 +64,32 @@ func (r *agentRepository) ListAgents(ctx context.Context) ([]domain.Agent, error
 	return agents, rows.Err()
 }
 
+// CreateSession inserts an agent session, but only if the underlying connection
+// is still live. The connection row is locked FOR SHARE so a concurrent
+// RevokeConnection transaction (which takes a row-exclusive lock on the
+// connection via MarkRevoked before running CloseSessionsForConnection) must
+// wait for this insert to commit — the revoke's session-close UPDATE then sees
+// the row and closes it. If revocation has already committed by the time the
+// FOR SHARE lock is acquired, the status/revoked_at predicate rejects the
+// insert and sql.ErrNoRows is returned so the service can surface the
+// connection as no longer active. This is the "conditional transaction" side
+// of the coordination described on CloseSessionsForConnection.
 func (r *agentRepository) CreateSession(ctx context.Context, session *domain.AgentSession) error {
-	return r.db.QueryRowContext(ctx, `
+	err := r.db.QueryRowContext(ctx, `
+		WITH live_connection AS (
+			SELECT id
+			FROM connections
+			WHERE id = $3
+			  AND status = 'active'
+			  AND revoked_at IS NULL
+			FOR SHARE
+		)
 		INSERT INTO agent_sessions (
 			session_id, agent_id, connection_id, scopes_granted, expires_at,
 			closed_at, obo, acting_for, tenant_id, clearance_level
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+		FROM live_connection
 		RETURNING created_at`,
 		session.SessionID,
 		session.AgentID,
@@ -82,6 +102,7 @@ func (r *agentRepository) CreateSession(ctx context.Context, session *domain.Age
 		nullString(session.TenantID),
 		session.ClearanceLevel,
 	).Scan(&session.CreatedAt)
+	return err
 }
 
 func (r *agentRepository) GetSession(ctx context.Context, sessionID string) (*domain.AgentSession, error) {
@@ -128,6 +149,21 @@ func (r *agentRepository) CloseSession(ctx context.Context, sessionID string, cl
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// CloseSessionsForConnection closes every open session bound to a connection.
+// Closing nothing is a valid outcome (the connection may have no live grants),
+// so unlike CloseSession this does not treat zero rows as an error.
+func (r *agentRepository) CloseSessionsForConnection(ctx context.Context, connectionID uuid.UUID, closedAt time.Time) (int64, error) {
+	result, err := execerFromContext(ctx, r.db).ExecContext(ctx, `
+		UPDATE agent_sessions
+		SET closed_at = $2
+		WHERE connection_id = $1 AND closed_at IS NULL`,
+		connectionID, closedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func nullString(value string) interface{} {

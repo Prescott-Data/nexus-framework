@@ -66,6 +66,7 @@ func (s *Server) routes() {
 	s.mux.Get("/v1/resolve", s.handler.ResolveToken)
 	s.mux.Get("/v1/token/{connectionID}", s.handler.GetToken)
 	s.mux.Post("/v1/refresh/{connectionID}", s.handler.RefreshConnection)
+	s.mux.Delete("/v1/connections/{connectionID}", s.handler.RevokeConnection)
 	s.mux.Get("/v1/providers", s.handler.GetProviders)
 	s.mux.Get("/v1/providers/metadata", s.handler.GetProviders)
 	s.mux.Post("/v1/providers", s.handler.CreateProvider)

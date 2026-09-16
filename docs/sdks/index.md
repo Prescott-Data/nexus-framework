@@ -50,6 +50,7 @@ All three SDKs expose the same capabilities:
 | `CheckConnection` | ✅ | ✅ | ✅ |
 | `GetToken` (by connection ID) | ✅ | ✅ | ✅ |
 | `RefreshConnection` | ✅ | ✅ | ✅ |
+| `RevokeConnection` | ✅ | ✅ | ✅ |
 | `WaitForActive` | ✅ | ✅ | ✅ |
 | `ResolveToken` (workspace + provider) | ✅ | ✅ | ✅ |
 | Token Cache (TTL-aware) | ✅ | ✅ | ✅ |

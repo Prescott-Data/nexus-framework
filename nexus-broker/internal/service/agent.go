@@ -184,6 +184,9 @@ func (s *agentService) RequestAgentSession(ctx context.Context, req AgentSession
 		ClearanceLevel: 1,
 	}
 	if err := s.agentRepo.CreateSession(ctx, session); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrBadRequest("connection_not_active", "Connection is no longer active")
+		}
 		return nil, ErrInternalWithErr(err, "session_create_failed", "Failed to create agent session")
 	}
 

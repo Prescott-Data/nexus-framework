@@ -44,6 +44,8 @@ Every control-plane mutation is recorded in the `audit_events` table via the `au
 - **`token_exchange_failed`**, **`token_storage_failed`**, etc. — logged on callback failures.
 - **`token_retrieved`** — logged on every successful `GET /connections/{id}/token` call.
 - **`token_refresh_fatal`** — logged when a token refresh fails permanently (4xx from provider).
+- **`connection.revoked`** — logged on every successful `DELETE /connections/{id}` call, capturing whether the provider also accepted the revocation.
+- **`connection.revoke_failed`** — logged when a revocation could not be completed.
 
 Audit events capture the **caller IP** (respecting `X-Forwarded-For`), **User-Agent**, and structured **event data** (provider ID, name, etc.).
 
@@ -57,6 +59,7 @@ See the [Audit Log Reference](../reference/audit-log.md) for how to query events
 | `GET` | `/connections?workspace_id=` | All connections for a workspace with health status |
 | `GET` | `/connections/{id}/token` | Resolve credentials + `health_status` for a specific connection |
 | `POST` | `/connections/{id}/refresh` | Force a token refresh |
+| `DELETE` | `/connections/{id}` | Revoke the connection: revoke upstream (RFC 7009), delete the stored credential, close its agent sessions |
 | `GET` | `/connections/resolve` | Resolve by `workspace_id` + `provider_name` |
 
 See [Health Checks Architecture](../healthchecks.md) for details on the monitoring system.

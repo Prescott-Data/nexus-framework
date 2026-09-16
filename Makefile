@@ -56,6 +56,20 @@ test:
 test-e2e:
 	@bash scripts/test-e2e.sh
 
+# Run tests that need a real PostgreSQL instance. These are excluded from
+# `make test` behind the `integration` build tag because they cannot run
+# without a database. Point NEXUS_TEST_DATABASE_URL at a database that has had
+# the broker migrations applied.
+#
+#   make test-integration NEXUS_TEST_DATABASE_URL="postgres://user@host:5432/nexus?sslmode=disable"
+test-integration:
+	@test -n "$(NEXUS_TEST_DATABASE_URL)" || { \
+		echo "❌ NEXUS_TEST_DATABASE_URL is not set."; \
+		echo "   Example: make test-integration NEXUS_TEST_DATABASE_URL=\"postgres://nexus@localhost:5432/nexus?sslmode=disable\""; \
+		exit 1; \
+	}
+	(cd nexus-broker && NEXUS_TEST_DATABASE_URL="$(NEXUS_TEST_DATABASE_URL)" go test -tags=integration ./... -count=1)
+
 # Clean up build artifacts and temp files
 clean:
 	rm -rf nexus-broker/bin nexus-gateway/bin

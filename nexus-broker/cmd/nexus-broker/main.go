@@ -105,6 +105,7 @@ func main() {
 		cachingClient,
 		cfg.EnforceReturnURL,
 		cfg.AllowedReturnDomains,
+		service.WithAgentSessionCloser(agentRepo),
 	)
 
 	consentHandler := handlers.NewConsentHandler(handlers.ConsentHandlerConfig{
@@ -115,7 +116,7 @@ func main() {
 		Audit:   auditSvc,
 	})
 	auditHandler := handlers.NewAuditHandler(db)
-	connectionsHandler := handlers.NewConnectionsHandler(connSvc)
+	connectionsHandler := handlers.NewConnectionsHandler(connSvc, handlers.WithConnectionsAudit(auditSvc))
 	agentsHandler := handlers.NewAgentsHandler(service.NewAgentService(agentRepo, connRepo, connSvc))
 	samlHandler := handlers.NewSAMLHandler(connSvc)
 	apiKeySource, err := server.NewReloadingAPIKeySource(cfg.APIKeys, cfg.APIKeyFiles, cfg.APIKeyReloadInterval)
@@ -158,6 +159,7 @@ func main() {
 	})
 	protected.Post("/auth/consent-spec", consentHandler.GetSpec)
 	protected.Get("/connections", connectionsHandler.List)
+	protected.Delete("/connections/{connectionID}", connectionsHandler.Revoke)
 	protected.Get("/connections/resolve", callbackHandler.ResolveToken)
 	protected.Get("/connections/{connectionID}/token", callbackHandler.GetToken)
 	protected.Post("/connections/{connectionID}/refresh", callbackHandler.Refresh)

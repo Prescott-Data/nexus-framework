@@ -27,6 +27,7 @@ from nexus_sdk.types import (
     RequestConnectionInput,
     RequestConnectionResponse,
     RetryPolicy,
+    RevokeResult,
     TokenResponse,
 )
 
@@ -227,6 +228,56 @@ class NexusClient:
         cid = urllib.parse.quote(connection_id, safe="")
         raw = self._do_request("POST", f"{self._gateway_url}/v1/refresh/{cid}")
         return self._parse_token_response(raw)
+
+    def revoke_connection(
+        self,
+        connection_id: str,
+        workspace_id: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> RevokeResult:
+        """
+        Permanently revoke a connection.
+
+        Wraps DELETE /v1/connections/{connection_id}
+
+        The stored credential is always destroyed inside Nexus. Check
+        ``provider_revoked`` on the result to tell whether the token was also
+        invalidated at the provider — not every provider supports RFC 7009
+        revocation, and the upstream call is best-effort.
+
+        The operation is idempotent, so retrying after a timeout is safe.
+
+        :param connection_id: The connection to revoke.
+        :param workspace_id: When supplied, must match the connection's
+            workspace; otherwise the call returns 404.
+        :param reason: Free-text reason recorded in the audit log.
+        """
+        if not connection_id.strip():
+            raise NexusError("invalid_input", "connection_id must not be empty")
+
+        cid = urllib.parse.quote(connection_id, safe="")
+        params = {}
+        if workspace_id and workspace_id.strip():
+            params["workspace_id"] = workspace_id
+        if reason and reason.strip():
+            params["reason"] = reason
+
+        url = f"{self._gateway_url}/v1/connections/{cid}"
+        if params:
+            url += "?" + urllib.parse.urlencode(params)
+
+        raw = self._do_request("DELETE", url)
+        return RevokeResult(
+            connection_id=str(raw.get("connection_id", connection_id)),
+            status=str(raw.get("status", "revoked")),
+            provider_name=str(raw.get("provider_name", "")),
+            revoked_at=str(raw.get("revoked_at", "")),
+            already_revoked=bool(raw.get("already_revoked", False)),
+            token_deleted=bool(raw.get("token_deleted", False)),
+            sessions_closed=int(raw.get("sessions_closed", 0) or 0),
+            provider_revoked=bool(raw.get("provider_revoked", False)),
+            provider_revocation_error=raw.get("provider_revocation_error") or None,
+        )
 
     def wait_for_active(
         self,

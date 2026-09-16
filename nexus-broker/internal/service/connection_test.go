@@ -108,6 +108,11 @@ func (m *MockTokenRepository) Get(ctx context.Context, connectionID uuid.UUID) (
 	return nil, args.Error(1)
 }
 
+func (m *MockTokenRepository) Delete(ctx context.Context, connectionID uuid.UUID) error {
+	args := m.Called(ctx, connectionID)
+	return args.Error(0)
+}
+
 // MockProfileStorer is a mock of provider.ProfileStorer
 type MockProfileStorer struct {
 	mock.Mock

@@ -8,6 +8,8 @@ export type {
   NexusLogger,
   RequestConnectionInput,
   RequestConnectionResponse,
+  RevokeOptions,
+  RevokeResult,
   TokenResponse,
   NexusErrorEnvelope,
 } from './types.js';

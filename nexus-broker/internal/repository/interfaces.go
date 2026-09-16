@@ -2,11 +2,17 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/google/uuid"
 )
+
+// ErrConnectionRevoked is returned by writes that target a revoked connection.
+// Revocation is terminal: once the credential has been destroyed, nothing may
+// write a new one back into its place.
+var ErrConnectionRevoked = errors.New("connection has been revoked")
 
 // ConnectionRepository handles database operations for connections
 type ConnectionRepository interface {
@@ -23,12 +29,26 @@ type ConnectionRepository interface {
 	// DeactivateOtherActive marks all active connections for the same workspace+provider
 	// as "superseded", excluding the connection that just became active.
 	DeactivateOtherActive(ctx context.Context, workspaceID string, providerID uuid.UUID, exceptID uuid.UUID) error
+	// MarkRevoked moves a connection to the terminal "revoked" status and stamps
+	// revoked_at/revocation_reason/provider_revoked. It is a no-op on an
+	// already-revoked row so a repeated revoke request stays idempotent, and it
+	// reports the number of rows it changed so a caller that lost a concurrent
+	// revoke can say so instead of claiming it performed the revocation.
+	MarkRevoked(ctx context.Context, id uuid.UUID, reason string, revokedAt time.Time, providerRevoked bool) (int64, error)
+	// GetRevocation returns the persisted revocation record for a connection.
+	GetRevocation(ctx context.Context, id uuid.UUID) (*domain.ConnectionRevocation, error)
 }
 
 // TokenRepository handles database operations for tokens
 type TokenRepository interface {
+	// Upsert stores the credential for a connection. It returns
+	// ErrConnectionRevoked if the connection has been revoked, so a credential
+	// write that raced a revocation cannot resurrect a destroyed credential.
 	Upsert(ctx context.Context, token *domain.Token) error
 	Get(ctx context.Context, connectionID uuid.UUID) (*domain.Token, error)
+	// Delete removes the stored credential for a connection. Deleting a token
+	// that is not there is not an error: revocation must be idempotent.
+	Delete(ctx context.Context, connectionID uuid.UUID) error
 }
 
 // AgentRepository handles database operations for agent principals and sessions.
@@ -39,4 +59,8 @@ type AgentRepository interface {
 	CreateSession(ctx context.Context, session *domain.AgentSession) error
 	GetSession(ctx context.Context, sessionID string) (*domain.AgentSession, error)
 	CloseSession(ctx context.Context, sessionID string, closedAt time.Time) error
+	// CloseSessionsForConnection closes every still-open session bound to a
+	// connection and reports how many it closed. Used when a connection is
+	// revoked so outstanding agent grants die with it.
+	CloseSessionsForConnection(ctx context.Context, connectionID uuid.UUID, closedAt time.Time) (int64, error)
 }

@@ -59,6 +59,11 @@ func (m *MockAgentRepository) CloseSession(ctx context.Context, sessionID string
 	return args.Error(0)
 }
 
+func (m *MockAgentRepository) CloseSessionsForConnection(ctx context.Context, connectionID uuid.UUID, closedAt time.Time) (int64, error) {
+	args := m.Called(ctx, connectionID, closedAt)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 type MockAgentConnectionService struct {
 	mock.Mock
 }
@@ -117,6 +122,14 @@ func (m *MockAgentConnectionService) ListConnections(ctx context.Context, worksp
 	args := m.Called(ctx, workspaceID)
 	if args.Get(0) != nil {
 		return args.Get(0).([]domain.ConnectionSummary), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockAgentConnectionService) RevokeConnection(ctx context.Context, req service.RevokeRequest) (*service.RevokeResult, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) != nil {
+		return args.Get(0).(*service.RevokeResult), args.Error(1)
 	}
 	return nil, args.Error(1)
 }

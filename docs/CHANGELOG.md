@@ -12,6 +12,36 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## 0.4.0 <span class="changelog-date">2026-09-16</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/commits/main" target="_blank" rel="noopener noreferrer">View commits on GitHub →</a>
+</div>
+
+**Added**
+
+- **Connections can be revoked.** `DELETE /v1/connections/{id}` on the Gateway (`DELETE /connections/{id}` on the Broker) permanently terminates a connection: it attempts an RFC 7009 revocation at the provider, deletes the encrypted credential, closes every open agent session bound to the connection, and moves it to the terminal `revoked` status. Until now a stored credential had no off-switch — it lived in the database until the connection was superseded by a fresh consent — which left no answer for an offboarded user, a leaked token, or a deletion request.
+
+    The local credential is destroyed even when the upstream call fails, so a provider outage can never leave a live token behind — local teardown runs on its own deadline, independent of the upstream call. The response reports `token_deleted` and `provider_revoked` separately, because "Nexus can no longer use this token" and "this token is dead at the provider" are different guarantees and incident response needs to tell them apart. Providers that do not advertise a revocation endpoint, and static `api_key`/`basic_auth` credentials, are destroyed locally only and say so in `provider_revocation_error`.
+
+    Revocation is idempotent, and a retry reports the *original* outcome — the stored `revoked_at` and upstream result — so a client retrying after a timeout gets a confirmable answer rather than a fresh-looking one. Passing `workspace_id` scopes the request: a mismatch returns 404 rather than 403, so the endpoint does not confirm the existence of connection IDs to a caller that does not own them. `reason` is recorded on the connection and in the new `connection.revoked` audit event.
+
+    Available in all three SDKs as `RevokeConnection` / `revokeConnection` / `revoke_connection`.
+
+- **`make test-integration` runs tests against a real PostgreSQL instance.** These live behind the `integration` build tag and are excluded from `make test`, which has no database. Point `NEXUS_TEST_DATABASE_URL` at a migrated database to run them. Revocation is the first feature covered: transaction boundaries, the agent-session cascade and the `revoked_at` columns are all things sqlmock will accept but a real server can reject.
+
+**Changed**
+
+- **Requesting a token or a refresh for a revoked connection returns `410 Gone`** with code `connection_revoked`, rather than the generic `400 connection_not_active`. A revoked connection is never coming back, and a client must start a fresh connection flow instead of retrying. The Gateway now forwards the Broker's error body on `/v1/token`, `/v1/refresh` and `/v1/connections/{id}`, so the code actually reaches the caller instead of arriving as a bodyless status.
+- **Revocation is terminal against concurrent writers.** Credential writes take a `FOR SHARE` lock on the connection row and are gated on `revoked_at IS NULL`, so a refresh, OAuth exchange or static capture that was in flight when a revocation committed is rejected rather than recreating the credential that was just destroyed.
+- `ConnectionSummary` now carries `revoked_at`.
+
+</div>
+
+---
+
+<div class="changelog-release" markdown>
+
 ## Unreleased <span class="changelog-date">2026-05-14</span>
 
 <div class="changelog-meta" markdown>
