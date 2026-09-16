@@ -375,6 +375,20 @@ func TestIntegrationRevokedConnectionRejectsCredentialWrites(t *testing.T) {
 	if status != StatusRevoked {
 		t.Errorf("status = %q, want %q (a revoked connection must not be reactivated)", status, StatusRevoked)
 	}
+
+	// A health worker that selected this connection while it was active must
+	// not overwrite the revocation tombstone when it finishes late.
+	if err := connRepo.UpdateHealthStatus(context.Background(), connectionID, "expired"); err != nil {
+		t.Fatalf("UpdateHealthStatus: %v", err)
+	}
+
+	var health string
+	if err := db.QueryRow(`SELECT health_status FROM connections WHERE id = $1`, connectionID).Scan(&health); err != nil {
+		t.Fatalf("read health_status: %v", err)
+	}
+	if health != StatusRevoked {
+		t.Errorf("health_status = %q, want %q (a stale health probe must not overwrite it)", health, StatusRevoked)
+	}
 }
 
 func TestIntegrationRevokedConnectionRejectsTokenIssuance(t *testing.T) {

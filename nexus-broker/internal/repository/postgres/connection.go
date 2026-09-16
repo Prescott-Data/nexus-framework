@@ -190,11 +190,15 @@ func (r *connectionRepository) DeactivateOtherActive(ctx context.Context, worksp
 	return err
 }
 
+// UpdateHealthStatus records the result of a health probe. Like UpdateStatus it
+// refuses revoked connections: a health worker can select a connection while it
+// is active and finish writing after a revocation commits, and a stale probe
+// result must not overwrite the revocation tombstone.
 func (r *connectionRepository) UpdateHealthStatus(ctx context.Context, id uuid.UUID, status string) error {
 	_, err := execerFromContext(ctx, r.db).ExecContext(ctx, `
 		UPDATE connections
 		SET health_status = $1, last_health_check_at = NOW(), updated_at = NOW()
-		WHERE id = $2`, status, id)
+		WHERE id = $2 AND revoked_at IS NULL`, status, id)
 	return err
 }
 
