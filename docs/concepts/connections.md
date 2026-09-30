@@ -86,6 +86,18 @@ Some providers handle scopes in non-standard ways. These are controlled via the 
 
 Both default to `false`. Set them only if the provider rejects requests that include `scope`.
 
+### Provider-specific token request format
+
+By default, token exchange and refresh requests are sent as
+`application/x-www-form-urlencoded`, per the OAuth2 spec. Some providers
+(e.g. Notion) require a JSON body instead:
+
+| Param | Type | Providers | Effect |
+|---|---|---|---|
+| `token_request_format` | string (`"json"`) | Notion | Sends the token exchange and refresh request bodies as `application/json` instead of form-encoded |
+
+This affects both the initial token exchange and every subsequent refresh. It is a broker-internal setting and is never forwarded to the provider's authorization URL.
+
 ## Static credential connections
 
 For `api_key` and `basic_auth` providers, there is no OAuth redirect. Your backend calls `GET /v1/capture-schema` to get the field schema, presents it to the user, and submits the completed values via `POST /v1/capture-credential`. The connection goes directly to `active`. Static connections cannot be refreshed.

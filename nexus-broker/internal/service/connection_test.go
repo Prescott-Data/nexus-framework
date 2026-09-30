@@ -263,6 +263,47 @@ func TestConnectionService_CreateConsentSpec_OAuth2(t *testing.T) {
 	connRepo.AssertExpectations(t)
 }
 
+// TestConnectionService_CreateConsentSpec_OAuth2_TokenRequestFormatNotLeaked
+// guards against params.token_request_format (a broker-internal,
+// token-endpoint-only setting) leaking into the provider's authorization
+// URL for a profile that carries no other params.
+func TestConnectionService_CreateConsentSpec_OAuth2_TokenRequestFormatNotLeaked(t *testing.T) {
+	connRepo, _, providerStore, svc := setupTestService(t)
+
+	req := service.CreateConsentRequest{
+		WorkspaceID: "ws-123",
+		ProviderID:  uuid.New().String(),
+		Scopes:      []string{"read", "write"},
+		ReturnURL:   "http://app.example.com/callback",
+	}
+
+	providerID := uuid.MustParse(req.ProviderID)
+	paramsRaw := json.RawMessage(`{"token_request_format":"json"}`)
+	prof := &provider.Profile{
+		ID:       providerID,
+		Name:     "Notion",
+		AuthType: "oauth2",
+		AuthURL:  ptr("https://api.notion.com/v1/oauth/authorize"),
+		ClientID: ptr("notion-client-id"),
+		Params:   &paramsRaw,
+	}
+
+	providerStore.On("GetProfile", providerID).Return(prof, nil)
+	connRepo.On("Create", mock.Anything, mock.MatchedBy(func(c *domain.Connection) bool {
+		return c.WorkspaceID == req.WorkspaceID && c.ProviderID == providerID && c.ReturnURL == req.ReturnURL
+	})).Return(nil)
+
+	resp, err := svc.CreateConsentSpec(context.Background(), req)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Contains(t, resp.AuthURL, "https://api.notion.com/v1/oauth/authorize")
+	assert.NotContains(t, resp.AuthURL, "token_request_format")
+
+	providerStore.AssertExpectations(t)
+	connRepo.AssertExpectations(t)
+}
+
 func TestConnectionService_CreateConsentSpec_ApiKey(t *testing.T) {
 	connRepo, _, providerStore, svc := setupTestService(t)
 
@@ -735,6 +776,7 @@ func TestConnectionService_Refresh_JSONBody_BasicAuth(t *testing.T) {
 
 	connRepo.AssertExpectations(t)
 	providerStore.AssertExpectations(t)
+	tokenRepo.AssertExpectations(t)
 }
 
 // =============================================================================

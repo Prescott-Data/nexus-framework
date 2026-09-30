@@ -24,6 +24,17 @@ import (
 	"github.com/google/uuid"
 )
 
+// brokerInternalParams lists provider profile params.* keys that configure
+// broker-side behaviour (token exchange/refresh, scope handling, auth
+// strategy, etc.) and must never be forwarded to the provider's authorization
+// URL as query parameters.
+var brokerInternalParams = map[string]struct{}{
+	"skip_scope_on_auth":     {},
+	"skip_scope_on_exchange": {},
+	"token_request_format":   {},
+	"auth_strategy":          {},
+}
+
 type ConnectionService interface {
 	CreateConsentSpec(ctx context.Context, req CreateConsentRequest) (*ConsentSpecResponse, error)
 	ExchangeCodeForTokens(ctx context.Context, state, code, errorParam, errorDesc string) (string, bool, error)
@@ -573,6 +584,9 @@ func (s *connectionService) buildAuthURL(providerAuthURL, clientID, state, codeC
 		var params map[string]string
 		if err := json.Unmarshal(*providerParams, &params); err == nil {
 			for key, value := range params {
+				if _, internal := brokerInternalParams[key]; internal {
+					continue
+				}
 				q.Set(key, value)
 			}
 		}
