@@ -272,6 +272,17 @@ Some providers deviate from the OAuth2 spec in ways that require additional para
 | Salesforce | Rejects `scope` on the token exchange | `"params": { "skip_scope_on_exchange": true }` |
 | Twitter/X | Requires Basic Auth for token exchange | `"auth_header": "client_secret_basic"` |
 | Microsoft Entra | Requires `scope` on the token exchange | Default behaviour — no change needed |
+| Notion | Requires a JSON body (not form-encoded) for token exchange and refresh | `"params": { "token_request_format": "json" }` |
+
+By default the token endpoint request body is sent as
+`application/x-www-form-urlencoded`, per the OAuth2 spec. Setting
+`params.token_request_format` to `"json"` switches both the initial
+token-exchange request and subsequent refresh requests to a
+`application/json` body instead. Only self-hosted operators registering a
+provider whose token endpoint deviates from the spec (e.g. Notion) need this
+option; leave it unset to keep the standard form-encoded behaviour. This is a
+broker-internal setting and is never forwarded to the provider's
+authorization URL.
 
 ---
 

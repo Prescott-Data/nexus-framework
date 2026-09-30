@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -22,6 +23,17 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
 	"github.com/google/uuid"
 )
+
+// brokerInternalParams lists provider profile params.* keys that configure
+// broker-side behaviour (token exchange/refresh, scope handling, auth
+// strategy, etc.) and must never be forwarded to the provider's authorization
+// URL as query parameters.
+var brokerInternalParams = map[string]struct{}{
+	"skip_scope_on_auth":     {},
+	"skip_scope_on_exchange": {},
+	"token_request_format":   {},
+	"auth_strategy":          {},
+}
 
 type ConnectionService interface {
 	CreateConsentSpec(ctx context.Context, req CreateConsentRequest) (*ConsentSpecResponse, error)
@@ -281,11 +293,19 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	redirectURI, _ := url.JoinPath(s.baseURL, s.redirectPath)
 
 	skipScopeOnExchange := false
+	useJSONBody := false
 	if p.Params != nil {
 		var paramsMap map[string]interface{}
 		if err := json.Unmarshal(*p.Params, &paramsMap); err == nil {
 			if skip, ok := paramsMap["skip_scope_on_exchange"].(bool); ok {
 				skipScopeOnExchange = skip
+			}
+			// Some providers (e.g. Notion) deviate from the OAuth2 spec and
+			// require the token endpoint body as JSON instead of the standard
+			// application/x-www-form-urlencoded encoding. Opt in per-provider
+			// via params.token_request_format = "json".
+			if format, ok := paramsMap["token_request_format"].(string); ok && strings.EqualFold(format, "json") {
+				useJSONBody = true
 			}
 		}
 	}
@@ -316,7 +336,7 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 		clientSecret = *p.ClientSecret
 	}
 
-	tokens, err := s.executeExchange(ctx, useTokenURL, clientID, clientSecret, code, conn.CodeVerifier.String, redirectURI, conn.Scopes, p.AuthHeader, skipScopeOnExchange)
+	tokens, err := s.executeExchange(ctx, useTokenURL, clientID, clientSecret, code, conn.CodeVerifier.String, redirectURI, conn.Scopes, p.AuthHeader, skipScopeOnExchange, useJSONBody)
 	if err != nil {
 		s.connRepo.UpdateStatus(ctx, connID, "failed")
 		return "", false, ErrInternalWithErr(err, "token_exchange_failed", "Token exchange failed")
@@ -564,6 +584,9 @@ func (s *connectionService) buildAuthURL(providerAuthURL, clientID, state, codeC
 		var params map[string]string
 		if err := json.Unmarshal(*providerParams, &params); err == nil {
 			for key, value := range params {
+				if _, internal := brokerInternalParams[key]; internal {
+					continue
+				}
 				q.Set(key, value)
 			}
 		}
@@ -573,38 +596,34 @@ func (s *connectionService) buildAuthURL(providerAuthURL, clientID, state, codeC
 	return u.String(), nil
 }
 
-func (s *connectionService) executeExchange(ctx context.Context, tokenURL, clientID, clientSecret, code, codeVerifier, redirectURI string, scopes []string, authHeader string, skipScopeOnExchange bool) (map[string]interface{}, error) {
-	data := url.Values{}
-	data.Set("grant_type", "authorization_code")
-	data.Set("code", code)
-	if codeVerifier != "" {
-		data.Set("code_verifier", codeVerifier)
+func (s *connectionService) executeExchange(ctx context.Context, tokenURL, clientID, clientSecret, code, codeVerifier, redirectURI string, scopes []string, authHeader string, skipScopeOnExchange, useJSONBody bool) (map[string]interface{}, error) {
+	fields := map[string]string{
+		"grant_type":   "authorization_code",
+		"code":         code,
+		"redirect_uri": redirectURI,
 	}
-	data.Set("redirect_uri", redirectURI)
+	if codeVerifier != "" {
+		fields["code_verifier"] = codeVerifier
+	}
 
-	useBasicAuth := false
-	if strings.EqualFold(authHeader, "client_secret_basic") || strings.EqualFold(authHeader, "Basic") {
-		useBasicAuth = true
-	} else {
+	useBasicAuth := strings.EqualFold(authHeader, "client_secret_basic") || strings.EqualFold(authHeader, "Basic")
+	if !useBasicAuth {
 		if clientID != "" {
-			data.Set("client_id", clientID)
+			fields["client_id"] = clientID
 		}
 		if clientSecret != "" {
-			data.Set("client_secret", clientSecret)
+			fields["client_secret"] = clientSecret
 		}
 	}
 
 	if len(scopes) > 0 && !skipScopeOnExchange {
-		data.Set("scope", strings.Join(scopes, " "))
+		fields["scope"] = strings.Join(scopes, " ")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
+	req, err := buildTokenRequest(ctx, tokenURL, fields, useJSONBody)
 	if err != nil {
 		return nil, err
 	}
-
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
 
 	if useBasicAuth {
 		req.SetBasicAuth(clientID, clientSecret)
@@ -627,6 +646,42 @@ func (s *connectionService) executeExchange(ctx context.Context, tokenURL, clien
 	}
 
 	return tokens, nil
+}
+
+// buildTokenRequest encodes the given token-endpoint fields as either a
+// standard application/x-www-form-urlencoded body (the OAuth2 spec default)
+// or as a JSON body, for the handful of providers (e.g. Notion) whose token
+// endpoint deviates from the spec and requires application/json.
+func buildTokenRequest(ctx context.Context, tokenURL string, fields map[string]string, useJSONBody bool) (*http.Request, error) {
+	var body io.Reader
+	contentType := "application/x-www-form-urlencoded"
+
+	if useJSONBody {
+		payload := make(map[string]interface{}, len(fields))
+		for k, v := range fields {
+			payload[k] = v
+		}
+		jsonBytes, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		body = bytes.NewReader(jsonBytes)
+		contentType = "application/json"
+	} else {
+		data := url.Values{}
+		for k, v := range fields {
+			data.Set(k, v)
+		}
+		body = strings.NewReader(data.Encode())
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Accept", "application/json")
+	return req, nil
 }
 
 func containsScope(scopes []string, target string) bool {

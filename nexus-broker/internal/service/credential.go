@@ -206,7 +206,17 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 			clientSecret = *p.ClientSecret
 		}
 
-		newTokens, statusCode, err := s.refreshTokens(ctx, tokenURL, clientID, clientSecret, refreshToken)
+		useJSONBody := false
+		if p.Params != nil {
+			var paramsMap map[string]interface{}
+			if err := json.Unmarshal(*p.Params, &paramsMap); err == nil {
+				if format, ok := paramsMap["token_request_format"].(string); ok && strings.EqualFold(format, "json") {
+					useJSONBody = true
+				}
+			}
+		}
+
+		newTokens, statusCode, err := s.refreshTokens(ctx, tokenURL, clientID, clientSecret, refreshToken, p.AuthHeader, useJSONBody)
 		if err != nil {
 			if statusCode >= 400 && statusCode < 500 {
 				s.connRepo.UpdateStatus(ctx, connectionID, "attention")
@@ -325,19 +335,25 @@ func (s *connectionService) validateCredentials(ctx context.Context, authType, a
 	return evaluateValidation(resp, parseValidationRule(providerParams))
 }
 
-func (s *connectionService) refreshTokens(ctx context.Context, tokenURL, clientID, clientSecret, refreshToken string) (map[string]interface{}, int, error) {
-	data := url.Values{}
-	data.Set("grant_type", "refresh_token")
-	data.Set("refresh_token", refreshToken)
-	data.Set("client_id", clientID)
-	data.Set("client_secret", clientSecret)
+func (s *connectionService) refreshTokens(ctx context.Context, tokenURL, clientID, clientSecret, refreshToken, authHeader string, useJSONBody bool) (map[string]interface{}, int, error) {
+	fields := map[string]string{
+		"grant_type":    "refresh_token",
+		"refresh_token": refreshToken,
+	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
+	useBasicAuth := strings.EqualFold(authHeader, "client_secret_basic") || strings.EqualFold(authHeader, "Basic")
+	if !useBasicAuth {
+		fields["client_id"] = clientID
+		fields["client_secret"] = clientSecret
+	}
+
+	req, err := buildTokenRequest(ctx, tokenURL, fields, useJSONBody)
 	if err != nil {
 		return nil, 0, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
+	if useBasicAuth {
+		req.SetBasicAuth(clientID, clientSecret)
+	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {

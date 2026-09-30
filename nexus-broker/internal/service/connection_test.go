@@ -263,6 +263,47 @@ func TestConnectionService_CreateConsentSpec_OAuth2(t *testing.T) {
 	connRepo.AssertExpectations(t)
 }
 
+// TestConnectionService_CreateConsentSpec_OAuth2_TokenRequestFormatNotLeaked
+// guards against params.token_request_format (a broker-internal,
+// token-endpoint-only setting) leaking into the provider's authorization
+// URL for a profile that carries no other params.
+func TestConnectionService_CreateConsentSpec_OAuth2_TokenRequestFormatNotLeaked(t *testing.T) {
+	connRepo, _, providerStore, svc := setupTestService(t)
+
+	req := service.CreateConsentRequest{
+		WorkspaceID: "ws-123",
+		ProviderID:  uuid.New().String(),
+		Scopes:      []string{"read", "write"},
+		ReturnURL:   "http://app.example.com/callback",
+	}
+
+	providerID := uuid.MustParse(req.ProviderID)
+	paramsRaw := json.RawMessage(`{"token_request_format":"json"}`)
+	prof := &provider.Profile{
+		ID:       providerID,
+		Name:     "Notion",
+		AuthType: "oauth2",
+		AuthURL:  ptr("https://api.notion.com/v1/oauth/authorize"),
+		ClientID: ptr("notion-client-id"),
+		Params:   &paramsRaw,
+	}
+
+	providerStore.On("GetProfile", providerID).Return(prof, nil)
+	connRepo.On("Create", mock.Anything, mock.MatchedBy(func(c *domain.Connection) bool {
+		return c.WorkspaceID == req.WorkspaceID && c.ProviderID == providerID && c.ReturnURL == req.ReturnURL
+	})).Return(nil)
+
+	resp, err := svc.CreateConsentSpec(context.Background(), req)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Contains(t, resp.AuthURL, "https://api.notion.com/v1/oauth/authorize")
+	assert.NotContains(t, resp.AuthURL, "token_request_format")
+
+	providerStore.AssertExpectations(t)
+	connRepo.AssertExpectations(t)
+}
+
 func TestConnectionService_CreateConsentSpec_ApiKey(t *testing.T) {
 	connRepo, _, providerStore, svc := setupTestService(t)
 
@@ -651,6 +692,93 @@ func TestConnectionService_Refresh_OAuth2_Success(t *testing.T) {
 	tokenRepo.AssertExpectations(t)
 }
 
+// TestConnectionService_Refresh_JSONBody_BasicAuth mirrors Notion's real token
+// endpoint contract: application/json body (not form-urlencoded) plus HTTP
+// Basic auth for the client credentials, driven by
+// params.token_request_format = "json" + auth_header = client_secret_basic.
+func TestConnectionService_Refresh_JSONBody_BasicAuth(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		user, pass, ok := r.BasicAuth()
+		assert.True(t, ok, "expected HTTP Basic auth header")
+		assert.Equal(t, "notion-client-id", user)
+		assert.Equal(t, "notion-client-secret", pass)
+
+		var body map[string]interface{}
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		assert.Equal(t, "refresh_token", body["grant_type"])
+		assert.Equal(t, "old-rt-22222", body["refresh_token"])
+		// Credentials must NOT be duplicated in the JSON body when Basic auth is used.
+		_, hasClientID := body["client_id"]
+		_, hasClientSecret := body["client_secret"]
+		assert.False(t, hasClientID)
+		assert.False(t, hasClientSecret)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"access_token":  "new-at-notion",
+			"refresh_token": "new-rt-notion",
+		})
+	}))
+	defer mockServer.Close()
+
+	connRepo, tokenRepo, providerStore, svc, _ := setupTestServiceWithHTTPClient(t, mockServer.Client())
+
+	connID := uuid.New()
+	providerID := uuid.New()
+	encryptionKey := []byte("12345678901234567890123456789012")
+
+	connWithProv := &domain.ConnectionWithProvider{
+		Connection: domain.Connection{
+			ID:         connID,
+			ProviderID: providerID,
+			Status:     "active",
+		},
+		AuthType: "oauth2",
+	}
+
+	paramsRaw := json.RawMessage(`{"token_request_format":"json"}`)
+	prof := &provider.Profile{
+		ID:           providerID,
+		AuthHeader:   "client_secret_basic",
+		TokenURL:     ptr(mockServer.URL),
+		ClientID:     ptr("notion-client-id"),
+		ClientSecret: ptr("notion-client-secret"),
+		Params:       &paramsRaw,
+	}
+
+	tokenData := map[string]interface{}{
+		"access_token":  "old-at-11111",
+		"refresh_token": "old-rt-22222",
+	}
+	tokenBytes, _ := json.Marshal(tokenData)
+	encryptedData, _ := vault.Encrypt(encryptionKey, tokenBytes)
+	token := &domain.Token{
+		ConnectionID:  connID,
+		EncryptedData: encryptedData,
+	}
+
+	connRepo.On("GetWithProvider", mock.Anything, connID).Return(connWithProv, nil)
+	providerStore.On("GetProfile", providerID).Return(prof, nil)
+	tokenRepo.On("Get", mock.Anything, connID).Return(token, nil)
+	tokenRepo.On("Upsert", mock.Anything, mock.MatchedBy(func(t *domain.Token) bool {
+		return t.ConnectionID == connID && t.EncryptedData != ""
+	})).Return(nil)
+
+	resp, err := svc.Refresh(context.Background(), connID)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "new-at-notion", resp.Tokens["access_token"])
+	assert.Equal(t, "new-rt-notion", resp.Tokens["refresh_token"])
+
+	connRepo.AssertExpectations(t)
+	providerStore.AssertExpectations(t)
+	tokenRepo.AssertExpectations(t)
+}
+
 // =============================================================================
 // ExchangeCodeForTokens Tests
 // =============================================================================
@@ -728,6 +856,89 @@ func TestConnectionService_ExchangeCodeForTokens_Success(t *testing.T) {
 	assert.Contains(t, returnURL, "status=success")
 	assert.Contains(t, returnURL, fmt.Sprintf("connection_id=%s", connID))
 	assert.Contains(t, returnURL, "provider=test-provider")
+
+	connRepo.AssertExpectations(t)
+	providerStore.AssertExpectations(t)
+	tokenRepo.AssertExpectations(t)
+}
+
+// TestConnectionService_ExchangeCodeForTokens_JSONBody_BasicAuth mirrors
+// Notion's real token endpoint contract (application/json body + HTTP Basic
+// auth) on the initial authorization_code exchange, not just refresh.
+func TestConnectionService_ExchangeCodeForTokens_JSONBody_BasicAuth(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		user, pass, ok := r.BasicAuth()
+		assert.True(t, ok, "expected HTTP Basic auth header")
+		assert.Equal(t, "notion-client-id", user)
+		assert.Equal(t, "notion-client-secret", pass)
+
+		var body map[string]interface{}
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		assert.Equal(t, "authorization_code", body["grant_type"])
+		assert.Equal(t, "auth-code-notion", body["code"])
+		_, hasClientID := body["client_id"]
+		_, hasClientSecret := body["client_secret"]
+		assert.False(t, hasClientID)
+		assert.False(t, hasClientSecret)
+		// Notion registers with no scopes and enable_discovery=false — the
+		// exchange must not send an empty scope field either.
+		_, hasScope := body["scope"]
+		assert.False(t, hasScope)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"access_token": "at-notion-exchanged",
+		})
+	}))
+	defer mockServer.Close()
+
+	connRepo, tokenRepo, providerStore, svc, stateKey := setupTestServiceWithHTTPClient(t, mockServer.Client())
+
+	connID := uuid.New()
+	providerID := uuid.New()
+
+	stateData := auth.StateData{
+		WorkspaceID: "ws-notion",
+		ProviderID:  providerID.String(),
+		Nonce:       connID.String(),
+		IAT:         time.Now(),
+	}
+	signedState, err := auth.SignState(stateKey, stateData)
+	assert.NoError(t, err)
+
+	conn := &domain.Connection{
+		ID:         connID,
+		ProviderID: providerID,
+		ReturnURL:  "http://app.example.com/done",
+	}
+	connRepo.On("GetPending", mock.Anything, connID).Return(conn, nil)
+
+	paramsRaw := json.RawMessage(`{"token_request_format":"json"}`)
+	prof := &provider.Profile{
+		ID:           providerID,
+		Name:         "notion",
+		AuthType:     "oauth2",
+		AuthHeader:   "client_secret_basic",
+		TokenURL:     ptr(mockServer.URL),
+		ClientID:     ptr("notion-client-id"),
+		ClientSecret: ptr("notion-client-secret"),
+		Params:       &paramsRaw,
+	}
+	providerStore.On("GetProfile", providerID).Return(prof, nil)
+
+	tokenRepo.On("Upsert", mock.Anything, mock.MatchedBy(func(t *domain.Token) bool {
+		return t.ConnectionID == connID && t.EncryptedData != ""
+	})).Return(nil)
+
+	connRepo.On("UpdateStatus", mock.Anything, connID, "active").Return(nil)
+	connRepo.On("DeactivateOtherActive", mock.Anything, "ws-notion", providerID, connID).Return(nil)
+
+	returnURL, _, err := svc.ExchangeCodeForTokens(context.Background(), signedState, "auth-code-notion", "", "")
+
+	assert.NoError(t, err)
+	assert.Contains(t, returnURL, "status=success")
 
 	connRepo.AssertExpectations(t)
 	providerStore.AssertExpectations(t)
