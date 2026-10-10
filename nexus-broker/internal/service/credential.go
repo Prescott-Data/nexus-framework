@@ -15,6 +15,7 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 	tokenvault "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/tokens"
 	"github.com/google/uuid"
 )
@@ -170,6 +171,9 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 	case "oauth2", "":
 		p, err := s.providerStore.GetProfile(conn.ProviderID)
 		if err != nil {
+			if errors.Is(err, provider.ErrSecretBackend) {
+				return nil, ErrBadGatewayWithErr(err, "secret_backend_unavailable", "Provider secret backend unavailable")
+			}
 			return nil, ErrNotFoundWithErr(err, "provider_not_found", "Provider not found")
 		}
 

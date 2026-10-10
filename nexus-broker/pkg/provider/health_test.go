@@ -35,7 +35,7 @@ func TestHealthWorker_CheckProvider_NonOAuth2_Healthy(t *testing.T) {
 	worker := NewHealthWorker(nil, time.Minute)
 
 	status, msg := worker.checkProvider(context.Background(), Profile{
-		AuthType: "api_key",
+		AuthType:   "api_key",
 		APIBaseURL: server.URL,
 	})
 	assert.Equal(t, "healthy", status)
@@ -51,7 +51,7 @@ func TestHealthWorker_CheckProvider_NonOAuth2_Unhealthy(t *testing.T) {
 	worker := NewHealthWorker(nil, time.Minute)
 
 	status, msg := worker.checkProvider(context.Background(), Profile{
-		AuthType: "api_key",
+		AuthType:         "api_key",
 		UserInfoEndpoint: server.URL,
 	})
 	assert.Equal(t, "unhealthy", status)
@@ -73,12 +73,12 @@ func TestHealthWorker_CheckProvider_Healthy(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
 		assert.Equal(t, "application/x-www-form-urlencoded", r.Header.Get("Content-Type"))
-		
+
 		err := r.ParseForm()
 		assert.NoError(t, err)
 		assert.Equal(t, "authorization_code", r.FormValue("grant_type"))
 		assert.Equal(t, "dummy_code_for_health_check", r.FormValue("code"))
-		
+
 		w.WriteHeader(http.StatusBadRequest) // 400 is expected for dummy code
 		_, _ = w.Write([]byte(`{"error": "invalid_grant"}`))
 	}))
@@ -87,9 +87,9 @@ func TestHealthWorker_CheckProvider_Healthy(t *testing.T) {
 	worker := NewHealthWorker(nil, time.Minute)
 
 	status, msg := worker.checkProvider(context.Background(), Profile{
-		AuthType: "oauth2",
-		TokenURL: stringPtr(server.URL),
-		ClientID: stringPtr("test-client"),
+		AuthType:     "oauth2",
+		TokenURL:     stringPtr(server.URL),
+		ClientID:     stringPtr("test-client"),
 		ClientSecret: stringPtr("test-secret"),
 	})
 

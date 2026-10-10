@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -287,6 +288,9 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 
 	p, err := s.providerStore.GetProfile(conn.ProviderID)
 	if err != nil {
+		if errors.Is(err, provider.ErrSecretBackend) {
+			return "", false, ErrBadGatewayWithErr(err, "secret_backend_unavailable", "Provider secret backend unavailable")
+		}
 		return "", false, ErrInternalWithErr(err, "provider_not_found", "Provider not found")
 	}
 

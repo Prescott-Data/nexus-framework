@@ -77,7 +77,7 @@ func (s *Store) resolveSecret(p *Profile) error {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("secret backend: read client_secret for provider %s: %w", p.ID, err)
+		return fmt.Errorf("%w: read client_secret for provider %s: %w", ErrSecretBackend, p.ID, err)
 	}
 	p.ClientSecret = &v
 	return nil
@@ -87,7 +87,7 @@ func (s *Store) putSecret(id uuid.UUID, value string) error {
 	ctx, cancel := s.secretCtx()
 	defer cancel()
 	if err := s.secrets.Set(ctx, id.String(), value); err != nil {
-		return fmt.Errorf("secret backend: write client_secret for provider %s: %w", id, err)
+		return fmt.Errorf("%w: write client_secret for provider %s: %w", ErrSecretBackend, id, err)
 	}
 	return nil
 }
@@ -96,7 +96,7 @@ func (s *Store) dropSecret(id uuid.UUID) error {
 	ctx, cancel := s.secretCtx()
 	defer cancel()
 	if err := s.secrets.Delete(ctx, id.String()); err != nil {
-		return fmt.Errorf("secret backend: delete client_secret for provider %s: %w", id, err)
+		return fmt.Errorf("%w: delete client_secret for provider %s: %w", ErrSecretBackend, id, err)
 	}
 	return nil
 }
@@ -135,6 +135,12 @@ type Profile struct {
 	// secret to the provider.
 	ClientSecretMissing bool `json:"-" db:"-"`
 }
+
+// ErrSecretBackend marks an operational failure talking to the external
+// secret backend (timeout, permission, API error). Handlers map it to a
+// sanitized 503 rather than a 400 or 404, since the request may succeed on
+// retry and the underlying cloud error must not reach the client.
+var ErrSecretBackend = errors.New("secret backend unavailable")
 
 // ErrClientSecretMissing is returned by code paths that need a client secret
 // for a provider whose ClientSecretMissing flag is set.
