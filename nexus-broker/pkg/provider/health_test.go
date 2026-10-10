@@ -35,7 +35,7 @@ func TestHealthWorker_CheckProvider_NonOAuth2_Healthy(t *testing.T) {
 	worker := NewHealthWorker(nil, time.Minute)
 
 	status, msg := worker.checkProvider(context.Background(), Profile{
-		AuthType: "api_key",
+		AuthType:   "api_key",
 		APIBaseURL: server.URL,
 	})
 	assert.Equal(t, "healthy", status)
@@ -51,7 +51,7 @@ func TestHealthWorker_CheckProvider_NonOAuth2_Unhealthy(t *testing.T) {
 	worker := NewHealthWorker(nil, time.Minute)
 
 	status, msg := worker.checkProvider(context.Background(), Profile{
-		AuthType: "api_key",
+		AuthType:         "api_key",
 		UserInfoEndpoint: server.URL,
 	})
 	assert.Equal(t, "unhealthy", status)
@@ -73,12 +73,12 @@ func TestHealthWorker_CheckProvider_Healthy(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
 		assert.Equal(t, "application/x-www-form-urlencoded", r.Header.Get("Content-Type"))
-		
+
 		err := r.ParseForm()
 		assert.NoError(t, err)
 		assert.Equal(t, "authorization_code", r.FormValue("grant_type"))
 		assert.Equal(t, "dummy_code_for_health_check", r.FormValue("code"))
-		
+
 		w.WriteHeader(http.StatusBadRequest) // 400 is expected for dummy code
 		_, _ = w.Write([]byte(`{"error": "invalid_grant"}`))
 	}))
@@ -87,9 +87,9 @@ func TestHealthWorker_CheckProvider_Healthy(t *testing.T) {
 	worker := NewHealthWorker(nil, time.Minute)
 
 	status, msg := worker.checkProvider(context.Background(), Profile{
-		AuthType: "oauth2",
-		TokenURL: stringPtr(server.URL),
-		ClientID: stringPtr("test-client"),
+		AuthType:     "oauth2",
+		TokenURL:     stringPtr(server.URL),
+		ClientID:     stringPtr("test-client"),
 		ClientSecret: stringPtr("test-secret"),
 	})
 
@@ -142,4 +142,28 @@ func TestHealthWorker_CheckProvider_NetworkError(t *testing.T) {
 
 	assert.Equal(t, "unhealthy", status)
 	assert.Contains(t, msg, "Network error reaching token endpoint")
+}
+
+func TestHealthWorker_CheckProvider_MissingClientSecret_FailsClosed(t *testing.T) {
+	// A provider whose secret is gone from the backend must be reported
+	// unhealthy without contacting the token endpoint: the provider would
+	// answer invalid_client, which looks exactly like the healthy response.
+	contacted := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		contacted = true
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	worker := NewHealthWorker(nil, time.Minute)
+
+	status, msg := worker.checkProvider(context.Background(), Profile{
+		AuthType:            "oauth2",
+		ClientID:            stringPtr("client-id"),
+		TokenURL:            stringPtr(server.URL),
+		ClientSecretMissing: true,
+	})
+	assert.Equal(t, "unhealthy", status)
+	assert.Contains(t, msg, "client_secret is missing")
+	assert.False(t, contacted, "the token endpoint must not be contacted without a secret")
 }

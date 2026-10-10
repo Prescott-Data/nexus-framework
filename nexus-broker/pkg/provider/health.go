@@ -71,7 +71,7 @@ func (w *HealthWorker) runChecks(ctx context.Context) {
 			defer func() { <-sem }() // Release semaphore slot
 
 			status, message := w.checkProvider(ctx, profile)
-			
+
 			var msgPtr *string
 			if message != "" {
 				msgPtr = &message
@@ -92,6 +92,15 @@ func (w *HealthWorker) checkProvider(ctx context.Context, p Profile) (string, st
 		return w.checkReachability(ctx, p)
 	}
 
+	// A provider whose secret is gone from the backend cannot be probed
+	// meaningfully: the provider would answer invalid_client, which looks
+	// exactly like the healthy "dummy code rejected" response below. Checked
+	// first so that it is never masked by a discovery failure or a missing
+	// token URL.
+	if p.ClientSecretMissing {
+		return "unhealthy", "client_secret is missing from the secret backend; set a new one with PATCH client_secret, or delete the provider and register it again"
+	}
+
 	tokenURL := ""
 
 	// Tier 1 / Discovery setup
@@ -100,7 +109,7 @@ func (w *HealthWorker) checkProvider(ctx context.Context, p Profile) (string, st
 		if p.Issuer != nil {
 			issuer = *p.Issuer
 		}
-		
+
 		// Attempt OIDC Discovery
 		md, err := discovery.Discover(ctx, w.client, discovery.Hint{
 			Issuer:  issuer,
@@ -121,11 +130,11 @@ func (w *HealthWorker) checkProvider(ctx context.Context, p Profile) (string, st
 
 	// Tier 2: Configuration Validation (Deep Check)
 	// We make a dummy token request.
-	
+
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", "dummy_code_for_health_check")
-	
+
 	if p.ClientID != nil {
 		form.Set("client_id", *p.ClientID)
 	}
@@ -137,7 +146,7 @@ func (w *HealthWorker) checkProvider(ctx context.Context, p Profile) (string, st
 	if err != nil {
 		return "unhealthy", fmt.Sprintf("Failed to create request: %v", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := w.client.Do(req)

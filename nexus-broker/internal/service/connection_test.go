@@ -27,7 +27,7 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/service"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	tokenvault "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/tokens"
 )
 
 // MockConnectionRepository is a mock of repository.ConnectionRepository
@@ -355,7 +355,7 @@ func TestConnectionService_GetToken_Active(t *testing.T) {
 	tokenBytes, _ := json.Marshal(tokenData)
 
 	encryptionKey := []byte("12345678901234567890123456789012")
-	encryptedData, _ := vault.Encrypt(encryptionKey, tokenBytes)
+	encryptedData, _ := tokenvault.Encrypt(encryptionKey, tokenBytes)
 
 	token := &domain.Token{
 		ConnectionID:  connID,
@@ -601,7 +601,7 @@ func TestConnectionService_Refresh_NoRefreshToken(t *testing.T) {
 	// Stored token has no refresh_token
 	tokenData := map[string]interface{}{"access_token": "at-12345"}
 	tokenBytes, _ := json.Marshal(tokenData)
-	encryptedData, _ := vault.Encrypt(encryptionKey, tokenBytes)
+	encryptedData, _ := tokenvault.Encrypt(encryptionKey, tokenBytes)
 
 	token := &domain.Token{
 		ConnectionID:  connID,
@@ -666,7 +666,7 @@ func TestConnectionService_Refresh_OAuth2_Success(t *testing.T) {
 		"refresh_token": "old-rt-22222",
 	}
 	tokenBytes, _ := json.Marshal(tokenData)
-	encryptedData, _ := vault.Encrypt(encryptionKey, tokenBytes)
+	encryptedData, _ := tokenvault.Encrypt(encryptionKey, tokenBytes)
 	token := &domain.Token{
 		ConnectionID:  connID,
 		EncryptedData: encryptedData,
@@ -753,7 +753,7 @@ func TestConnectionService_Refresh_JSONBody_BasicAuth(t *testing.T) {
 		"refresh_token": "old-rt-22222",
 	}
 	tokenBytes, _ := json.Marshal(tokenData)
-	encryptedData, _ := vault.Encrypt(encryptionKey, tokenBytes)
+	encryptedData, _ := tokenvault.Encrypt(encryptionKey, tokenBytes)
 	token := &domain.Token{
 		ConnectionID:  connID,
 		EncryptedData: encryptedData,
@@ -1088,7 +1088,7 @@ func TestConnectionService_GetToken_SAML(t *testing.T) {
 		},
 	}
 	credentialBytes, _ := json.Marshal(credentialData)
-	encryptedData, _ := vault.Encrypt([]byte("12345678901234567890123456789012"), credentialBytes)
+	encryptedData, _ := tokenvault.Encrypt([]byte("12345678901234567890123456789012"), credentialBytes)
 	token := &domain.Token{ConnectionID: connID, EncryptedData: encryptedData, ExpiresAt: &expiresAt}
 
 	connRepo.On("GetWithProvider", mock.Anything, connID).Return(connWithProv, nil)
@@ -1117,7 +1117,7 @@ func TestConnectionService_GetToken_SAMLExpiredRequiresAttention(t *testing.T) {
 	}
 	expiresAt := time.Now().Add(-time.Minute)
 	credentialBytes, _ := json.Marshal(map[string]interface{}{"assertion_type": "saml2"})
-	encryptedData, _ := vault.Encrypt([]byte("12345678901234567890123456789012"), credentialBytes)
+	encryptedData, _ := tokenvault.Encrypt([]byte("12345678901234567890123456789012"), credentialBytes)
 	token := &domain.Token{ConnectionID: connID, EncryptedData: encryptedData, ExpiresAt: &expiresAt}
 
 	connRepo.On("GetWithProvider", mock.Anything, connID).Return(connWithProv, nil)

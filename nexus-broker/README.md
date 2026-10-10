@@ -53,6 +53,11 @@ openssl rand -base64 32  # use output for STATE_KEY
 
 Keep ENCRYPTION_KEY and STATE_KEY constant; changing them breaks decrypting stored tokens.
 
+To keep provider `client_secret` values out of Postgres, set
+`SECRET_BACKEND=gcp-secret-manager` (plus `GCP_PROJECT_ID` outside Google
+Cloud). See `docs/guides/provider-secret-backends.md` and the Terraform module
+in `deploy/terraform/gcp/secret-backend`.
+
 For production API key rotation, mount a secret file and set `API_KEY_FILE`
 or `API_KEYS_FILE`. `API_KEY_FILE` may contain one key, while `API_KEYS_FILE`
 may contain comma- or newline-separated keys. The broker reloads these files at

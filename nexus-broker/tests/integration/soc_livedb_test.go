@@ -35,7 +35,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	tokenvault "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/tokens"
 )
 
 const defaultTestDSN = "postgres://oauth_user:oauth_password@localhost:5432/oauth_broker?sslmode=disable"
@@ -130,9 +130,9 @@ func TestLiveDB_SOC_CTRL01_EncryptedTokenInDatabase(t *testing.T) {
 
 	// Encrypt using the same vault function the broker uses
 	encryptionKey := []byte("01234567890123456789012345678901") // 32 bytes
-	ciphertext, err := vault.Encrypt(encryptionKey, plainJSON)
+	ciphertext, err := tokenvault.Encrypt(encryptionKey, plainJSON)
 	if err != nil {
-		t.Fatalf("SOC-CTRL-01 FAILED: vault.Encrypt returned error: %v", err)
+		t.Fatalf("SOC-CTRL-01 FAILED: tokenvault.Encrypt returned error: %v", err)
 	}
 
 	// Insert the encrypted token into the REAL database
@@ -165,7 +165,7 @@ func TestLiveDB_SOC_CTRL01_EncryptedTokenInDatabase(t *testing.T) {
 	}
 
 	// ASSERTION 2: The encrypted data CAN be decrypted with the correct key
-	decrypted, err := vault.Decrypt(encryptionKey, rawEncryptedData)
+	decrypted, err := tokenvault.Decrypt(encryptionKey, rawEncryptedData)
 	if err != nil {
 		t.Fatalf("SOC-CTRL-01 VIOLATION: Could not decrypt data read back from database: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestLiveDB_SOC_CTRL01_EncryptedTokenInDatabase(t *testing.T) {
 
 	// ASSERTION 3: A WRONG key cannot decrypt the data
 	wrongKey := []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ012345")
-	_, err = vault.Decrypt(wrongKey, rawEncryptedData)
+	_, err = tokenvault.Decrypt(wrongKey, rawEncryptedData)
 	if err == nil {
 		t.Fatal("SOC-CTRL-01 VIOLATION: Token from database was decrypted with WRONG key")
 	}

@@ -27,7 +27,7 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository/postgres"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	tokenvault "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/tokens"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -104,7 +104,7 @@ func seedFixture(t *testing.T, db *sqlx.DB, workspaceID, revocationEndpoint stri
 	if err != nil {
 		t.Fatalf("marshal credential: %v", err)
 	}
-	encrypted, err := vault.Encrypt(testEncryptionKey, credential)
+	encrypted, err := tokenvault.Encrypt(testEncryptionKey, credential)
 	if err != nil {
 		t.Fatalf("encrypt credential: %v", err)
 	}

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -27,6 +28,26 @@ func NewProvidersHandler(store provider.ProfileStorer, auditSvc audit.Logger) *P
 }
 
 // Get handles GET /providers/{id} to retrieve a provider profile
+// writeStoreError maps an operational secret-backend failure to a sanitized
+// 503; everything else gets the status and code the caller chose.
+func writeStoreError(w http.ResponseWriter, err error, status int, code, message string) {
+	// Backend failures first: a not-found that also failed to clean up its
+	// secret must read as retryable, not as a final 404.
+	if errors.Is(err, provider.ErrSecretBackend) {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "secret_backend_unavailable", "The provider secret backend is unavailable; retry later")
+		return
+	}
+	if errors.Is(err, provider.ErrProviderNotFound) {
+		httputil.WriteError(w, http.StatusNotFound, "provider_not_found", "Provider not found")
+		return
+	}
+	if errors.Is(err, provider.ErrInvalidProfile) {
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_profile", strings.TrimPrefix(err.Error(), provider.ErrInvalidProfile.Error()+": "))
+		return
+	}
+	httputil.WriteError(w, status, code, message)
+}
+
 func (h *ProvidersHandler) Get(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
@@ -36,7 +57,7 @@ func (h *ProvidersHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 	profile, err := h.store.GetProfile(id)
 	if err != nil {
-		httputil.WriteError(w, http.StatusNotFound, "provider_not_found", "Provider not found")
+		writeStoreError(w, err, http.StatusNotFound, "provider_not_found", "Provider not found")
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, profile.Redacted())
@@ -60,7 +81,7 @@ func (h *ProvidersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	profile.ID = id
 
 	if err := h.store.UpdateProfile(&profile); err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "update_failed", "Failed to update provider profile")
+		writeStoreError(w, err, http.StatusInternalServerError, "update_failed", "Failed to update provider profile")
 		return
 	}
 
@@ -89,7 +110,7 @@ func (h *ProvidersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.PatchProfile(id, updates); err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "patch_failed", "Failed to patch provider profile")
+		writeStoreError(w, err, http.StatusInternalServerError, "patch_failed", "Failed to patch provider profile")
 		return
 	}
 
@@ -122,7 +143,7 @@ func (h *ProvidersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.DeleteProfile(id); err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "delete_failed", "Failed to delete provider profile")
+		writeStoreError(w, err, http.StatusInternalServerError, "delete_failed", "Failed to delete provider profile")
 		return
 	}
 
@@ -161,6 +182,10 @@ func (h *ProvidersHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// Register the profile using the store
 	profile, err := h.store.RegisterProfile(string(request.Profile))
 	if err != nil {
+		if errors.Is(err, provider.ErrSecretBackend) {
+			httputil.WriteError(w, http.StatusServiceUnavailable, "secret_backend_unavailable", "The provider secret backend is unavailable; retry later")
+			return
+		}
 		w.WriteHeader(http.StatusBadRequest)
 
 		// Default error key
@@ -227,7 +252,7 @@ func (h *ProvidersHandler) GetByName(w http.ResponseWriter, r *http.Request) {
 
 	profile, err := h.store.GetProfileByName(name)
 	if err != nil {
-		httputil.WriteError(w, http.StatusNotFound, "provider_not_found", err.Error())
+		writeStoreError(w, err, http.StatusNotFound, "provider_not_found", "Provider not found")
 		return
 	}
 
@@ -244,7 +269,7 @@ func (h *ProvidersHandler) DeleteByName(w http.ResponseWriter, r *http.Request) 
 
 	rowsAffected, err := h.store.DeleteProfileByName(name)
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "delete_failed", "Failed to delete provider profile")
+		writeStoreError(w, err, http.StatusInternalServerError, "delete_failed", "Failed to delete provider profile")
 		return
 	}
 

@@ -33,7 +33,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: nexus-gateway/go.mod
+          go-version-file: nexus-broker/go.mod   # the highest go directive in the repo; the others build with it
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

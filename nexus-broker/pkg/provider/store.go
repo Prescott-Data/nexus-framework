@@ -1,11 +1,14 @@
 package provider
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,16 +16,125 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/samlutil"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/providers"
 )
 
 // Store provides provider profile management
 type Store struct {
 	db *sqlx.DB
+
+	// secrets is where OAuth2 client secrets live. nil means the
+	// provider_profiles.client_secret column (the internal backend).
+	secrets providers.Backend
+}
+
+// Option configures a Store.
+type Option func(*Store)
+
+// WithSecretBackend moves OAuth2 client secrets out of the database into the
+// given backend. Rows written while the backend is active hold NULL in
+// client_secret; rows that still carry a column value keep working, so an
+// existing deployment can switch backends without a data migration.
+func WithSecretBackend(b providers.Backend) Option {
+	return func(s *Store) { s.secrets = b }
 }
 
 // NewStore creates a new provider store
-func NewStore(db *sqlx.DB) *Store {
-	return &Store{db: db}
+func NewStore(db *sqlx.DB, opts ...Option) *Store {
+	s := &Store{db: db}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// secretBackendTimeout bounds each call to an external secret backend. Store
+// methods have no context parameter, so the deadline is applied here.
+const secretBackendTimeout = 10 * time.Second
+
+func (s *Store) externalSecrets() bool { return s.secrets != nil }
+
+func (s *Store) secretCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), secretBackendTimeout)
+}
+
+// resolveSecret fills p.ClientSecret from the external backend when the row
+// holds NULL. A missing secret does not fail the read, so a provider whose
+// secret was removed out of band can still be listed, inspected and
+// re-registered; it is marked ClientSecretMissing so that execution paths and
+// the health probe fail clearly instead of sending an empty secret.
+func (s *Store) resolveSecret(p *Profile) error {
+	if p.ClientSecret != nil {
+		return nil
+	}
+	if p.AuthType != "" && p.AuthType != "oauth2" {
+		return nil
+	}
+	if !s.externalSecrets() {
+		// Registration has always required a client_secret for oauth2, so a
+		// NULL column can only mean the row was written while an external
+		// backend was active. Serving it with the internal backend would send
+		// an empty secret to the provider; flag it so execution paths refuse.
+		p.ClientSecretMissing = true
+		return nil
+	}
+	ctx, cancel := s.secretCtx()
+	defer cancel()
+	v, err := s.secrets.Get(ctx, p.ID.String())
+	if errors.Is(err, providers.ErrNotFound) {
+		p.ClientSecretMissing = true
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%w: read client_secret for provider %s: %w", ErrSecretBackend, p.ID, err)
+	}
+	if strings.TrimSpace(v) == "" {
+		// Changed out of band to a blank value; fail closed like a missing one.
+		p.ClientSecretMissing = true
+		return nil
+	}
+	p.ClientSecret = &v
+	return nil
+}
+
+// withProviderLock runs fn inside a transaction that holds a Postgres
+// advisory lock keyed by the provider id, so the backend write and the row
+// update of one request cannot interleave with another request's across
+// broker replicas. The lock is released when the transaction ends.
+func (s *Store) withProviderLock(id uuid.UUID, fn func(tx *sqlx.Tx) error) error {
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtext($1))`, id.String()); err != nil {
+		return fmt.Errorf("failed to lock provider %s: %w", id, err)
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) putSecret(id uuid.UUID, value string) error {
+	ctx, cancel := s.secretCtx()
+	defer cancel()
+	if err := s.secrets.Set(ctx, id.String(), value); err != nil {
+		return fmt.Errorf("%w: write client_secret for provider %s: %w", ErrSecretBackend, id, err)
+	}
+	return nil
+}
+
+func (s *Store) dropSecret(id uuid.UUID) error {
+	ctx, cancel := s.secretCtx()
+	defer cancel()
+	if err := s.secrets.Delete(ctx, id.String()); err != nil {
+		return fmt.Errorf("%w: delete client_secret for provider %s: %w", ErrSecretBackend, id, err)
+	}
+	return nil
 }
 
 // Profile represents a provider profile
@@ -51,6 +163,43 @@ type Profile struct {
 	LastHealthCheckAt *time.Time       `json:"last_health_check_at,omitempty" db:"last_health_check_at"`
 	HealthStatus      string           `json:"health_status" db:"health_status"`
 	HealthMessage     *string          `json:"health_message,omitempty" db:"health_message"`
+
+	// ClientSecretMissing is set when an external secret backend is active,
+	// the row holds no client_secret, and the backend has no secret for this
+	// provider either. Metadata reads still succeed; OAuth exchange, refresh,
+	// revocation and the health probe must refuse rather than send an empty
+	// secret to the provider.
+	ClientSecretMissing bool `json:"-" db:"-"`
+}
+
+// ErrInvalidProfile marks a caller error in an update or patch payload, so
+// handlers can answer 400 rather than 500.
+var ErrInvalidProfile = errors.New("invalid provider profile")
+
+// ErrProviderNotFound is returned when an update or patch matched no active
+// provider row, so handlers can answer 404.
+var ErrProviderNotFound = errors.New("provider not found")
+
+// ErrSecretBackend marks an operational failure talking to the external
+// secret backend (timeout, permission, API error). Handlers map it to a
+// sanitized 503 rather than a 400 or 404, since the request may succeed on
+// retry and the underlying cloud error must not reach the client.
+var ErrSecretBackend = errors.New("secret backend unavailable")
+
+// ErrClientSecretMissing is returned by code paths that need a client secret
+// for a provider whose ClientSecretMissing flag is set.
+var ErrClientSecretMissing = errors.New("provider client_secret is missing from the secret backend")
+
+// RequireClientSecret returns the client secret or ErrClientSecretMissing.
+// Call it on every path that sends the secret to the provider.
+func (p *Profile) RequireClientSecret() (string, error) {
+	if p.ClientSecretMissing {
+		return "", ErrClientSecretMissing
+	}
+	if p.ClientSecret == nil {
+		return "", nil
+	}
+	return *p.ClientSecret, nil
 }
 
 // Redacted returns a copy of the profile with sensitive fields removed so it is
@@ -88,7 +237,7 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		if p.ClientID == nil || *p.ClientID == "" {
 			return nil, fmt.Errorf("client_id: missing required field")
 		}
-		if p.ClientSecret == nil || *p.ClientSecret == "" {
+		if p.ClientSecret == nil || strings.TrimSpace(*p.ClientSecret) == "" {
 			return nil, fmt.Errorf("client_secret: missing required field")
 		}
 
@@ -163,18 +312,65 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		RETURNING id`
 
-	var id uuid.UUID
-	err = s.db.QueryRow(query,
-		p.Name, p.ClientID, p.ClientSecret, authURL, tokenURL, issuer,
+	if !s.externalSecrets() || p.ClientSecret == nil {
+		var id uuid.UUID
+		err = s.db.QueryRow(query,
+			p.Name, p.ClientID, p.ClientSecret, authURL, tokenURL, issuer,
+			p.EnableDiscovery, scopes, p.AuthType, p.AuthHeader,
+			p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category,
+			p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID,
+		).Scan(&id)
+		if err != nil {
+			return nil, fmt.Errorf("database: failed to create provider profile: %w", err)
+		}
+		p.ID = id
+		return &p, nil
+	}
+
+	// External backend: the id is chosen here so the secret can be written
+	// under it before the row is published. The insert stays uncommitted
+	// until the backend write succeeds, so no reader ever sees a row whose
+	// secret does not exist yet, and a crash in between leaves no row behind.
+	id := uuid.New()
+	query = strings.Replace(query, "(name, client_id, client_secret,", "(id, name, client_id, client_secret,", 1)
+	query = strings.Replace(query, "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)", "VALUES ($20,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)", 1)
+
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, fmt.Errorf("database: failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var inserted uuid.UUID
+	err = tx.QueryRow(query,
+		p.Name, p.ClientID, nil, authURL, tokenURL, issuer,
 		p.EnableDiscovery, scopes, p.AuthType, p.AuthHeader,
 		p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category,
 		p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID,
-	).Scan(&id)
+		id,
+	).Scan(&inserted)
 	if err != nil {
 		return nil, fmt.Errorf("database: failed to create provider profile: %w", err)
 	}
 
-	p.ID = id
+	if err := s.putSecret(id, *p.ClientSecret); err != nil {
+		// The row was never committed; only the secret may exist part way.
+		if dropErr := s.dropSecret(id); dropErr != nil {
+			return nil, fmt.Errorf("%w (cleanup also failed: %w)", err, dropErr)
+		}
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		// A commit error has an unknown outcome: the row may still become
+		// visible after the connection dropped. The secret is always kept,
+		// because an orphaned secret is cheap and easy to list, while a
+		// committed provider without its credential is broken. The error
+		// names the secret so an operator can remove it if the row is absent.
+		return nil, fmt.Errorf("database: commit of provider profile failed with an unknown outcome; secret %s kept, verify the row and remove the secret if it is absent: %w", id, err)
+	}
+
+	p.ID = inserted
 	return &p, nil
 }
 
@@ -187,6 +383,9 @@ func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category, &p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage, &p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider profile: %w", err)
+	}
+	if err := s.resolveSecret(&p); err != nil {
+		return nil, err
 	}
 
 	return &p, nil
@@ -244,6 +443,9 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 			name, len(profiles),
 		)
 	}
+	if err := s.resolveSecret(&profiles[0]); err != nil {
+		return nil, err
+	}
 	return &profiles[0], nil
 }
 
@@ -283,12 +485,64 @@ func (s *Store) UpdateProfile(p *Profile) error {
 			updated_at = NOW()
 		WHERE id = $20 AND deleted_at IS NULL`
 
-	_, err := s.db.Exec(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID, p.ID)
-	if err != nil {
-		return fmt.Errorf("failed to update provider profile: %w", err)
+	args := func(secretArg interface{}) []interface{} {
+		return []interface{}{p.Name, p.ClientID, secretArg, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID, p.ID}
 	}
 
-	return nil
+	if !s.externalSecrets() {
+		if _, err := s.db.Exec(query, args(p.ClientSecret)...); err != nil {
+			return fmt.Errorf("failed to update provider profile: %w", err)
+		}
+		return nil
+	}
+
+	// With an external backend the column is only ever cleared, and only
+	// when a new secret was written to the backend. A PUT that omits
+	// client_secret keeps whatever is stored, in the backend or, for a row
+	// written before the switch, still in the column. Clearing a secret is
+	// done by deleting the provider, not by PUT.
+	query = strings.Replace(query, "client_secret = $3,", "client_secret = CASE WHEN $3::boolean THEN NULL ELSE client_secret END,", 1)
+	if p.ClientSecret == nil {
+		if _, err := s.db.Exec(query, args(false)...); err != nil {
+			return fmt.Errorf("failed to update provider profile: %w", err)
+		}
+		return nil
+	}
+	if strings.TrimSpace(*p.ClientSecret) == "" {
+		return fmt.Errorf("%w: client_secret: must not be empty; delete the provider to clear its secret", ErrInvalidProfile)
+	}
+
+	// A rotation writes the backend and the row under one per-provider lock,
+	// so two concurrent updates cannot leave one request's metadata paired
+	// with the other's secret.
+	return s.withProviderLock(p.ID, func(tx *sqlx.Tx) error {
+		if err := s.putSecret(p.ID, *p.ClientSecret); err != nil {
+			return err
+		}
+		result, err := tx.Exec(query, args(true)...)
+		if err != nil {
+			return fmt.Errorf("failed to update provider profile: %w", err)
+		}
+		return s.ensureRowMatched(result, p.ID)
+	})
+}
+
+// ensureRowMatched guards the write paths that put a secret in the backend
+// before touching the row. When the UPDATE matched no active row, the id is
+// unknown or soft-deleted, so the secret just written is removed again and
+// the caller gets a not-found error instead of a silently orphaned secret.
+func (s *Store) ensureRowMatched(result sql.Result, id uuid.UUID) error {
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if n > 0 {
+		return nil
+	}
+	if dropErr := s.dropSecret(id); dropErr != nil {
+		return fmt.Errorf("%w: %s (and failed to remove its secret: %w)", ErrProviderNotFound, id, dropErr)
+	}
+	return fmt.Errorf("%w: %s", ErrProviderNotFound, id)
 }
 
 // PatchProfile updates specific fields of a provider profile
@@ -303,6 +557,8 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 	query := "UPDATE provider_profiles SET "
 	args := []interface{}{}
 	i := 1
+	secretWritten := false
+	newSecret := ""
 
 	for key, value := range updates {
 		// Whitelist all allowed columns and map them to snake_case if coming from JSON
@@ -314,6 +570,18 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 			column = "client_id"
 		case "client_secret":
 			column = "client_secret"
+			if s.externalSecrets() {
+				secret, ok := value.(string)
+				if !ok {
+					return fmt.Errorf("%w: client_secret: must be a string", ErrInvalidProfile)
+				}
+				if strings.TrimSpace(secret) == "" {
+					return fmt.Errorf("%w: client_secret: must not be empty; delete the provider to clear its secret", ErrInvalidProfile)
+				}
+				newSecret = secret
+				secretWritten = true
+				value = nil
+			}
 		case "auth_url":
 			column = "auth_url"
 		case "token_url":
@@ -383,34 +651,84 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 	query += fmt.Sprintf(" WHERE id = $%d AND deleted_at IS NULL", i)
 	args = append(args, id)
 
-	_, err := s.db.Exec(query, args...)
-	if err != nil {
-		return fmt.Errorf("failed to patch provider profile: %w", err)
+	if !secretWritten {
+		if _, err := s.db.Exec(query, args...); err != nil {
+			return fmt.Errorf("failed to patch provider profile: %w", err)
+		}
+		return nil
 	}
 
-	return nil
+	// Backend write and row update under one per-provider lock; see UpdateProfile.
+	return s.withProviderLock(id, func(tx *sqlx.Tx) error {
+		if err := s.putSecret(id, newSecret); err != nil {
+			return err
+		}
+		result, err := tx.Exec(query, args...)
+		if err != nil {
+			return fmt.Errorf("failed to patch provider profile: %w", err)
+		}
+		return s.ensureRowMatched(result, id)
+	})
 }
 
 // DeleteProfile soft-deletes a provider profile by ID
 func (s *Store) DeleteProfile(id uuid.UUID) error {
 	query := `UPDATE provider_profiles SET deleted_at = NOW() WHERE id = $1`
+	if s.externalSecrets() {
+		// A row written before the switch may still hold its secret in the
+		// column; a soft-deleted row must not keep it.
+		query = `UPDATE provider_profiles SET deleted_at = NOW(), client_secret = NULL WHERE id = $1`
+	}
 	_, err := s.db.Exec(query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete provider profile: %w", err)
+	}
+	if s.externalSecrets() {
+		return s.dropSecret(id)
 	}
 	return nil
 }
 
 // DeleteProfileByName soft-deletes ALL provider profiles with the given name
 func (s *Store) DeleteProfileByName(name string) (int64, error) {
-	query := `UPDATE provider_profiles SET deleted_at = NOW() WHERE name = $1 AND deleted_at IS NULL`
-	result, err := s.db.Exec(query, name)
-	if err != nil {
+	// The soft delete returns the ids it touched, so a row registered
+	// concurrently under the same name is either deleted here and its secret
+	// dropped below, or left alone entirely; never deleted with its secret
+	// orphaned.
+	query := `UPDATE provider_profiles SET deleted_at = NOW() WHERE name = $1 AND deleted_at IS NULL RETURNING id`
+	if s.externalSecrets() {
+		query = `UPDATE provider_profiles SET deleted_at = NOW(), client_secret = NULL WHERE name = $1 AND deleted_at IS NULL RETURNING id`
+	}
+	var deleted []uuid.UUID
+	if err := s.db.Select(&deleted, query, name); err != nil {
 		return 0, fmt.Errorf("failed to delete provider profiles: %w", err)
 	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	rowsAffected := int64(len(deleted))
+
+	if !s.externalSecrets() {
+		return rowsAffected, nil
+	}
+
+	// Rows soft-deleted earlier whose secret may still exist after a backend
+	// failure on a previous attempt, so a retry cleans up.
+	var historical []uuid.UUID
+	if err := s.db.Select(&historical, `SELECT id FROM provider_profiles WHERE name = $1 AND deleted_at IS NOT NULL`, name); err != nil {
+		return rowsAffected, fmt.Errorf("failed to look up deleted provider profiles: %w", err)
+	}
+
+	seen := make(map[uuid.UUID]struct{}, len(deleted)+len(historical))
+	var dropErrs []error
+	for _, id := range append(deleted, historical...) {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		if err := s.dropSecret(id); err != nil {
+			dropErrs = append(dropErrs, err)
+		}
+	}
+	if len(dropErrs) > 0 {
+		return rowsAffected, errors.Join(dropErrs...)
 	}
 	return rowsAffected, nil
 }
@@ -464,7 +782,42 @@ func (s *Store) GetAllProfiles() ([]Profile, error) {
 		return nil, fmt.Errorf("error iterating all profiles: %w", err)
 	}
 
+	if err := s.resolveSecrets(profiles); err != nil {
+		return nil, err
+	}
+
 	return profiles, nil
+}
+
+// resolveSecretsConcurrency bounds parallel backend reads in GetAllProfiles,
+// so one slow backend cannot turn a pass over N providers into N timeouts
+// in series. It matches the health worker's own concurrency limit.
+const resolveSecretsConcurrency = 10
+
+func (s *Store) resolveSecrets(profiles []Profile) error {
+	if !s.externalSecrets() {
+		for i := range profiles {
+			if err := s.resolveSecret(&profiles[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	sem := make(chan struct{}, resolveSecretsConcurrency)
+	errs := make([]error, len(profiles))
+	var wg sync.WaitGroup
+	for i := range profiles {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			errs[i] = s.resolveSecret(&profiles[i])
+		}(i)
+	}
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
 // UpdateHealthStatus updates the health fields for a given provider profile

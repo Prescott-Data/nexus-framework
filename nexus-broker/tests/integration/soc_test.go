@@ -28,14 +28,14 @@ import (
 	"testing"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/server"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	tokenvault "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/tokens"
 )
 
 // =============================================================================
 // SOC-CTRL-01: Encryption at Rest (TSC CC6.1)
 // =============================================================================
 //
-// Proves that the vault.Encrypt function produces AES-GCM 256-bit ciphertext
+// Proves that the tokens.Encrypt function produces AES-GCM 256-bit ciphertext
 // that is:
 //   1. Not equal to the plaintext input (encryption actually occurred).
 //   2. Successfully reversible with the same key (data integrity).
@@ -47,7 +47,7 @@ func TestSOC_CTRL01_Encryption_PlaintextNeverStoredRaw(t *testing.T) {
 	key := []byte("01234567890123456789012345678901") // 32 bytes
 	plaintext := `{"access_token":"sk-live-SUPER-SECRET-TOKEN","refresh_token":"rt-MASTER-KEY"}`
 
-	ciphertext, err := vault.Encrypt(key, []byte(plaintext))
+	ciphertext, err := tokenvault.Encrypt(key, []byte(plaintext))
 	if err != nil {
 		t.Fatalf("SOC-CTRL-01 FAILED: Encryption returned error: %v", err)
 	}
@@ -70,12 +70,12 @@ func TestSOC_CTRL01_Encryption_RoundTrip(t *testing.T) {
 	key := []byte("01234567890123456789012345678901")
 	plaintext := `{"access_token":"at-12345","refresh_token":"rt-67890","expires_in":3600}`
 
-	ciphertext, err := vault.Encrypt(key, []byte(plaintext))
+	ciphertext, err := tokenvault.Encrypt(key, []byte(plaintext))
 	if err != nil {
 		t.Fatalf("SOC-CTRL-01 FAILED: Encrypt error: %v", err)
 	}
 
-	decrypted, err := vault.Decrypt(key, ciphertext)
+	decrypted, err := tokenvault.Decrypt(key, ciphertext)
 	if err != nil {
 		t.Fatalf("SOC-CTRL-01 FAILED: Decrypt error: %v", err)
 	}
@@ -102,12 +102,12 @@ func TestSOC_CTRL01_Encryption_WrongKeyRejected(t *testing.T) {
 	key2 := []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ012345")
 	plaintext := `{"refresh_token":"rt-master-secret"}`
 
-	ciphertext, err := vault.Encrypt(key1, []byte(plaintext))
+	ciphertext, err := tokenvault.Encrypt(key1, []byte(plaintext))
 	if err != nil {
 		t.Fatalf("SOC-CTRL-01 FAILED: Encrypt error: %v", err)
 	}
 
-	_, err = vault.Decrypt(key2, ciphertext)
+	_, err = tokenvault.Decrypt(key2, ciphertext)
 	if err == nil {
 		t.Fatal("SOC-CTRL-01 VIOLATION: Decryption succeeded with a DIFFERENT key — key isolation is broken")
 	}
@@ -119,12 +119,12 @@ func TestSOC_CTRL01_Encryption_NonceUniqueness(t *testing.T) {
 	key := []byte("01234567890123456789012345678901")
 	plaintext := `{"token":"same-input-every-time"}`
 
-	ciphertext1, err := vault.Encrypt(key, []byte(plaintext))
+	ciphertext1, err := tokenvault.Encrypt(key, []byte(plaintext))
 	if err != nil {
 		t.Fatalf("SOC-CTRL-01 FAILED: First encrypt error: %v", err)
 	}
 
-	ciphertext2, err := vault.Encrypt(key, []byte(plaintext))
+	ciphertext2, err := tokenvault.Encrypt(key, []byte(plaintext))
 	if err != nil {
 		t.Fatalf("SOC-CTRL-01 FAILED: Second encrypt error: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestSOC_CTRL01_Encryption_TamperEvident(t *testing.T) {
 	key := []byte("01234567890123456789012345678901")
 	plaintext := `{"access_token":"at-sensitive"}`
 
-	ciphertext, err := vault.Encrypt(key, []byte(plaintext))
+	ciphertext, err := tokenvault.Encrypt(key, []byte(plaintext))
 	if err != nil {
 		t.Fatalf("SOC-CTRL-01 FAILED: Encrypt error: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestSOC_CTRL01_Encryption_TamperEvident(t *testing.T) {
 		tampered[midpoint] = 'A'
 	}
 
-	_, err = vault.Decrypt(key, string(tampered))
+	_, err = tokenvault.Decrypt(key, string(tampered))
 	if err == nil {
 		t.Fatal("SOC-CTRL-01 VIOLATION: Tampered ciphertext was successfully decrypted — AES-GCM authentication tag is not being verified")
 	}
@@ -166,13 +166,13 @@ func TestSOC_CTRL01_Encryption_KeyLengthEnforced(t *testing.T) {
 	shortKey := []byte("tooshort")
 	plaintext := []byte(`{"token":"test"}`)
 
-	_, err := vault.Encrypt(shortKey, plaintext)
+	_, err := tokenvault.Encrypt(shortKey, plaintext)
 	if err == nil {
 		t.Fatal("SOC-CTRL-01 VIOLATION: Encryption accepted a key shorter than 32 bytes — AES-256 is not enforced")
 	}
 
 	longKey := []byte("0123456789012345678901234567890123456789") // 40 bytes
-	_, err = vault.Encrypt(longKey, plaintext)
+	_, err = tokenvault.Encrypt(longKey, plaintext)
 	if err == nil {
 		t.Fatal("SOC-CTRL-01 VIOLATION: Encryption accepted a key longer than 32 bytes — key length is not validated")
 	}

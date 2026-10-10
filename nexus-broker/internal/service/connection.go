@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,7 +21,7 @@ import (
 	oidcutil "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/oidc"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/server"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	tokenvault "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/tokens"
 	"github.com/google/uuid"
 )
 
@@ -147,6 +148,9 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 
 	p, err := s.providerStore.GetProfile(providerID)
 	if err != nil {
+		if errors.Is(err, provider.ErrSecretBackend) {
+			return nil, ErrBadGatewayWithErr(err, "secret_backend_unavailable", "Provider secret backend unavailable")
+		}
 		return nil, ErrNotFoundWithErr(err, "provider_not_found", "Provider not found")
 	}
 
@@ -287,6 +291,9 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 
 	p, err := s.providerStore.GetProfile(conn.ProviderID)
 	if err != nil {
+		if errors.Is(err, provider.ErrSecretBackend) {
+			return "", false, ErrBadGatewayWithErr(err, "secret_backend_unavailable", "Provider secret backend unavailable")
+		}
 		return "", false, ErrInternalWithErr(err, "provider_not_found", "Provider not found")
 	}
 
@@ -331,9 +338,10 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	if p.ClientID != nil {
 		clientID = *p.ClientID
 	}
-	clientSecret := ""
-	if p.ClientSecret != nil {
-		clientSecret = *p.ClientSecret
+	clientSecret, err := p.RequireClientSecret()
+	if err != nil {
+		s.connRepo.UpdateStatus(ctx, connID, "failed")
+		return "", false, ErrInternalWithErr(err, "provider_secret_missing", "Provider client secret is missing from the secret backend")
 	}
 
 	tokens, err := s.executeExchange(ctx, useTokenURL, clientID, clientSecret, code, conn.CodeVerifier.String, redirectURI, conn.Scopes, p.AuthHeader, skipScopeOnExchange, useJSONBody)
@@ -357,7 +365,7 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	if err != nil {
 		return "", false, ErrInternalWithErr(err, "token_marshal_failed", "Failed to serialize token response")
 	}
-	encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
+	encryptedData, err := tokenvault.Encrypt(s.encryptionKey, tokenJSON)
 	if err != nil {
 		return "", false, ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt tokens")
 	}
@@ -442,7 +450,7 @@ func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID
 		return nil, "", ErrNotFoundWithErr(err, "token_not_found", "Token not found")
 	}
 
-	decryptedData, err := vault.Decrypt(s.encryptionKey, token.EncryptedData)
+	decryptedData, err := tokenvault.Decrypt(s.encryptionKey, token.EncryptedData)
 	if err != nil {
 		return nil, "", ErrInternalWithErr(err, "decrypt_failed", "Failed to decrypt token")
 	}
@@ -465,7 +473,7 @@ func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID
 			if err != nil {
 				return nil, "", ErrInternalWithErr(err, "token_not_found", "Failed to fetch refreshed token")
 			}
-			decryptedData, err = vault.Decrypt(s.encryptionKey, token.EncryptedData)
+			decryptedData, err = tokenvault.Decrypt(s.encryptionKey, token.EncryptedData)
 			if err != nil {
 				return nil, "", ErrInternalWithErr(err, "decrypt_failed", "Failed to decrypt refreshed token")
 			}

@@ -67,6 +67,16 @@ services:
       REQUIRE_API_KEY: ${REQUIRE_API_KEY}
       REQUIRE_ALLOWLIST: ${REQUIRE_ALLOWLIST}
 
+      # Provider client-secret storage (see docs/guides/provider-secret-backends.md)
+      SECRET_BACKEND: ${SECRET_BACKEND:-internal}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      GCP_SECRET_PREFIX: ${GCP_SECRET_PREFIX:-nexus-providers}
+      # For SECRET_BACKEND=gcp-secret-manager on a workstation, mount your
+      # Application Default Credentials and point the client at them:
+      # GOOGLE_APPLICATION_CREDENTIALS: /gcp/adc.json
+    # volumes:
+    #   - ~/.config/gcloud/application_default_credentials.json:/gcp/adc.json:ro
+
   gateway:
     build:
       context: ./nexus-gateway

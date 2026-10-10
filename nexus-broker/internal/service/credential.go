@@ -15,7 +15,8 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
+	tokenvault "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/tokens"
 	"github.com/google/uuid"
 )
 
@@ -108,7 +109,7 @@ func (s *connectionService) SaveCredential(ctx context.Context, state string, cr
 	if err != nil {
 		return "", ErrInternalWithErr(err, "credential_marshal_failed", "Failed to serialize credentials")
 	}
-	encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
+	encryptedData, err := tokenvault.Encrypt(s.encryptionKey, tokenJSON)
 	if err != nil {
 		return "", ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt credentials")
 	}
@@ -170,6 +171,9 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 	case "oauth2", "":
 		p, err := s.providerStore.GetProfile(conn.ProviderID)
 		if err != nil {
+			if errors.Is(err, provider.ErrSecretBackend) {
+				return nil, ErrBadGatewayWithErr(err, "secret_backend_unavailable", "Provider secret backend unavailable")
+			}
 			return nil, ErrNotFoundWithErr(err, "provider_not_found", "Provider not found")
 		}
 
@@ -178,7 +182,7 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 			return nil, ErrNotFoundWithErr(err, "token_not_found", "Token not found")
 		}
 
-		plaintext, err := vault.Decrypt(s.encryptionKey, token.EncryptedData)
+		plaintext, err := tokenvault.Decrypt(s.encryptionKey, token.EncryptedData)
 		if err != nil {
 			return nil, ErrInternalWithErr(err, "decrypt_failed", "Failed to decrypt token")
 		}
@@ -201,9 +205,9 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 		if p.ClientID != nil {
 			clientID = *p.ClientID
 		}
-		clientSecret := ""
-		if p.ClientSecret != nil {
-			clientSecret = *p.ClientSecret
+		clientSecret, err := p.RequireClientSecret()
+		if err != nil {
+			return nil, ErrInternalWithErr(err, "provider_secret_missing", "Provider client secret is missing from the secret backend")
 		}
 
 		useJSONBody := false
@@ -241,7 +245,7 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 		if err != nil {
 			return nil, ErrInternalWithErr(err, "token_marshal_failed", "Failed to serialize refreshed tokens")
 		}
-		encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
+		encryptedData, err := tokenvault.Encrypt(s.encryptionKey, tokenJSON)
 		if err != nil {
 			return nil, ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt refreshed tokens")
 		}

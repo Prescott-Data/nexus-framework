@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/discovery"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	tokenvault "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/tokens"
 	"github.com/google/uuid"
 )
 
@@ -206,7 +206,7 @@ func (s *connectionService) loadCredentials(ctx context.Context, connectionID uu
 	if err != nil {
 		return nil
 	}
-	plaintext, err := vault.Decrypt(s.encryptionKey, token.EncryptedData)
+	plaintext, err := tokenvault.Decrypt(s.encryptionKey, token.EncryptedData)
 	if err != nil {
 		log.Printf("revoke: could not decrypt credential for connection %s: %v", connectionID, err)
 		return nil
@@ -237,12 +237,13 @@ func (s *connectionService) revokeUpstream(ctx context.Context, providerID uuid.
 		return false, "provider does not advertise a revocation endpoint"
 	}
 
-	clientID, clientSecret := "", ""
+	clientID := ""
 	if p.ClientID != nil {
 		clientID = *p.ClientID
 	}
-	if p.ClientSecret != nil {
-		clientSecret = *p.ClientSecret
+	clientSecret, err := p.RequireClientSecret()
+	if err != nil {
+		return false, "provider client secret is missing from the secret backend; the credential was destroyed locally only"
 	}
 
 	// RFC 7009 §2.1: revoking a refresh token SHOULD also invalidate the access

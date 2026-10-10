@@ -17,7 +17,7 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/service"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	tokenvault "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/tokens"
 )
 
 // MockSessionCloser records the agent-session cascade triggered by revocation.
@@ -36,7 +36,7 @@ func encryptCreds(t *testing.T, creds map[string]interface{}) string {
 	t.Helper()
 	raw, err := json.Marshal(creds)
 	require.NoError(t, err)
-	enc, err := vault.Encrypt(revokeTestEncryptionKey, raw)
+	enc, err := tokenvault.Encrypt(revokeTestEncryptionKey, raw)
 	require.NoError(t, err)
 	return enc
 }
