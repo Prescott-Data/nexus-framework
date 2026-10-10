@@ -88,7 +88,34 @@ func (s *Store) resolveSecret(p *Profile) error {
 	if err != nil {
 		return fmt.Errorf("%w: read client_secret for provider %s: %w", ErrSecretBackend, p.ID, err)
 	}
+	if strings.TrimSpace(v) == "" {
+		// Changed out of band to a blank value; fail closed like a missing one.
+		p.ClientSecretMissing = true
+		return nil
+	}
 	p.ClientSecret = &v
+	return nil
+}
+
+// withProviderLock runs fn inside a transaction that holds a Postgres
+// advisory lock keyed by the provider id, so the backend write and the row
+// update of one request cannot interleave with another request's across
+// broker replicas. The lock is released when the transaction ends.
+func (s *Store) withProviderLock(id uuid.UUID, fn func(tx *sqlx.Tx) error) error {
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtext($1))`, id.String()); err != nil {
+		return fmt.Errorf("failed to lock provider %s: %w", id, err)
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
+	}
 	return nil
 }
 
@@ -148,6 +175,10 @@ type Profile struct {
 // ErrInvalidProfile marks a caller error in an update or patch payload, so
 // handlers can answer 400 rather than 500.
 var ErrInvalidProfile = errors.New("invalid provider profile")
+
+// ErrProviderNotFound is returned when an update or patch matched no active
+// provider row, so handlers can answer 404.
+var ErrProviderNotFound = errors.New("provider not found")
 
 // ErrSecretBackend marks an operational failure talking to the external
 // secret backend (timeout, permission, API error). Handlers map it to a
@@ -433,38 +464,46 @@ func (s *Store) UpdateProfile(p *Profile) error {
 			updated_at = NOW()
 		WHERE id = $20 AND deleted_at IS NULL`
 
-	var secretArg interface{} = p.ClientSecret
-	rotated := false
-	if s.externalSecrets() {
-		// With an external backend the column is only ever cleared, and only
-		// when a new secret was written to the backend. A PUT that omits
-		// client_secret keeps whatever is stored, in the backend or, for a row
-		// written before the switch, still in the column. Clearing a secret
-		// is done by deleting the provider, not by PUT.
-		if p.ClientSecret != nil {
-			if strings.TrimSpace(*p.ClientSecret) == "" {
-				return fmt.Errorf("%w: client_secret: must not be empty; delete the provider to clear its secret", ErrInvalidProfile)
-			}
-			if err := s.putSecret(p.ID, *p.ClientSecret); err != nil {
-				return err
-			}
-			rotated = true
-		}
-		query = strings.Replace(query, "client_secret = $3,", "client_secret = CASE WHEN $3::boolean THEN NULL ELSE client_secret END,", 1)
-		secretArg = rotated
+	args := func(secretArg interface{}) []interface{} {
+		return []interface{}{p.Name, p.ClientID, secretArg, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID, p.ID}
 	}
 
-	result, err := s.db.Exec(query, p.Name, p.ClientID, secretArg, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID, p.ID)
-	if err != nil {
-		return fmt.Errorf("failed to update provider profile: %w", err)
+	if !s.externalSecrets() {
+		if _, err := s.db.Exec(query, args(p.ClientSecret)...); err != nil {
+			return fmt.Errorf("failed to update provider profile: %w", err)
+		}
+		return nil
 	}
-	if rotated {
-		if err := s.ensureRowMatched(result, p.ID); err != nil {
+
+	// With an external backend the column is only ever cleared, and only
+	// when a new secret was written to the backend. A PUT that omits
+	// client_secret keeps whatever is stored, in the backend or, for a row
+	// written before the switch, still in the column. Clearing a secret is
+	// done by deleting the provider, not by PUT.
+	query = strings.Replace(query, "client_secret = $3,", "client_secret = CASE WHEN $3::boolean THEN NULL ELSE client_secret END,", 1)
+	if p.ClientSecret == nil {
+		if _, err := s.db.Exec(query, args(false)...); err != nil {
+			return fmt.Errorf("failed to update provider profile: %w", err)
+		}
+		return nil
+	}
+	if strings.TrimSpace(*p.ClientSecret) == "" {
+		return fmt.Errorf("%w: client_secret: must not be empty; delete the provider to clear its secret", ErrInvalidProfile)
+	}
+
+	// A rotation writes the backend and the row under one per-provider lock,
+	// so two concurrent updates cannot leave one request's metadata paired
+	// with the other's secret.
+	return s.withProviderLock(p.ID, func(tx *sqlx.Tx) error {
+		if err := s.putSecret(p.ID, *p.ClientSecret); err != nil {
 			return err
 		}
-	}
-
-	return nil
+		result, err := tx.Exec(query, args(true)...)
+		if err != nil {
+			return fmt.Errorf("failed to update provider profile: %w", err)
+		}
+		return s.ensureRowMatched(result, p.ID)
+	})
 }
 
 // ensureRowMatched guards the write paths that put a secret in the backend
@@ -480,9 +519,9 @@ func (s *Store) ensureRowMatched(result sql.Result, id uuid.UUID) error {
 		return nil
 	}
 	if dropErr := s.dropSecret(id); dropErr != nil {
-		return fmt.Errorf("provider %s not found (and failed to remove its secret: %w)", id, dropErr)
+		return fmt.Errorf("%w: %s (and failed to remove its secret: %w)", ErrProviderNotFound, id, dropErr)
 	}
-	return fmt.Errorf("provider %s not found", id)
+	return fmt.Errorf("%w: %s", ErrProviderNotFound, id)
 }
 
 // PatchProfile updates specific fields of a provider profile
@@ -498,6 +537,7 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 	args := []interface{}{}
 	i := 1
 	secretWritten := false
+	newSecret := ""
 
 	for key, value := range updates {
 		// Whitelist all allowed columns and map them to snake_case if coming from JSON
@@ -517,9 +557,7 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 				if strings.TrimSpace(secret) == "" {
 					return fmt.Errorf("%w: client_secret: must not be empty; delete the provider to clear its secret", ErrInvalidProfile)
 				}
-				if err := s.putSecret(id, secret); err != nil {
-					return err
-				}
+				newSecret = secret
 				secretWritten = true
 				value = nil
 			}
@@ -592,17 +630,24 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 	query += fmt.Sprintf(" WHERE id = $%d AND deleted_at IS NULL", i)
 	args = append(args, id)
 
-	result, err := s.db.Exec(query, args...)
-	if err != nil {
-		return fmt.Errorf("failed to patch provider profile: %w", err)
-	}
-	if secretWritten {
-		if err := s.ensureRowMatched(result, id); err != nil {
-			return err
+	if !secretWritten {
+		if _, err := s.db.Exec(query, args...); err != nil {
+			return fmt.Errorf("failed to patch provider profile: %w", err)
 		}
+		return nil
 	}
 
-	return nil
+	// Backend write and row update under one per-provider lock; see UpdateProfile.
+	return s.withProviderLock(id, func(tx *sqlx.Tx) error {
+		if err := s.putSecret(id, newSecret); err != nil {
+			return err
+		}
+		result, err := tx.Exec(query, args...)
+		if err != nil {
+			return fmt.Errorf("failed to patch provider profile: %w", err)
+		}
+		return s.ensureRowMatched(result, id)
+	})
 }
 
 // DeleteProfile soft-deletes a provider profile by ID

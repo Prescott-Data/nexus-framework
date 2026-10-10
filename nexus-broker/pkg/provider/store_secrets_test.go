@@ -158,8 +158,11 @@ func TestPatchProfile_ExternalBackend_WritesBackendAndNullsColumn(t *testing.T) 
 	store, mock := newStoreWithBackend(t, backend)
 	id := uuid.MustParse(testProviderID)
 
+	mock.ExpectBegin()
+	mock.ExpectExec(`SELECT pg_advisory_xact_lock\(hashtext\(\$1\)\)`).WithArgs(testProviderID).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`UPDATE provider_profiles SET client_secret = \$1, updated_at = NOW\(\) WHERE id = \$2`).
 		WithArgs(nil, id).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	require.NoError(t, store.PatchProfile(id, map[string]interface{}{"client_secret": "rotated"}))
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -174,10 +177,13 @@ func TestUpdateProfile_ExternalBackend(t *testing.T) {
 	id := uuid.MustParse(testProviderID)
 	secret := "updated"
 
-	// A rotation clears the column ($3 = true) after the backend write.
+	// A rotation clears the column ($3 = true) after the backend write, under the provider lock.
+	mock.ExpectBegin()
+	mock.ExpectExec(`SELECT pg_advisory_xact_lock\(hashtext\(\$1\)\)`).WithArgs(testProviderID).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`client_secret = CASE WHEN \$3::boolean THEN NULL ELSE client_secret END`).
 		WithArgs("acme", "client-id", true, nil, nil, nil, false, pq.Array([]string(nil)), "oauth2", "", "", "", nil, "", "", nil, nil, nil, nil, id).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	cid := "client-id"
 	require.NoError(t, store.UpdateProfile(&Profile{ID: id, Name: "acme", AuthType: "oauth2", ClientID: &cid, ClientSecret: &secret}))
@@ -209,12 +215,15 @@ func TestPatchProfile_ExternalBackend_UnknownProviderDoesNotOrphanSecret(t *test
 	store, mock := newStoreWithBackend(t, backend)
 	id := uuid.MustParse(testProviderID)
 
+	mock.ExpectBegin()
+	mock.ExpectExec(`SELECT pg_advisory_xact_lock\(hashtext\(\$1\)\)`).WithArgs(testProviderID).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`UPDATE provider_profiles SET client_secret = \$1, updated_at = NOW\(\) WHERE id = \$2`).
 		WithArgs(nil, id).WillReturnResult(sqlmock.NewResult(0, 0)) // no active row
+	mock.ExpectRollback()
 
 	err := store.PatchProfile(id, map[string]interface{}{"client_secret": "rotated"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	assert.ErrorIs(t, err, ErrProviderNotFound)
 	assert.Equal(t, 0, backend.Len(), "the secret written before the UPDATE must be removed again")
 }
 
@@ -322,4 +331,16 @@ func TestGetAllProfiles_ExternalBackend_ResolvesConcurrently(t *testing.T) {
 		require.NotNil(t, p.ClientSecret, p.Name)
 		assert.Equal(t, "s"+p.ID.String(), *p.ClientSecret)
 	}
+}
+
+func TestGetProfile_ExternalBackend_BlankValueIsMissing(t *testing.T) {
+	backend := providers.NewMemory()
+	require.NoError(t, backend.Set(context.Background(), testProviderID, "   "))
+	store, mock := newStoreWithBackend(t, backend)
+	mock.ExpectQuery(`FROM provider_profiles WHERE id = \$1`).WillReturnRows(profileRow("oauth2"))
+
+	p, err := store.GetProfile(uuid.MustParse(testProviderID))
+	require.NoError(t, err)
+	assert.Nil(t, p.ClientSecret)
+	assert.True(t, p.ClientSecretMissing, "a blank backend value must fail closed")
 }
