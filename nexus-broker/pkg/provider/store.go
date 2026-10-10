@@ -306,15 +306,15 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 			// (container created, version not added, or an ambiguous timeout
 			// after the version went live), so the secret is removed as well
 			// as the row; deleting a missing secret is not an error.
-			var cleanup []error
+			// Row first. The secret is dropped only once the row is gone: if
+			// the row must remain, an ambiguously written secret is the safer
+			// state, since a NULL column with no secret would block retries by
+			// name while leaving the provider unusable.
 			if _, delErr := s.db.Exec(`DELETE FROM provider_profiles WHERE id = $1`, id); delErr != nil {
-				cleanup = append(cleanup, fmt.Errorf("roll back row: %w", delErr))
+				return nil, fmt.Errorf("%w (row %s could not be rolled back and still exists: %w)", err, id, delErr)
 			}
 			if dropErr := s.dropSecret(id); dropErr != nil {
-				cleanup = append(cleanup, dropErr)
-			}
-			if len(cleanup) > 0 {
-				return nil, fmt.Errorf("%w (cleanup also failed: %w)", err, errors.Join(cleanup...))
+				return nil, fmt.Errorf("%w (cleanup also failed: %w)", err, dropErr)
 			}
 			return nil, err
 		}

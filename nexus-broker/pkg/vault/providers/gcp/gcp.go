@@ -172,7 +172,12 @@ func (b *Backend) Set(ctx context.Context, key, value string) error {
 		if !versionOlder(v.GetName(), added.GetName()) {
 			continue
 		}
-		if _, err := b.client.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{Name: v.GetName()}); err != nil {
+		_, err = b.client.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{Name: v.GetName()})
+		switch status.Code(err) {
+		case codes.OK:
+		case codes.NotFound, codes.FailedPrecondition:
+			// A concurrent rotation already destroyed it; the desired state holds.
+		default:
 			retireErrs = append(retireErrs, fmt.Errorf("destroy %s: %w", v.GetName(), err))
 		}
 	}
