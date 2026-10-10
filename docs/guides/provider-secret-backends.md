@@ -47,7 +47,7 @@ Provider client secrets: gcp-secret-manager (project my-project, prefix nexus-pr
 
 ## Permissions on Google Cloud
 
-The Broker's service account needs `secretmanager.secrets.create` on the project and Secret Manager admin on secrets under the prefix. Creating a secret is authorised against the project, so it cannot be restricted by name; the admin grant can be, with an IAM condition on `resource.name`. The Terraform module at [`deploy/terraform/gcp/secret-backend`](https://github.com/Prescott-Data/nexus-framework/tree/main/deploy/terraform/gcp/secret-backend) sets up exactly that:
+The Broker's service account needs `secretmanager.secrets.create` on the project, and on secrets under the prefix only get, delete and version add/access/list/destroy. Creating a secret is authorised against the project, so it cannot be restricted by name; the per-secret grant can be, with an IAM condition on `resource.name`, and it carries no IAM-policy permissions. The Terraform module at [`deploy/terraform/gcp/secret-backend`](https://github.com/Prescott-Data/nexus-framework/tree/main/deploy/terraform/gcp/secret-backend) sets up exactly that:
 
 ```hcl
 module "nexus_secret_backend" {

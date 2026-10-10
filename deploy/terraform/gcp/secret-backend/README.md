@@ -1,6 +1,6 @@
 # GCP Secret Manager backend for nexus-broker
 
-Terraform for `SECRET_BACKEND=gcp-secret-manager`. It grants the broker's service account the least it needs to keep provider client secrets in Secret Manager: a custom role with only `secretmanager.secrets.create`, and Secret Manager admin restricted by an IAM condition to secrets named `<prefix>-*`.
+Terraform for `SECRET_BACKEND=gcp-secret-manager`. It grants the broker's service account the least it needs to keep provider client secrets in Secret Manager: a custom role with only `secretmanager.secrets.create`, and a second custom role with only get, delete and version add/access/list/destroy, restricted by an IAM condition to secrets named `<prefix>-*`. Neither carries IAM-policy permissions.
 
 ```hcl
 module "nexus_secret_backend" {

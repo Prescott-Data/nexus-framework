@@ -36,3 +36,9 @@ variable "creator_role_id" {
   type        = string
   default     = "nexusProviderSecretCreator"
 }
+
+variable "operator_role_id" {
+  description = "ID for the custom role that carries the per-secret permissions, bound with the prefix condition."
+  type        = string
+  default     = "nexusProviderSecretOperator"
+}

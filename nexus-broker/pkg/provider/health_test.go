@@ -143,3 +143,27 @@ func TestHealthWorker_CheckProvider_NetworkError(t *testing.T) {
 	assert.Equal(t, "unhealthy", status)
 	assert.Contains(t, msg, "Network error reaching token endpoint")
 }
+
+func TestHealthWorker_CheckProvider_MissingClientSecret_FailsClosed(t *testing.T) {
+	// A provider whose secret is gone from the backend must be reported
+	// unhealthy without contacting the token endpoint: the provider would
+	// answer invalid_client, which looks exactly like the healthy response.
+	contacted := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		contacted = true
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	worker := NewHealthWorker(nil, time.Minute)
+
+	status, msg := worker.checkProvider(context.Background(), Profile{
+		AuthType:            "oauth2",
+		ClientID:            stringPtr("client-id"),
+		TokenURL:            stringPtr(server.URL),
+		ClientSecretMissing: true,
+	})
+	assert.Equal(t, "unhealthy", status)
+	assert.Contains(t, msg, "client_secret is missing")
+	assert.False(t, contacted, "the token endpoint must not be contacted without a secret")
+}
