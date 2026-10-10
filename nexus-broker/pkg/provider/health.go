@@ -98,7 +98,7 @@ func (w *HealthWorker) checkProvider(ctx context.Context, p Profile) (string, st
 	// first so that it is never masked by a discovery failure or a missing
 	// token URL.
 	if p.ClientSecretMissing {
-		return "unhealthy", "client_secret is missing from the secret backend; re-register the provider or restore the secret"
+		return "unhealthy", "client_secret is missing from the secret backend; set a new one with PATCH client_secret, or delete the provider and register it again"
 	}
 
 	tokenURL := ""

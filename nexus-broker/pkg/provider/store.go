@@ -362,7 +362,18 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	}
 
 	if err := tx.Commit(); err != nil {
-		// The secret exists but the row does not; compensate.
+		// A commit error can have an unknown outcome (committed, then the
+		// acknowledgement was lost). Only drop the secret once the database
+		// confirms the row is absent; if it exists, or cannot be checked,
+		// keep the secret so a committed provider is never left without it.
+		var exists bool
+		checkErr := s.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM provider_profiles WHERE id = $1)`, id).Scan(&exists)
+		switch {
+		case checkErr != nil:
+			return nil, fmt.Errorf("database: failed to commit provider profile: %w (outcome unknown, secret %s kept: %w)", err, id, checkErr)
+		case exists:
+			return nil, fmt.Errorf("database: commit reported an error but provider %s exists; its secret is in place: %w", id, err)
+		}
 		if dropErr := s.dropSecret(id); dropErr != nil {
 			return nil, fmt.Errorf("database: failed to commit provider profile: %w (cleanup also failed: %w)", err, dropErr)
 		}

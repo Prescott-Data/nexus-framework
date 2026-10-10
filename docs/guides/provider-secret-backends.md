@@ -30,12 +30,12 @@ The Broker authenticates to Secret Manager with Application Default Credentials:
 - `PUT /providers/{id}` that omits `client_secret` leaves the stored secret unchanged. Clearing a secret is done by deleting the provider.
 - `DELETE /providers/...` deletes the secret from the backend as well as soft-deleting the row.
 - The OAuth exchange, token refresh, revocation and the provider health probe read the secret from the backend when they need it. It is never returned by the API.
-- If the backend has no secret for a provider (removed out of band), the provider still lists and can be inspected or re-registered, but the exchange and refresh fail with `provider_secret_missing`, revocation destroys the credential locally only, and the health probe reports the provider `unhealthy` with the reason. An empty secret is never sent to the provider.
+- If the backend has no secret for a provider (removed out of band), the provider still lists and can be inspected, but the exchange and refresh fail with `provider_secret_missing`, revocation destroys the credential locally only, and the health probe reports the provider `unhealthy` with the reason. An empty secret is never sent to the provider. To recover, set a new secret in place with `PATCH /providers/{id}` and a `client_secret`, or delete the provider and register it again; registering under the same name while the provider exists is rejected as a duplicate.
 - Secrets are keyed by provider ID, so renaming a provider never orphans its secret.
 
 Existing rows that still carry a column value keep working after you switch backends: the Broker reads the column when it is set and the backend only when it is NULL. New and updated providers go to the backend. Nothing moves automatically.
 
-Switching back from an external backend to `internal` is not transparent: providers registered while the backend was active have a NULL column, and the internal backend flags them as missing their secret rather than serving an empty one. Re-register those providers, or keep the backend configured.
+Switching back from an external backend to `internal` is not transparent: providers registered while the backend was active have a NULL column, and the internal backend flags them as missing their secret rather than serving an empty one. Rotate each with `PATCH` to store the secret in the column, or keep the backend configured.
 
 ## Startup check
 

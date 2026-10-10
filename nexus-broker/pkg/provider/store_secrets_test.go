@@ -347,3 +347,21 @@ func TestGetProfile_ExternalBackend_BlankValueIsMissing(t *testing.T) {
 	assert.Nil(t, p.ClientSecret)
 	assert.True(t, p.ClientSecretMissing, "a blank backend value must fail closed")
 }
+
+func TestRegisterProfile_ExternalBackend_AmbiguousCommitKeepsSecret(t *testing.T) {
+	backend := providers.NewMemory()
+	store, mock := newStoreWithBackend(t, backend)
+
+	mock.ExpectQuery(`SELECT id FROM provider_profiles WHERE name = \$1`).WillReturnError(sql.ErrNoRows)
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO provider_profiles`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProviderID))
+	mock.ExpectCommit().WillReturnError(errors.New("connection reset during commit"))
+	// The database says the row is there after all: the secret must stay.
+	mock.ExpectQuery(`SELECT EXISTS`).WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	_, err := store.RegisterProfile(`{"name":"acme","auth_type":"oauth2","client_id":"client-id","client_secret":"s","auth_url":"https://acme/auth","token_url":"https://acme/token"}`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exists")
+	assert.Equal(t, 1, backend.Len(), "a committed provider must keep its secret")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
