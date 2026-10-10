@@ -237,7 +237,7 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		if p.ClientID == nil || *p.ClientID == "" {
 			return nil, fmt.Errorf("client_id: missing required field")
 		}
-		if p.ClientSecret == nil || *p.ClientSecret == "" {
+		if p.ClientSecret == nil || strings.TrimSpace(*p.ClientSecret) == "" {
 			return nil, fmt.Errorf("client_secret: missing required field")
 		}
 

@@ -365,3 +365,10 @@ func TestRegisterProfile_ExternalBackend_AmbiguousCommitKeepsSecret(t *testing.T
 	assert.Equal(t, 1, backend.Len(), "a committed provider must keep its secret")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestRegisterProfile_RejectsWhitespaceSecret(t *testing.T) {
+	store, _ := newStoreWithBackend(t, providers.NewMemory())
+	_, err := store.RegisterProfile(`{"name":"acme","auth_type":"oauth2","client_id":"client-id","client_secret":"   ","auth_url":"https://acme/auth","token_url":"https://acme/token"}`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "client_secret: missing required field")
+}
