@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -63,10 +64,18 @@ func (s *Store) secretCtx() (context.Context, context.CancelFunc) {
 // re-registered; it is marked ClientSecretMissing so that execution paths and
 // the health probe fail clearly instead of sending an empty secret.
 func (s *Store) resolveSecret(p *Profile) error {
-	if !s.externalSecrets() || p.ClientSecret != nil {
+	if p.ClientSecret != nil {
 		return nil
 	}
 	if p.AuthType != "" && p.AuthType != "oauth2" {
+		return nil
+	}
+	if !s.externalSecrets() {
+		// Registration has always required a client_secret for oauth2, so a
+		// NULL column can only mean the row was written while an external
+		// backend was active. Serving it with the internal backend would send
+		// an empty secret to the provider; flag it so execution paths refuse.
+		p.ClientSecretMissing = true
 		return nil
 	}
 	ctx, cancel := s.secretCtx()
@@ -698,13 +707,42 @@ func (s *Store) GetAllProfiles() ([]Profile, error) {
 		return nil, fmt.Errorf("error iterating all profiles: %w", err)
 	}
 
-	for i := range profiles {
-		if err := s.resolveSecret(&profiles[i]); err != nil {
-			return nil, err
-		}
+	if err := s.resolveSecrets(profiles); err != nil {
+		return nil, err
 	}
 
 	return profiles, nil
+}
+
+// resolveSecretsConcurrency bounds parallel backend reads in GetAllProfiles,
+// so one slow backend cannot turn a pass over N providers into N timeouts
+// in series. It matches the health worker's own concurrency limit.
+const resolveSecretsConcurrency = 10
+
+func (s *Store) resolveSecrets(profiles []Profile) error {
+	if !s.externalSecrets() {
+		for i := range profiles {
+			if err := s.resolveSecret(&profiles[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	sem := make(chan struct{}, resolveSecretsConcurrency)
+	errs := make([]error, len(profiles))
+	var wg sync.WaitGroup
+	for i := range profiles {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			errs[i] = s.resolveSecret(&profiles[i])
+		}(i)
+	}
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
 // UpdateHealthStatus updates the health fields for a given provider profile

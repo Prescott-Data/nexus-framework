@@ -35,6 +35,8 @@ The Broker authenticates to Secret Manager with Application Default Credentials:
 
 Existing rows that still carry a column value keep working after you switch backends: the Broker reads the column when it is set and the backend only when it is NULL. New and updated providers go to the backend. Nothing moves automatically.
 
+Switching back from an external backend to `internal` is not transparent: providers registered while the backend was active have a NULL column, and the internal backend flags them as missing their secret rather than serving an empty one. Re-register those providers, or keep the backend configured.
+
 ## Startup check
 
 With an external backend the Broker verifies at boot that it can do everything a registration does: it writes, reads and deletes a probe secret under the prefix (a fresh random id per start, removed on every exit path, alive for under a second) and refuses to start otherwise. A missing permission therefore shows up in the first log lines rather than on the first provider registration. The first log lines say which backend is active:

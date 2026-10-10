@@ -282,3 +282,44 @@ func TestRotate_ExternalBackend_RejectsEmptySecret(t *testing.T) {
 	assert.Contains(t, err.Error(), "must not be empty")
 	assert.Equal(t, 0, backend.Len(), "an empty secret must never reach the backend")
 }
+
+func TestGetProfile_InternalBackend_NullOAuthSecretIsFlaggedMissing(t *testing.T) {
+	// A row written while GCP was active has a NULL column. If the broker is
+	// later started with the internal backend, that row must not be served
+	// with an empty secret.
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+	store := NewStore(sqlx.NewDb(db, "sqlmock"))
+	mock.ExpectQuery(`FROM provider_profiles WHERE id = \$1`).WillReturnRows(profileRow("oauth2"))
+
+	p, err := store.GetProfile(uuid.MustParse(testProviderID))
+	require.NoError(t, err)
+	assert.True(t, p.ClientSecretMissing)
+	_, err = p.RequireClientSecret()
+	assert.ErrorIs(t, err, ErrClientSecretMissing)
+}
+
+func TestGetAllProfiles_ExternalBackend_ResolvesConcurrently(t *testing.T) {
+	backend := providers.NewMemory()
+	store, mock := newStoreWithBackend(t, backend)
+	rows := sqlmock.NewRows(profileColumns)
+	ids := []string{
+		"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a1", "a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a2",
+		"a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a3", "a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a4",
+	}
+	for i, id := range ids {
+		require.NoError(t, backend.Set(context.Background(), id, "s"+id))
+		rows.AddRow(id, "p"+string(rune('a'+i)), "client-id", nil, "https://x/auth", "https://x/token", nil,
+			false, "{}", "oauth2", "", "", "", nil, "", "", nil, "unknown", nil, nil, nil, nil, nil)
+	}
+	mock.ExpectQuery(`FROM provider_profiles`).WillReturnRows(rows)
+
+	profiles, err := store.GetAllProfiles()
+	require.NoError(t, err)
+	require.Len(t, profiles, 4)
+	for _, p := range profiles {
+		require.NotNil(t, p.ClientSecret, p.Name)
+		assert.Equal(t, "s"+p.ID.String(), *p.ClientSecret)
+	}
+}
