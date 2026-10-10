@@ -16,8 +16,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the tag guard needs every tag
 
-      - name: Verify version is in sync across specs and docs
+      - name: Verify version is in sync across stamped files, changelog and tags
         run: make check-version
 
   test:

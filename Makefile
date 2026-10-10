@@ -15,12 +15,9 @@ version:
 stamp:
 	@bash scripts/stamp-version.sh
 
-# CI drift-guard: fail if any stamped file is out of sync with the VERSION file
+# CI drift-guard: stamped files, changelog top section and git tags must all agree with VERSION
 check-version:
-	@bash scripts/stamp-version.sh
-	@git diff --exit-code -- openapi.yaml nexus-broker/openapi.yaml mkdocs.yml \
-		|| { echo "❌ Version drift detected. Run 'make stamp' and commit the result."; exit 1; }
-	@echo "✅ Version $(VERSION) is in sync across all stamped files."
+	@bash scripts/check-version.sh
 
 # Default: Start the entire stack in detached mode
 up:

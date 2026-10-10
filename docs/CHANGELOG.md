@@ -12,6 +12,46 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## 0.4.3 <span class="changelog-date">2026-10-10</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.4.3" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Changed**
+
+- **One version everywhere, enforced.** The `VERSION` file was still 0.3.1 while v0.4.0 and v0.4.1 had been tagged by hand through the GitHub Releases UI, so binaries, images, docs and SDK manifests disagreed about what version they were. This release reconciles them: `VERSION` is bumped past the stray tags, and `make check-version` now fails a pull request when any stamped file, the top changelog heading, or the newest git tag disagrees with `VERSION`. Stamping covers the TypeScript and Python SDK manifests as well as the OpenAPI specs and docs site. Main is protected: changes land by pull request with CI green, and a tag ruleset blocks `v*` tags from everyone but the release workflow, which pushes with a deploy key. The container image build reads `VERSION` rather than the git ref and refuses a tag that disagrees with it. See the Versioning section of `CONTRIBUTING.md`.
+
+**Fixed**
+
+- The changelog now has a section for every release since 0.2.0. The sections for 0.2.3 through 0.2.7, 0.3.0, 0.3.1 and 0.4.1 were missing or filed as "Unreleased".
+
+</div>
+
+---
+
+<div class="changelog-release" markdown>
+
+## 0.4.1 <span class="changelog-date">2026-09-30</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.4.1" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Fixed**
+
+- **Providers that take a JSON token-exchange body are supported.** Set `token_request_format: json` in the provider's `params` and the Broker sends the authorization-code exchange as a JSON object instead of a form, which Notion and other spec-deviating providers require. The parameter is kept out of the authorization URL. (#111)
+
+**Changed**
+
+- README rewritten: hero, architecture diagram, examples in all three SDK languages, and an FAQ.
+
+</div>
+
+---
+
+<div class="changelog-release" markdown>
+
 ## 0.4.0 <span class="changelog-date">2026-09-16</span>
 
 <div class="changelog-meta" markdown>
@@ -42,7 +82,47 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
-## Unreleased <span class="changelog-date">2026-05-14</span>
+## 0.3.1 <span class="changelog-date">2026-09-10</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.3.1" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Fixed**
+
+- **Explicit OAuth token endpoints are honored.** When a provider profile sets `token_url` alongside an `issuer`, the Broker exchanges and refreshes against the configured `token_url` rather than the discovered one. (#106)
+
+</div>
+
+---
+
+<div class="changelog-release" markdown>
+
+## 0.3.0 <span class="changelog-date">2026-09-07</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.3.0" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Added**
+
+- **The Broker applies its own migrations on boot.** The image carries `migrations/`, and the Broker applies whatever the database has not recorded in a new `schema_migrations` ledger, keyed by filename. Running twice is a no-op, and a partly-migrated database continues from where it stopped. Set `AUTO_MIGRATE=false` where migrations are run as a separate step, and `MIGRATIONS_DIR` to relocate them. (#101, #102)
+- **SAML 2.0 service-provider flow**, **agent identity sessions** (`/v1/agents`, `/v1/agent-sessions`), the **nexus-sidecar** proxy, bridge metrics and Broker API key rotation via `API_KEY_FILE` / `API_KEYS_FILE`.
+
+**Fixed**
+
+- **Migrations are replayable.** `ADD COLUMN`, `CREATE TABLE`, `CREATE INDEX` and the `tokens_connection_id_unique` constraint are guarded, so a database adopting the ledger does not fail on migrations whose effect is already present. (#102)
+- Two migrations no longer share the prefix `11`; they are now `11a_add_provider_description.sql` and `11b_add_audit_created_at_index.sql`. (#103)
+- `make stamp` works on macOS; it relied on GNU-only `sed` behaviour and silently stamped nothing on BSD sed.
+- SAML `return_url` is validated before credentials are stored. The sidecar returns `413 body_too_large` for oversized bodies. Bridge WebSocket duration is measured at exit. Dependency bumps for `x/net`, `x/crypto`, `grpc` and `goxmldsig` security advisories.
+
+</div>
+
+---
+
+<div class="changelog-release" markdown>
+
+## 0.2.3 – 0.2.7 <span class="changelog-date">2026-05-14 to 2026-07-30</span>
 
 <div class="changelog-meta" markdown>
 <div class="changelog-contributors">
@@ -51,6 +131,9 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 </div>
 <a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/commits/main" target="_blank" rel="noopener noreferrer">View commits on GitHub →</a>
 </div>
+
+_This section was filed as "Unreleased" at the time and was never split. It covers v0.2.3 (2026-05-14, the SDKs and release workflow below), v0.2.4 (2026-05-19, provider and connection health checks with `--worker-only` mode, bounded worker concurrency, `GET /connections?workspace_id=`, `health_status` on token responses), v0.2.5 (2026-07-14, versioning unified on the root `VERSION` file, `refresh_token` preserved on refresh, `client_secret` redacted from responses, expired OAuth2 tokens auto-refreshed, static credentials fail closed when unvalidatable), v0.2.6 (2026-07-29, self-hosted base URL and path-based credential validation, provider manifest for static-credential rollout, CodeQL fixes) and v0.2.7 (2026-07-30, credential validation never served from the response cache, non-public targets blocked for validation probes)._
+
 
 **Added**
 
