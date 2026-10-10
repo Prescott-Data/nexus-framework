@@ -236,10 +236,10 @@ func TestDeleteProfileByName_ExternalBackend_RemovesEverySecret(t *testing.T) {
 	require.NoError(t, backend.Set(context.Background(), testProviderID, testSecret))
 	store, mock := newStoreWithBackend(t, backend)
 
-	mock.ExpectQuery(`SELECT id FROM provider_profiles WHERE name = \$1`).
+	mock.ExpectQuery(`UPDATE provider_profiles SET deleted_at = NOW\(\) WHERE name = \$1 AND deleted_at IS NULL RETURNING id`).
 		WithArgs("acme").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProviderID))
-	mock.ExpectExec(`UPDATE provider_profiles SET deleted_at = NOW\(\) WHERE name = \$1`).
-		WithArgs("acme").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT id FROM provider_profiles WHERE name = \$1 AND deleted_at IS NOT NULL`).
+		WithArgs("acme").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProviderID)) // same row now historical; deduped
 
 	n, err := store.DeleteProfileByName("acme")
 	require.NoError(t, err)
@@ -273,6 +273,7 @@ func TestRotate_ExternalBackend_RejectsEmptySecret(t *testing.T) {
 
 	err := store.PatchProfile(id, map[string]interface{}{"client_secret": ""})
 	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidProfile, "validation failures are typed so handlers answer 400")
 	assert.Contains(t, err.Error(), "must not be empty")
 
 	cid := "client-id"

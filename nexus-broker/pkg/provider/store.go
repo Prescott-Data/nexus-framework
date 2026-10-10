@@ -136,6 +136,10 @@ type Profile struct {
 	ClientSecretMissing bool `json:"-" db:"-"`
 }
 
+// ErrInvalidProfile marks a caller error in an update or patch payload, so
+// handlers can answer 400 rather than 500.
+var ErrInvalidProfile = errors.New("invalid provider profile")
+
 // ErrSecretBackend marks an operational failure talking to the external
 // secret backend (timeout, permission, API error). Handlers map it to a
 // sanitized 503 rather than a 400 or 404, since the request may succeed on
@@ -430,7 +434,7 @@ func (s *Store) UpdateProfile(p *Profile) error {
 		// is done by deleting the provider, not by PUT.
 		if p.ClientSecret != nil {
 			if strings.TrimSpace(*p.ClientSecret) == "" {
-				return fmt.Errorf("client_secret: must not be empty; delete the provider to clear its secret")
+				return fmt.Errorf("%w: client_secret: must not be empty; delete the provider to clear its secret", ErrInvalidProfile)
 			}
 			if err := s.putSecret(p.ID, *p.ClientSecret); err != nil {
 				return err
@@ -499,10 +503,10 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 			if s.externalSecrets() {
 				secret, ok := value.(string)
 				if !ok {
-					return fmt.Errorf("client_secret: must be a string")
+					return fmt.Errorf("%w: client_secret: must be a string", ErrInvalidProfile)
 				}
 				if strings.TrimSpace(secret) == "" {
-					return fmt.Errorf("client_secret: must not be empty; delete the provider to clear its secret")
+					return fmt.Errorf("%w: client_secret: must not be empty; delete the provider to clear its secret", ErrInvalidProfile)
 				}
 				if err := s.putSecret(id, secret); err != nil {
 					return err
@@ -607,27 +611,34 @@ func (s *Store) DeleteProfile(id uuid.UUID) error {
 
 // DeleteProfileByName soft-deletes ALL provider profiles with the given name
 func (s *Store) DeleteProfileByName(name string) (int64, error) {
-	// Every row with this name, including ones soft-deleted earlier, so that a
-	// retry after a backend failure still reaches the secrets left behind.
-	var ids []uuid.UUID
-	if s.externalSecrets() {
-		if err := s.db.Select(&ids, `SELECT id FROM provider_profiles WHERE name = $1`, name); err != nil {
-			return 0, fmt.Errorf("failed to look up provider profiles: %w", err)
-		}
-	}
-
-	query := `UPDATE provider_profiles SET deleted_at = NOW() WHERE name = $1 AND deleted_at IS NULL`
-	result, err := s.db.Exec(query, name)
-	if err != nil {
+	// The soft delete returns the ids it touched, so a row registered
+	// concurrently under the same name is either deleted here and its secret
+	// dropped below, or left alone entirely; never deleted with its secret
+	// orphaned.
+	var deleted []uuid.UUID
+	if err := s.db.Select(&deleted, `UPDATE provider_profiles SET deleted_at = NOW() WHERE name = $1 AND deleted_at IS NULL RETURNING id`, name); err != nil {
 		return 0, fmt.Errorf("failed to delete provider profiles: %w", err)
 	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	rowsAffected := int64(len(deleted))
+
+	if !s.externalSecrets() {
+		return rowsAffected, nil
 	}
 
+	// Rows soft-deleted earlier whose secret may still exist after a backend
+	// failure on a previous attempt, so a retry cleans up.
+	var historical []uuid.UUID
+	if err := s.db.Select(&historical, `SELECT id FROM provider_profiles WHERE name = $1 AND deleted_at IS NOT NULL`, name); err != nil {
+		return rowsAffected, fmt.Errorf("failed to look up deleted provider profiles: %w", err)
+	}
+
+	seen := make(map[uuid.UUID]struct{}, len(deleted)+len(historical))
 	var dropErrs []error
-	for _, id := range ids {
+	for _, id := range append(deleted, historical...) {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
 		if err := s.dropSecret(id); err != nil {
 			dropErrs = append(dropErrs, err)
 		}

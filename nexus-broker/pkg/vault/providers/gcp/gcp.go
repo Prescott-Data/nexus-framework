@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/compute/metadata"
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
@@ -190,9 +191,9 @@ func (b *Backend) Delete(ctx context.Context, key string) error {
 }
 
 // Ping proves the service account can do everything a registration does:
-// it runs Set, Get and Delete on a probe secret under the prefix, which
-// exercises secret create, version add, version access, version list and
-// destroy, and secret delete. The key is a fresh UUID per call so that
+// it runs Set twice, Get and Delete on a probe secret under the prefix,
+// which exercises secret create, version add, version access, version list,
+// version destroy and secret delete. The key is a fresh UUID per call so that
 // replicas starting together cannot interfere with each other's probe, and
 // the probe is deleted on every exit path. The version lives for well under
 // a second, so the cost is nil. Any failure, such as a missing create binding,
@@ -200,9 +201,20 @@ func (b *Backend) Delete(ctx context.Context, key string) error {
 // startup rather than on the first registration.
 func (b *Backend) Ping(ctx context.Context) error {
 	key := uuid.NewString()
-	defer func() { _ = b.Delete(context.WithoutCancel(ctx), key) }()
+	defer func() {
+		// Best-effort cleanup under its own short deadline, so a probe that
+		// timed out does not leave startup hanging in the delete.
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		_ = b.Delete(cleanupCtx, key)
+	}()
 
-	if err := b.Set(ctx, key, "startup-probe"); err != nil {
+	// Written twice so the second Set has to retire the first version,
+	// which exercises DestroySecretVersion as a real rotation would.
+	if err := b.Set(ctx, key, "startup-probe-1"); err != nil {
+		return fmt.Errorf("gcp secret backend: project %s, prefix %s: %w", b.projectID, b.prefix, err)
+	}
+	if err := b.Set(ctx, key, "startup-probe-2"); err != nil {
 		return fmt.Errorf("gcp secret backend: project %s, prefix %s: %w", b.projectID, b.prefix, err)
 	}
 	if _, err := b.Get(ctx, key); err != nil {
