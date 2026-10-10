@@ -331,9 +331,10 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	if p.ClientID != nil {
 		clientID = *p.ClientID
 	}
-	clientSecret := ""
-	if p.ClientSecret != nil {
-		clientSecret = *p.ClientSecret
+	clientSecret, err := p.RequireClientSecret()
+	if err != nil {
+		s.connRepo.UpdateStatus(ctx, connID, "failed")
+		return "", false, ErrInternalWithErr(err, "provider_secret_missing", "Provider client secret is missing from the secret backend")
 	}
 
 	tokens, err := s.executeExchange(ctx, useTokenURL, clientID, clientSecret, code, conn.CodeVerifier.String, redirectURI, conn.Scopes, p.AuthHeader, skipScopeOnExchange, useJSONBody)

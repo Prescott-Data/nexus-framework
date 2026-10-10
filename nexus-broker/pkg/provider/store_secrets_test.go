@@ -127,6 +127,19 @@ func TestGetProfile_ExternalBackend_MissingSecretStaysNil(t *testing.T) {
 	p, err := store.GetProfile(uuid.MustParse(testProviderID))
 	require.NoError(t, err, "a missing secret must not fail the read")
 	assert.Nil(t, p.ClientSecret)
+	assert.True(t, p.ClientSecretMissing, "the read must flag the missing secret")
+	_, err = p.RequireClientSecret()
+	assert.ErrorIs(t, err, ErrClientSecretMissing, "execution paths must refuse rather than send an empty secret")
+}
+
+func TestRequireClientSecret_InternalBackendUnchanged(t *testing.T) {
+	secret := "s"
+	got, err := (&Profile{ClientSecret: &secret}).RequireClientSecret()
+	require.NoError(t, err)
+	assert.Equal(t, "s", got)
+	got, err = (&Profile{}).RequireClientSecret()
+	require.NoError(t, err, "nil without the missing flag is the pre-existing public-client behaviour")
+	assert.Equal(t, "", got)
 }
 
 func TestGetProfile_ExternalBackend_SkipsNonOAuthTypes(t *testing.T) {
@@ -191,7 +204,7 @@ func TestDeleteProfileByName_ExternalBackend_RemovesEverySecret(t *testing.T) {
 	require.NoError(t, backend.Set(context.Background(), testProviderID, testSecret))
 	store, mock := newStoreWithBackend(t, backend)
 
-	mock.ExpectQuery(`SELECT id FROM provider_profiles WHERE name = \$1 AND deleted_at IS NULL`).
+	mock.ExpectQuery(`SELECT id FROM provider_profiles WHERE name = \$1`).
 		WithArgs("acme").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProviderID))
 	mock.ExpectExec(`UPDATE provider_profiles SET deleted_at = NOW\(\) WHERE name = \$1`).
 		WithArgs("acme").WillReturnResult(sqlmock.NewResult(0, 1))

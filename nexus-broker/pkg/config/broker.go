@@ -168,9 +168,16 @@ func Load() (*BrokerConfig, error) {
 
 // validateSecretPrefix enforces Secret Manager's secret ID charset on the
 // prefix so a bad value fails at boot rather than on the first registration.
+// Secret Manager IDs are limited to 255 characters and the broker appends
+// "-" plus a 36-character UUID, so the prefix itself may be at most 218.
+const maxSecretPrefixLen = 255 - 1 - 36
+
 func validateSecretPrefix(prefix string) error {
 	if prefix == "" {
 		return fmt.Errorf("GCP_SECRET_PREFIX must not be empty")
+	}
+	if len(prefix) > maxSecretPrefixLen {
+		return fmt.Errorf("GCP_SECRET_PREFIX may be at most %d characters so that <prefix>-<provider id> fits Secret Manager's 255-character limit (got %d)", maxSecretPrefixLen, len(prefix))
 	}
 	for _, r := range prefix {
 		isAlnum := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')

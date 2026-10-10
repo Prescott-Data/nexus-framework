@@ -201,9 +201,9 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 		if p.ClientID != nil {
 			clientID = *p.ClientID
 		}
-		clientSecret := ""
-		if p.ClientSecret != nil {
-			clientSecret = *p.ClientSecret
+		clientSecret, err := p.RequireClientSecret()
+		if err != nil {
+			return nil, ErrInternalWithErr(err, "provider_secret_missing", "Provider client secret is missing from the secret backend")
 		}
 
 		useJSONBody := false

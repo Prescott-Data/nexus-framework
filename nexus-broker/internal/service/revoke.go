@@ -237,12 +237,13 @@ func (s *connectionService) revokeUpstream(ctx context.Context, providerID uuid.
 		return false, "provider does not advertise a revocation endpoint"
 	}
 
-	clientID, clientSecret := "", ""
+	clientID := ""
 	if p.ClientID != nil {
 		clientID = *p.ClientID
 	}
-	if p.ClientSecret != nil {
-		clientSecret = *p.ClientSecret
+	clientSecret, err := p.RequireClientSecret()
+	if err != nil {
+		return false, "provider client secret is missing from the secret backend; the credential was destroyed locally only"
 	}
 
 	// RFC 7009 §2.1: revoking a refresh token SHOULD also invalidate the access

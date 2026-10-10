@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestLoad_SecretBackend(t *testing.T) {
 	base := map[string]string{
@@ -17,6 +20,7 @@ func TestLoad_SecretBackend(t *testing.T) {
 		{"default is internal", nil, false},
 		{"internal ignores a bad GCP prefix", map[string]string{"SECRET_BACKEND": "internal", "GCP_SECRET_PREFIX": "bad prefix!"}, false},
 		{"gcp validates the prefix", map[string]string{"SECRET_BACKEND": "gcp-secret-manager", "GCP_SECRET_PREFIX": "bad prefix!"}, true},
+		{"gcp rejects a prefix too long for a secret id", map[string]string{"SECRET_BACKEND": "gcp-secret-manager", "GCP_SECRET_PREFIX": strings.Repeat("p", 219)}, true},
 		{"gcp with a good prefix", map[string]string{"SECRET_BACKEND": "gcp-secret-manager", "GCP_SECRET_PREFIX": "nexus-providers"}, false},
 		{"unknown backend", map[string]string{"SECRET_BACKEND": "hashicorp-vault"}, true},
 	}

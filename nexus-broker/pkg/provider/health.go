@@ -119,6 +119,13 @@ func (w *HealthWorker) checkProvider(ctx context.Context, p Profile) (string, st
 		return "unknown", "No token URL available to check"
 	}
 
+	// A provider whose secret is gone from the backend cannot be probed
+	// meaningfully: the provider would answer invalid_client, which looks
+	// exactly like the healthy "dummy code rejected" response below.
+	if p.ClientSecretMissing {
+		return "unhealthy", "client_secret is missing from the secret backend; re-register the provider or restore the secret"
+	}
+
 	// Tier 2: Configuration Validation (Deep Check)
 	// We make a dummy token request.
 	

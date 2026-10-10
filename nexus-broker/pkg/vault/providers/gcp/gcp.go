@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"cloud.google.com/go/compute/metadata"
@@ -82,6 +83,24 @@ func (b *Backend) secretName(key string) string {
 	return fmt.Sprintf("projects/%s/secrets/%s", b.projectID, b.secretID(key))
 }
 
+// versionOlder reports whether version resource name a has a smaller numeric
+// version id than b. Names end in "/versions/<n>"; unparsable names are
+// treated as not older so they are never destroyed by mistake.
+func versionOlder(a, b string) bool {
+	na, oka := versionNumber(a)
+	nb, okb := versionNumber(b)
+	return oka && okb && na < nb
+}
+
+func versionNumber(name string) (int64, bool) {
+	i := strings.LastIndex(name, "/versions/")
+	if i < 0 {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(name[i+len("/versions/"):], 10, 64)
+	return n, err == nil
+}
+
 func isNotFound(err error) bool {
 	return status.Code(err) == codes.NotFound
 }
@@ -145,7 +164,10 @@ func (b *Backend) Set(ctx context.Context, key, value string) error {
 			retireErrs = append(retireErrs, fmt.Errorf("list versions: %w", err))
 			break
 		}
-		if v.GetName() == added.GetName() {
+		// Retire only versions older than the one just added. A concurrent
+		// writer may have added a newer one; destroying it would lose that
+		// caller's value.
+		if !versionOlder(v.GetName(), added.GetName()) {
 			continue
 		}
 		if _, err := b.client.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{Name: v.GetName()}); err != nil {

@@ -58,9 +58,10 @@ func (s *Store) secretCtx() (context.Context, context.CancelFunc) {
 }
 
 // resolveSecret fills p.ClientSecret from the external backend when the row
-// holds NULL. A missing secret is left nil rather than failing the read, so a
-// provider whose secret was removed out of band still lists and reports
-// health; the OAuth exchange will fail with a clear provider error instead.
+// holds NULL. A missing secret does not fail the read, so a provider whose
+// secret was removed out of band can still be listed, inspected and
+// re-registered; it is marked ClientSecretMissing so that execution paths and
+// the health probe fail clearly instead of sending an empty secret.
 func (s *Store) resolveSecret(p *Profile) error {
 	if !s.externalSecrets() || p.ClientSecret != nil {
 		return nil
@@ -72,6 +73,7 @@ func (s *Store) resolveSecret(p *Profile) error {
 	defer cancel()
 	v, err := s.secrets.Get(ctx, p.ID.String())
 	if errors.Is(err, providers.ErrNotFound) {
+		p.ClientSecretMissing = true
 		return nil
 	}
 	if err != nil {
@@ -125,6 +127,29 @@ type Profile struct {
 	LastHealthCheckAt *time.Time       `json:"last_health_check_at,omitempty" db:"last_health_check_at"`
 	HealthStatus      string           `json:"health_status" db:"health_status"`
 	HealthMessage     *string          `json:"health_message,omitempty" db:"health_message"`
+
+	// ClientSecretMissing is set when an external secret backend is active,
+	// the row holds no client_secret, and the backend has no secret for this
+	// provider either. Metadata reads still succeed; OAuth exchange, refresh,
+	// revocation and the health probe must refuse rather than send an empty
+	// secret to the provider.
+	ClientSecretMissing bool `json:"-" db:"-"`
+}
+
+// ErrClientSecretMissing is returned by code paths that need a client secret
+// for a provider whose ClientSecretMissing flag is set.
+var ErrClientSecretMissing = errors.New("provider client_secret is missing from the secret backend")
+
+// RequireClientSecret returns the client secret or ErrClientSecretMissing.
+// Call it on every path that sends the secret to the provider.
+func (p *Profile) RequireClientSecret() (string, error) {
+	if p.ClientSecretMissing {
+		return "", ErrClientSecretMissing
+	}
+	if p.ClientSecret == nil {
+		return "", nil
+	}
+	return *p.ClientSecret, nil
 }
 
 // Redacted returns a copy of the profile with sensitive fields removed so it is
@@ -534,9 +559,11 @@ func (s *Store) DeleteProfile(id uuid.UUID) error {
 
 // DeleteProfileByName soft-deletes ALL provider profiles with the given name
 func (s *Store) DeleteProfileByName(name string) (int64, error) {
+	// Every row with this name, including ones soft-deleted earlier, so that a
+	// retry after a backend failure still reaches the secrets left behind.
 	var ids []uuid.UUID
 	if s.externalSecrets() {
-		if err := s.db.Select(&ids, `SELECT id FROM provider_profiles WHERE name = $1 AND deleted_at IS NULL`, name); err != nil {
+		if err := s.db.Select(&ids, `SELECT id FROM provider_profiles WHERE name = $1`, name); err != nil {
 			return 0, fmt.Errorf("failed to look up provider profiles: %w", err)
 		}
 	}
@@ -550,10 +577,15 @@ func (s *Store) DeleteProfileByName(name string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to get rows affected: %w", err)
 	}
+
+	var dropErrs []error
 	for _, id := range ids {
 		if err := s.dropSecret(id); err != nil {
-			return rowsAffected, err
+			dropErrs = append(dropErrs, err)
 		}
+	}
+	if len(dropErrs) > 0 {
+		return rowsAffected, errors.Join(dropErrs...)
 	}
 	return rowsAffected, nil
 }
