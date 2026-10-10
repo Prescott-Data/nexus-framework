@@ -174,8 +174,9 @@ func TestUpdateProfile_ExternalBackend(t *testing.T) {
 	id := uuid.MustParse(testProviderID)
 	secret := "updated"
 
-	mock.ExpectExec(`UPDATE provider_profiles`).
-		WithArgs("acme", "client-id", nil, nil, nil, nil, false, pq.Array([]string(nil)), "oauth2", "", "", "", nil, "", "", nil, nil, nil, nil, id).
+	// A rotation clears the column ($3 = true) after the backend write.
+	mock.ExpectExec(`client_secret = CASE WHEN \$3::boolean THEN NULL ELSE client_secret END`).
+		WithArgs("acme", "client-id", true, nil, nil, nil, false, pq.Array([]string(nil)), "oauth2", "", "", "", nil, "", "", nil, nil, nil, nil, id).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	cid := "client-id"
@@ -184,6 +185,37 @@ func TestUpdateProfile_ExternalBackend(t *testing.T) {
 	got, err := backend.Get(context.Background(), testProviderID)
 	require.NoError(t, err)
 	assert.Equal(t, secret, got)
+}
+
+func TestUpdateProfile_ExternalBackend_OmittedSecretPreservesColumn(t *testing.T) {
+	backend := providers.NewMemory()
+	store, mock := newStoreWithBackend(t, backend)
+	id := uuid.MustParse(testProviderID)
+
+	// No secret in the PUT: $3 = false, so the column is left untouched and a
+	// legacy row that still holds its secret in Postgres keeps it.
+	mock.ExpectExec(`client_secret = CASE WHEN \$3::boolean THEN NULL ELSE client_secret END`).
+		WithArgs("acme", "client-id", false, nil, nil, nil, false, pq.Array([]string(nil)), "oauth2", "", "", "", nil, "", "", nil, nil, nil, nil, id).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	cid := "client-id"
+	require.NoError(t, store.UpdateProfile(&Profile{ID: id, Name: "acme", AuthType: "oauth2", ClientID: &cid}))
+	assert.NoError(t, mock.ExpectationsWereMet())
+	assert.Equal(t, 0, backend.Len(), "nothing is written to the backend when the secret is omitted")
+}
+
+func TestPatchProfile_ExternalBackend_UnknownProviderDoesNotOrphanSecret(t *testing.T) {
+	backend := providers.NewMemory()
+	store, mock := newStoreWithBackend(t, backend)
+	id := uuid.MustParse(testProviderID)
+
+	mock.ExpectExec(`UPDATE provider_profiles SET client_secret = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(nil, id).WillReturnResult(sqlmock.NewResult(0, 0)) // no active row
+
+	err := store.PatchProfile(id, map[string]interface{}{"client_secret": "rotated"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+	assert.Equal(t, 0, backend.Len(), "the secret written before the UPDATE must be removed again")
 }
 
 func TestDeleteProfile_ExternalBackend_RemovesSecret(t *testing.T) {

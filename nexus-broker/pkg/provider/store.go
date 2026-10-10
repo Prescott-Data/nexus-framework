@@ -414,24 +414,53 @@ func (s *Store) UpdateProfile(p *Profile) error {
 			updated_at = NOW()
 		WHERE id = $20 AND deleted_at IS NULL`
 
-	columnSecret := p.ClientSecret
+	var secretArg interface{} = p.ClientSecret
+	rotated := false
 	if s.externalSecrets() {
-		columnSecret = nil
-		// A full update that omits client_secret keeps the stored secret.
-		// Clearing a secret is done by deleting the provider, not by PUT.
+		// With an external backend the column is only ever cleared, and only
+		// when a new secret was written to the backend. A PUT that omits
+		// client_secret keeps whatever is stored, in the backend or, for a row
+		// written before the switch, still in the column. Clearing a secret
+		// is done by deleting the provider, not by PUT.
 		if p.ClientSecret != nil {
 			if err := s.putSecret(p.ID, *p.ClientSecret); err != nil {
 				return err
 			}
+			rotated = true
 		}
+		query = strings.Replace(query, "client_secret = $3,", "client_secret = CASE WHEN $3::boolean THEN NULL ELSE client_secret END,", 1)
+		secretArg = rotated
 	}
 
-	_, err := s.db.Exec(query, p.Name, p.ClientID, columnSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID, p.ID)
+	result, err := s.db.Exec(query, p.Name, p.ClientID, secretArg, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID, p.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update provider profile: %w", err)
 	}
+	if rotated {
+		if err := s.ensureRowMatched(result, p.ID); err != nil {
+			return err
+		}
+	}
 
 	return nil
+}
+
+// ensureRowMatched guards the write paths that put a secret in the backend
+// before touching the row. When the UPDATE matched no active row, the id is
+// unknown or soft-deleted, so the secret just written is removed again and
+// the caller gets a not-found error instead of a silently orphaned secret.
+func (s *Store) ensureRowMatched(result sql.Result, id uuid.UUID) error {
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if n > 0 {
+		return nil
+	}
+	if dropErr := s.dropSecret(id); dropErr != nil {
+		return fmt.Errorf("provider %s not found (and failed to remove its secret: %w)", id, dropErr)
+	}
+	return fmt.Errorf("provider %s not found", id)
 }
 
 // PatchProfile updates specific fields of a provider profile
@@ -446,6 +475,7 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 	query := "UPDATE provider_profiles SET "
 	args := []interface{}{}
 	i := 1
+	secretWritten := false
 
 	for key, value := range updates {
 		// Whitelist all allowed columns and map them to snake_case if coming from JSON
@@ -465,6 +495,7 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 				if err := s.putSecret(id, secret); err != nil {
 					return err
 				}
+				secretWritten = true
 				value = nil
 			}
 		case "auth_url":
@@ -536,9 +567,14 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 	query += fmt.Sprintf(" WHERE id = $%d AND deleted_at IS NULL", i)
 	args = append(args, id)
 
-	_, err := s.db.Exec(query, args...)
+	result, err := s.db.Exec(query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to patch provider profile: %w", err)
+	}
+	if secretWritten {
+		if err := s.ensureRowMatched(result, id); err != nil {
+			return err
+		}
 	}
 
 	return nil

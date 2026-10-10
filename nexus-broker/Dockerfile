@@ -1,6 +1,6 @@
 # Multi-stage build for Dromos OAuth Broker
 
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 WORKDIR /app
 
 # Enable modules and install build deps
