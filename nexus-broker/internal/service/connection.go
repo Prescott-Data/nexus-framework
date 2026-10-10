@@ -20,7 +20,7 @@ import (
 	oidcutil "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/oidc"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/server"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	tokenvault "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/tokens"
 	"github.com/google/uuid"
 )
 
@@ -357,7 +357,7 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	if err != nil {
 		return "", false, ErrInternalWithErr(err, "token_marshal_failed", "Failed to serialize token response")
 	}
-	encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
+	encryptedData, err := tokenvault.Encrypt(s.encryptionKey, tokenJSON)
 	if err != nil {
 		return "", false, ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt tokens")
 	}
@@ -442,7 +442,7 @@ func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID
 		return nil, "", ErrNotFoundWithErr(err, "token_not_found", "Token not found")
 	}
 
-	decryptedData, err := vault.Decrypt(s.encryptionKey, token.EncryptedData)
+	decryptedData, err := tokenvault.Decrypt(s.encryptionKey, token.EncryptedData)
 	if err != nil {
 		return nil, "", ErrInternalWithErr(err, "decrypt_failed", "Failed to decrypt token")
 	}
@@ -465,7 +465,7 @@ func (s *connectionService) GetToken(ctx context.Context, connectionID uuid.UUID
 			if err != nil {
 				return nil, "", ErrInternalWithErr(err, "token_not_found", "Failed to fetch refreshed token")
 			}
-			decryptedData, err = vault.Decrypt(s.encryptionKey, token.EncryptedData)
+			decryptedData, err = tokenvault.Decrypt(s.encryptionKey, token.EncryptedData)
 			if err != nil {
 				return nil, "", ErrInternalWithErr(err, "decrypt_failed", "Failed to decrypt refreshed token")
 			}

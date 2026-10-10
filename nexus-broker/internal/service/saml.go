@@ -17,7 +17,7 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/samlutil"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/server"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	tokenvault "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/tokens"
 )
 
 func (s *connectionService) createSAMLConsentSpec(ctx context.Context, req CreateConsentRequest, providerID uuid.UUID, p *provider.Profile) (*ConsentSpecResponse, error) {
@@ -162,7 +162,7 @@ func (s *connectionService) ExchangeSAMLResponse(ctx context.Context, r *http.Re
 	if err != nil {
 		return "", ErrInternalWithErr(err, "token_marshal_failed", "Failed to serialize SAML attributes")
 	}
-	encryptedData, err := vault.Encrypt(s.encryptionKey, tokenJSON)
+	encryptedData, err := tokenvault.Encrypt(s.encryptionKey, tokenJSON)
 	if err != nil {
 		return "", ErrInternalWithErr(err, "encryption_failed", "Failed to encrypt SAML attributes")
 	}

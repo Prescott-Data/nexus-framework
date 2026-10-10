@@ -1,4 +1,4 @@
-package vault
+package tokens
 
 import (
 	"crypto/aes"

@@ -19,7 +19,7 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/handlers"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault"
+	tokenvault "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/tokens"
 )
 
 // setupSOC2Env initializes a real handler with a real service, wired to a mock database.
@@ -74,8 +74,8 @@ func setupSOC2Env(t *testing.T) (*handlers.CallbackHandler, sqlmock.Sqlmock, []b
 //
 // This test provides two-layer proof:
 //  1. Integration: The handler stores credentials via parameterized SQL (no plaintext in queries)
-//  2. Cryptographic: vault.Encrypt produces ciphertext that does NOT contain plaintext,
-//     and vault.Decrypt recovers the original value.
+//  2. Cryptographic: tokens.Encrypt produces ciphertext that does NOT contain plaintext,
+//     and tokens.Decrypt recovers the original value.
 func TestSOC2_CC61_EncryptionAtRest(t *testing.T) {
 	handler, mock, stateKey, db := setupSOC2Env(t)
 	defer db.Close()
@@ -147,15 +147,15 @@ func TestSOC2_CC61_EncryptionAtRest(t *testing.T) {
 	// PROOF LAYER 2: Cryptographic verification that the vault encryption pipeline
 	// produces ciphertext that does NOT contain the plaintext and roundtrips correctly.
 	credJSON, _ := json.Marshal(creds)
-	ciphertext, err := vault.Encrypt(encryptionKey, credJSON)
-	assert.NoError(t, err, "SOC2 CC6.1 Violation: vault.Encrypt failed")
+	ciphertext, err := tokenvault.Encrypt(encryptionKey, credJSON)
+	assert.NoError(t, err, "SOC2 CC6.1 Violation: tokens.Encrypt failed")
 	assert.NotContains(t, ciphertext, plainTextKey,
 		"SOC2 CC6.1 Violation: Plaintext credential found in encrypted output")
 	assert.NotEqual(t, string(credJSON), ciphertext,
 		"SOC2 CC6.1 Violation: Encrypted output is identical to plaintext input")
 
-	decrypted, err := vault.Decrypt(encryptionKey, ciphertext)
-	assert.NoError(t, err, "SOC2 CC6.1 Violation: vault.Decrypt failed")
+	decrypted, err := tokenvault.Decrypt(encryptionKey, ciphertext)
+	assert.NoError(t, err, "SOC2 CC6.1 Violation: tokens.Decrypt failed")
 
 	var recovered map[string]interface{}
 	assert.NoError(t, json.Unmarshal(decrypted, &recovered))
