@@ -11,12 +11,14 @@ servers:
   - url: http://localhost:8090
     description: Local development
 # Every operation in this contract requires the caller key when the Gateway
-# runs with GATEWAY_REQUIRE_API_KEY=true (recommended wherever it is reachable).
+# runs with GATEWAY_REQUIRE_API_KEY=true (recommended wherever it is reachable);
+# the anonymous alternative below is the default, intended for private networks.
 # Missing key: 401 missing_api_key. Wrong key: 403 invalid_api_key. The public
 # paths (/health, /auth/callback, /v1/capture-schema, /v1/capture-credential)
 # are outside this contract and never require it.
 security:
   - ApiKeyAuth: []
+  - {} # anonymous: the default GATEWAY_REQUIRE_API_KEY=false, for private networks only
 paths:
   /v1/providers:
     get:
@@ -333,7 +335,10 @@ components:
           description: Error code as the Gateway's handlers and API key middleware write it (`missing_api_key`, `invalid_api_key`, ...). Older operations may use `code` instead.
         code: { type: string }
         message: { type: string }
-      required: [code, message]
+      required: [message]
+      anyOf:
+        - required: [code]
+        - required: [error]
   responses:
     BadRequest:
       description: Bad request

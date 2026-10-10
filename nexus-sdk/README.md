@@ -65,6 +65,10 @@ resp, err := httpClient.Get("https://api.github.com/user/repos")
 client := oauthsdk.New(
     "https://nexus-gateway.example.com",
 
+    // Caller key, sent as X-API-Key. Required when the Gateway runs with
+    // GATEWAY_REQUIRE_API_KEY=true (recommended wherever it is reachable).
+    oauthsdk.WithAPIKey(os.Getenv("NEXUS_GATEWAY_API_KEY")),
+
     // Structured logger (optional)
     oauthsdk.WithLogger(myLogger),
 

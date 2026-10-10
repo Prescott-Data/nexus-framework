@@ -55,7 +55,7 @@ func LoadAPIKeyConfig() (APIKeyConfig, error) {
 		cfg.ReloadInterval = d
 	}
 	if cfg.Require && len(cfg.Keys) == 0 && len(cfg.Files) == 0 {
-		return cfg, fmt.Errorf("GATEWAY_REQUIRE_API_KEY is true but no keys are configured; set GATEWAY_API_KEYS or GATEWAY_API_KEY_FILE")
+		return cfg, fmt.Errorf("GATEWAY_REQUIRE_API_KEY is true but no keys are configured; set GATEWAY_API_KEYS, GATEWAY_API_KEY_FILE or GATEWAY_API_KEYS_FILE")
 	}
 	return cfg, nil
 }
