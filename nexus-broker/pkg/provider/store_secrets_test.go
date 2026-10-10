@@ -224,7 +224,7 @@ func TestDeleteProfile_ExternalBackend_RemovesSecret(t *testing.T) {
 	store, mock := newStoreWithBackend(t, backend)
 	id := uuid.MustParse(testProviderID)
 
-	mock.ExpectExec(`UPDATE provider_profiles SET deleted_at = NOW\(\) WHERE id = \$1`).
+	mock.ExpectExec(`UPDATE provider_profiles SET deleted_at = NOW\(\), client_secret = NULL WHERE id = \$1`).
 		WithArgs(id).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	require.NoError(t, store.DeleteProfile(id))
@@ -236,7 +236,7 @@ func TestDeleteProfileByName_ExternalBackend_RemovesEverySecret(t *testing.T) {
 	require.NoError(t, backend.Set(context.Background(), testProviderID, testSecret))
 	store, mock := newStoreWithBackend(t, backend)
 
-	mock.ExpectQuery(`UPDATE provider_profiles SET deleted_at = NOW\(\) WHERE name = \$1 AND deleted_at IS NULL RETURNING id`).
+	mock.ExpectQuery(`UPDATE provider_profiles SET deleted_at = NOW\(\), client_secret = NULL WHERE name = \$1 AND deleted_at IS NULL RETURNING id`).
 		WithArgs("acme").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProviderID))
 	mock.ExpectQuery(`SELECT id FROM provider_profiles WHERE name = \$1 AND deleted_at IS NOT NULL`).
 		WithArgs("acme").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProviderID)) // same row now historical; deduped

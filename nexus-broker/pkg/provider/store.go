@@ -608,6 +608,11 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 // DeleteProfile soft-deletes a provider profile by ID
 func (s *Store) DeleteProfile(id uuid.UUID) error {
 	query := `UPDATE provider_profiles SET deleted_at = NOW() WHERE id = $1`
+	if s.externalSecrets() {
+		// A row written before the switch may still hold its secret in the
+		// column; a soft-deleted row must not keep it.
+		query = `UPDATE provider_profiles SET deleted_at = NOW(), client_secret = NULL WHERE id = $1`
+	}
 	_, err := s.db.Exec(query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete provider profile: %w", err)
@@ -624,8 +629,12 @@ func (s *Store) DeleteProfileByName(name string) (int64, error) {
 	// concurrently under the same name is either deleted here and its secret
 	// dropped below, or left alone entirely; never deleted with its secret
 	// orphaned.
+	query := `UPDATE provider_profiles SET deleted_at = NOW() WHERE name = $1 AND deleted_at IS NULL RETURNING id`
+	if s.externalSecrets() {
+		query = `UPDATE provider_profiles SET deleted_at = NOW(), client_secret = NULL WHERE name = $1 AND deleted_at IS NULL RETURNING id`
+	}
 	var deleted []uuid.UUID
-	if err := s.db.Select(&deleted, `UPDATE provider_profiles SET deleted_at = NOW() WHERE name = $1 AND deleted_at IS NULL RETURNING id`, name); err != nil {
+	if err := s.db.Select(&deleted, query, name); err != nil {
 		return 0, fmt.Errorf("failed to delete provider profiles: %w", err)
 	}
 	rowsAffected := int64(len(deleted))
