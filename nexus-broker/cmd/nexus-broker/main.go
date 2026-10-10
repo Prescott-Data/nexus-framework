@@ -19,6 +19,8 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/server"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/telemetry"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/providers"
+	gcpsecrets "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/providers/gcp"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-redis/redis/v8"
 	"github.com/jmoiron/sqlx"
@@ -84,7 +86,26 @@ func main() {
 	cachingClient := caching.NewCachingClient(redisClient, 1*time.Hour)
 
 	srv := server.NewServer(cfg.Port)
-	store := provider.NewStore(db)
+
+	var storeOpts []provider.Option
+	if cfg.SecretBackend == string(providers.KindGCPSecretManager) {
+		backend, err := gcpsecrets.New(context.Background(), gcpsecrets.Config{
+			ProjectID: cfg.GCPProjectID,
+			Prefix:    cfg.GCPSecretPrefix,
+		})
+		if err != nil {
+			log.Fatal("Failed to configure secret backend:", err)
+		}
+		defer backend.Close()
+		if err := backend.Ping(context.Background()); err != nil {
+			log.Fatal("Secret backend check failed:", err)
+		}
+		log.Printf("Provider client secrets: %s (project %s, prefix %s)", backend.Kind(), backend.ProjectID(), cfg.GCPSecretPrefix)
+		storeOpts = append(storeOpts, provider.WithSecretBackend(backend))
+	} else {
+		log.Printf("Provider client secrets: internal (provider_profiles.client_secret)")
+	}
+	store := provider.NewStore(db, storeOpts...)
 	auditSvc := audit.NewService(db)
 
 	providersHandler := handlers.NewProvidersHandler(store, auditSvc)

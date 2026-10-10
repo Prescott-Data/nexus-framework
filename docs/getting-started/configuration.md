@@ -38,6 +38,9 @@ Both the Broker and the Gateway must receive the same value for `STATE_KEY`. If 
 | `REQUIRE_API_KEY` | No | When `true`, the Broker rejects requests without a valid `X-API-Key` header. Default: `true` |
 | `REQUIRE_ALLOWLIST` | No | When `true`, the Broker enforces `ALLOWED_CIDRS` for all requests. Default: `false` |
 | `PORT` | No | Port the Broker listens on. Default: `8080` |
+| `SECRET_BACKEND` | No | Where OAuth2 provider client secrets are stored. `internal` (default) keeps them in Postgres; `gcp-secret-manager` stores them in Google Cloud Secret Manager. See [Provider Secret Backends](../guides/provider-secret-backends.md). |
+| `GCP_PROJECT_ID` | Conditional | Project for `gcp-secret-manager`. Optional on Cloud Run, GCE and GKE. |
+| `GCP_SECRET_PREFIX` | No | Secret ID prefix for `gcp-secret-manager`. Default: `nexus-providers` |
 
 ---
 

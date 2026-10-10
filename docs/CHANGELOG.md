@@ -12,6 +12,26 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## 0.5.0 <span class="changelog-date">2026-10-10</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.5.0" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Added**
+
+- **Provider client secrets can live in GCP Secret Manager.** `SECRET_BACKEND=gcp-secret-manager` on the Broker stores each OAuth2 provider's `client_secret` as its own Secret Manager secret, named `<GCP_SECRET_PREFIX>-<provider id>`, and leaves `provider_profiles.client_secret` NULL. Registration rolls back if the backend write fails, `PATCH` rotates the secret and destroys earlier versions, and deleting a provider deletes its secret. The default `internal` backend is unchanged, and rows that still carry a column value keep working after the switch. The Broker checks the backend at startup and refuses to boot if it cannot reach it. A Terraform module in `deploy/terraform/gcp/secret-backend` grants the Broker's service account create on the project plus admin on prefixed secrets only. First backend for #63; the `pkg/vault/providers.Backend` interface is where Vault and AWS go next.
+
+**Changed**
+
+- The token encryption helpers moved from `pkg/vault` to `pkg/vault/tokens`, so that `pkg/vault` can hold both the token vault and the provider secret backends. No behaviour change.
+
+</div>
+
+---
+
+<div class="changelog-release" markdown>
+
 ## 0.4.3 <span class="changelog-date">2026-10-10</span>
 
 <div class="changelog-meta" markdown>

@@ -162,6 +162,8 @@ Both keys must be identical across all instances of the same service. In Kuberne
 
 For Broker API key rotation, prefer `API_KEY_FILE` or `API_KEYS_FILE` backed by a mounted secret. The Broker reloads those files on `API_KEY_RELOAD_INTERVAL`, so updating the secret volume can add or remove accepted keys without restarting the pod.
 
+Provider `client_secret` values can be kept out of Postgres altogether with `SECRET_BACKEND=gcp-secret-manager`; see [Provider Secret Backends](../guides/provider-secret-backends.md).
+
 ## Health checks
 
 The Broker exposes `GET /health` and the Gateway exposes `GET /health`. Both return `200 OK` when the service is ready. Configure your load balancer to use these endpoints. The Sidecar also exposes `GET /health` plus Prometheus metrics at `GET /metrics`.

@@ -47,6 +47,13 @@ type BrokerConfig struct {
 	// separate step, such as a Kubernetes job.
 	AutoMigrate   bool
 	MigrationsDir string
+
+	// Where OAuth2 provider client secrets are stored. "internal" keeps them
+	// in provider_profiles.client_secret; an external backend moves them out
+	// of the database. See pkg/vault/providers.
+	SecretBackend   string
+	GCPProjectID    string
+	GCPSecretPrefix string
 }
 
 // Load reads all configuration from environment variables, validates required
@@ -73,6 +80,19 @@ func Load() (*BrokerConfig, error) {
 
 		AutoMigrate:   envBoolDefault("AUTO_MIGRATE", true),
 		MigrationsDir: envOr("MIGRATIONS_DIR", "/app/migrations"),
+
+		SecretBackend:   strings.ToLower(strings.TrimSpace(envOr("SECRET_BACKEND", "internal"))),
+		GCPProjectID:    strings.TrimSpace(os.Getenv("GCP_PROJECT_ID")),
+		GCPSecretPrefix: envOr("GCP_SECRET_PREFIX", "nexus-providers"),
+	}
+
+	switch cfg.SecretBackend {
+	case "internal", "gcp-secret-manager":
+	default:
+		return nil, fmt.Errorf("SECRET_BACKEND must be one of: internal, gcp-secret-manager (got %q)", cfg.SecretBackend)
+	}
+	if err := validateSecretPrefix(cfg.GCPSecretPrefix); err != nil {
+		return nil, err
 	}
 
 	// Parse allowed return domains
@@ -142,6 +162,21 @@ func Load() (*BrokerConfig, error) {
 	cfg.DatabaseURL = enforceDBSSL(cfg.DatabaseURL, cfg.EnforceDBSSL, cfg.DBSSLMode, cfg.DBSSLRootCert)
 
 	return cfg, nil
+}
+
+// validateSecretPrefix enforces Secret Manager's secret ID charset on the
+// prefix so a bad value fails at boot rather than on the first registration.
+func validateSecretPrefix(prefix string) error {
+	if prefix == "" {
+		return fmt.Errorf("GCP_SECRET_PREFIX must not be empty")
+	}
+	for _, r := range prefix {
+		isAlnum := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+		if !isAlnum && r != '-' && r != '_' {
+			return fmt.Errorf("GCP_SECRET_PREFIX may only contain letters, digits, '-' and '_' (got %q)", prefix)
+		}
+	}
+	return nil
 }
 
 func envOr(key, fallback string) string {

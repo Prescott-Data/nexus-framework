@@ -1,8 +1,10 @@
 package provider
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -13,16 +15,88 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/samlutil"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/providers"
 )
 
 // Store provides provider profile management
 type Store struct {
 	db *sqlx.DB
+
+	// secrets is where OAuth2 client secrets live. nil means the
+	// provider_profiles.client_secret column (the internal backend).
+	secrets providers.Backend
+}
+
+// Option configures a Store.
+type Option func(*Store)
+
+// WithSecretBackend moves OAuth2 client secrets out of the database into the
+// given backend. Rows written while the backend is active hold NULL in
+// client_secret; rows that still carry a column value keep working, so an
+// existing deployment can switch backends without a data migration.
+func WithSecretBackend(b providers.Backend) Option {
+	return func(s *Store) { s.secrets = b }
 }
 
 // NewStore creates a new provider store
-func NewStore(db *sqlx.DB) *Store {
-	return &Store{db: db}
+func NewStore(db *sqlx.DB, opts ...Option) *Store {
+	s := &Store{db: db}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// secretBackendTimeout bounds each call to an external secret backend. Store
+// methods have no context parameter, so the deadline is applied here.
+const secretBackendTimeout = 10 * time.Second
+
+func (s *Store) externalSecrets() bool { return s.secrets != nil }
+
+func (s *Store) secretCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), secretBackendTimeout)
+}
+
+// resolveSecret fills p.ClientSecret from the external backend when the row
+// holds NULL. A missing secret is left nil rather than failing the read, so a
+// provider whose secret was removed out of band still lists and reports
+// health; the OAuth exchange will fail with a clear provider error instead.
+func (s *Store) resolveSecret(p *Profile) error {
+	if !s.externalSecrets() || p.ClientSecret != nil {
+		return nil
+	}
+	if p.AuthType != "" && p.AuthType != "oauth2" {
+		return nil
+	}
+	ctx, cancel := s.secretCtx()
+	defer cancel()
+	v, err := s.secrets.Get(ctx, p.ID.String())
+	if errors.Is(err, providers.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("secret backend: read client_secret for provider %s: %w", p.ID, err)
+	}
+	p.ClientSecret = &v
+	return nil
+}
+
+func (s *Store) putSecret(id uuid.UUID, value string) error {
+	ctx, cancel := s.secretCtx()
+	defer cancel()
+	if err := s.secrets.Set(ctx, id.String(), value); err != nil {
+		return fmt.Errorf("secret backend: write client_secret for provider %s: %w", id, err)
+	}
+	return nil
+}
+
+func (s *Store) dropSecret(id uuid.UUID) error {
+	ctx, cancel := s.secretCtx()
+	defer cancel()
+	if err := s.secrets.Delete(ctx, id.String()); err != nil {
+		return fmt.Errorf("secret backend: delete client_secret for provider %s: %w", id, err)
+	}
+	return nil
 }
 
 // Profile represents a provider profile
@@ -163,9 +237,15 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		RETURNING id`
 
+	// With an external backend the row never holds the secret.
+	columnSecret := p.ClientSecret
+	if s.externalSecrets() {
+		columnSecret = nil
+	}
+
 	var id uuid.UUID
 	err = s.db.QueryRow(query,
-		p.Name, p.ClientID, p.ClientSecret, authURL, tokenURL, issuer,
+		p.Name, p.ClientID, columnSecret, authURL, tokenURL, issuer,
 		p.EnableDiscovery, scopes, p.AuthType, p.AuthHeader,
 		p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category,
 		p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID,
@@ -175,6 +255,17 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	}
 
 	p.ID = id
+
+	if s.externalSecrets() && p.ClientSecret != nil {
+		if err := s.putSecret(id, *p.ClientSecret); err != nil {
+			// The row exists but its secret does not; remove the row so the
+			// caller can retry cleanly rather than leave a half-registered provider.
+			if _, delErr := s.db.Exec(`DELETE FROM provider_profiles WHERE id = $1`, id); delErr != nil {
+				return nil, fmt.Errorf("%w (and failed to roll back row: %v)", err, delErr)
+			}
+			return nil, err
+		}
+	}
 	return &p, nil
 }
 
@@ -187,6 +278,9 @@ func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category, &p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage, &p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider profile: %w", err)
+	}
+	if err := s.resolveSecret(&p); err != nil {
+		return nil, err
 	}
 
 	return &p, nil
@@ -244,6 +338,9 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 			name, len(profiles),
 		)
 	}
+	if err := s.resolveSecret(&profiles[0]); err != nil {
+		return nil, err
+	}
 	return &profiles[0], nil
 }
 
@@ -283,7 +380,19 @@ func (s *Store) UpdateProfile(p *Profile) error {
 			updated_at = NOW()
 		WHERE id = $20 AND deleted_at IS NULL`
 
-	_, err := s.db.Exec(query, p.Name, p.ClientID, p.ClientSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID, p.ID)
+	columnSecret := p.ClientSecret
+	if s.externalSecrets() {
+		columnSecret = nil
+		// A full update that omits client_secret keeps the stored secret.
+		// Clearing a secret is done by deleting the provider, not by PUT.
+		if p.ClientSecret != nil {
+			if err := s.putSecret(p.ID, *p.ClientSecret); err != nil {
+				return err
+			}
+		}
+	}
+
+	_, err := s.db.Exec(query, p.Name, p.ClientID, columnSecret, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID, p.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update provider profile: %w", err)
 	}
@@ -314,6 +423,16 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 			column = "client_id"
 		case "client_secret":
 			column = "client_secret"
+			if s.externalSecrets() {
+				secret, ok := value.(string)
+				if !ok {
+					return fmt.Errorf("client_secret: must be a string")
+				}
+				if err := s.putSecret(id, secret); err != nil {
+					return err
+				}
+				value = nil
+			}
 		case "auth_url":
 			column = "auth_url"
 		case "token_url":
@@ -398,11 +517,21 @@ func (s *Store) DeleteProfile(id uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete provider profile: %w", err)
 	}
+	if s.externalSecrets() {
+		return s.dropSecret(id)
+	}
 	return nil
 }
 
 // DeleteProfileByName soft-deletes ALL provider profiles with the given name
 func (s *Store) DeleteProfileByName(name string) (int64, error) {
+	var ids []uuid.UUID
+	if s.externalSecrets() {
+		if err := s.db.Select(&ids, `SELECT id FROM provider_profiles WHERE name = $1 AND deleted_at IS NULL`, name); err != nil {
+			return 0, fmt.Errorf("failed to look up provider profiles: %w", err)
+		}
+	}
+
 	query := `UPDATE provider_profiles SET deleted_at = NOW() WHERE name = $1 AND deleted_at IS NULL`
 	result, err := s.db.Exec(query, name)
 	if err != nil {
@@ -411,6 +540,11 @@ func (s *Store) DeleteProfileByName(name string) (int64, error) {
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	for _, id := range ids {
+		if err := s.dropSecret(id); err != nil {
+			return rowsAffected, err
+		}
 	}
 	return rowsAffected, nil
 }
@@ -462,6 +596,12 @@ func (s *Store) GetAllProfiles() ([]Profile, error) {
 
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating all profiles: %w", err)
+	}
+
+	for i := range profiles {
+		if err := s.resolveSecret(&profiles[i]); err != nil {
+			return nil, err
+		}
 	}
 
 	return profiles, nil

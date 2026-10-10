@@ -1,0 +1,172 @@
+// Package gcp stores provider client secrets in Google Cloud Secret Manager.
+//
+// One secret per provider, named "<prefix>-<provider uuid>", with automatic
+// replication. Set adds a version and destroys the previous enabled versions
+// so that only the current secret is billed and readable. The broker's
+// service account needs secretmanager.secrets.create on the project and
+// Secret Manager admin on secrets under the prefix; see
+// deploy/terraform/gcp/secret-backend in the repository root.
+package gcp
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"cloud.google.com/go/compute/metadata"
+	secretmanager "cloud.google.com/go/secretmanager/apiv1"
+	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+	"google.golang.org/api/iterator"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/providers"
+)
+
+const managedByLabel = "nexus-broker"
+
+// Backend implements providers.Backend on Secret Manager.
+type Backend struct {
+	client    *secretmanager.Client
+	projectID string
+	prefix    string
+}
+
+// Config for New.
+type Config struct {
+	// ProjectID hosting the secrets. Empty means ask the metadata server,
+	// which works on Cloud Run, GCE and GKE.
+	ProjectID string
+	// Prefix for secret IDs. Required.
+	Prefix string
+}
+
+// New builds a Backend using Application Default Credentials.
+func New(ctx context.Context, cfg Config) (*Backend, error) {
+	if strings.TrimSpace(cfg.Prefix) == "" {
+		return nil, errors.New("gcp secret backend: prefix is required")
+	}
+	projectID := strings.TrimSpace(cfg.ProjectID)
+	if projectID == "" {
+		if !metadata.OnGCE() {
+			return nil, errors.New("gcp secret backend: GCP_PROJECT_ID is required outside Google Cloud")
+		}
+		id, err := metadata.ProjectIDWithContext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("gcp secret backend: resolve project from metadata server: %w", err)
+		}
+		projectID = id
+	}
+
+	client, err := secretmanager.NewClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("gcp secret backend: create client: %w", err)
+	}
+	return &Backend{client: client, projectID: projectID, prefix: cfg.Prefix}, nil
+}
+
+// Close releases the underlying gRPC connection.
+func (b *Backend) Close() error { return b.client.Close() }
+
+func (b *Backend) Kind() providers.Kind { return providers.KindGCPSecretManager }
+
+// ProjectID reports the project the backend writes to, for startup logs.
+func (b *Backend) ProjectID() string { return b.projectID }
+
+func (b *Backend) secretID(key string) string {
+	return b.prefix + "-" + key
+}
+
+func (b *Backend) secretName(key string) string {
+	return fmt.Sprintf("projects/%s/secrets/%s", b.projectID, b.secretID(key))
+}
+
+func isNotFound(err error) bool {
+	return status.Code(err) == codes.NotFound
+}
+
+func (b *Backend) Get(ctx context.Context, key string) (string, error) {
+	resp, err := b.client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
+		Name: b.secretName(key) + "/versions/latest",
+	})
+	if isNotFound(err) {
+		return "", providers.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("gcp secret backend: access %s: %w", b.secretID(key), err)
+	}
+	return string(resp.GetPayload().GetData()), nil
+}
+
+func (b *Backend) Set(ctx context.Context, key, value string) error {
+	name := b.secretName(key)
+
+	// Create the container on first write. A race with another writer is
+	// resolved by treating AlreadyExists as success.
+	_, err := b.client.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
+		Parent:   "projects/" + b.projectID,
+		SecretId: b.secretID(key),
+		Secret: &secretmanagerpb.Secret{
+			Replication: &secretmanagerpb.Replication{
+				Replication: &secretmanagerpb.Replication_Automatic_{
+					Automatic: &secretmanagerpb.Replication_Automatic{},
+				},
+			},
+			Labels: map[string]string{"managed-by": managedByLabel},
+		},
+	})
+	if err != nil && status.Code(err) != codes.AlreadyExists {
+		return fmt.Errorf("gcp secret backend: create %s: %w", b.secretID(key), err)
+	}
+
+	added, err := b.client.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
+		Parent:  name,
+		Payload: &secretmanagerpb.SecretPayload{Data: []byte(value)},
+	})
+	if err != nil {
+		return fmt.Errorf("gcp secret backend: add version to %s: %w", b.secretID(key), err)
+	}
+
+	// Retire earlier versions so only the current value is readable and
+	// billed. Failure here is not fatal: the new version is already live.
+	it := b.client.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+		Parent: name,
+		Filter: "state:ENABLED",
+	})
+	for {
+		v, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil
+		}
+		if v.GetName() == added.GetName() {
+			continue
+		}
+		_, _ = b.client.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{Name: v.GetName()})
+	}
+	return nil
+}
+
+func (b *Backend) Delete(ctx context.Context, key string) error {
+	err := b.client.DeleteSecret(ctx, &secretmanagerpb.DeleteSecretRequest{Name: b.secretName(key)})
+	if err != nil && !isNotFound(err) {
+		return fmt.Errorf("gcp secret backend: delete %s: %w", b.secretID(key), err)
+	}
+	return nil
+}
+
+// Ping reads a secret that cannot exist under the prefix. NotFound proves
+// the API is enabled and the caller may read under the prefix; any other
+// error (PermissionDenied, Unauthenticated, API disabled) is reported.
+func (b *Backend) Ping(ctx context.Context) error {
+	_, err := b.client.GetSecret(ctx, &secretmanagerpb.GetSecretRequest{
+		Name: b.secretName("00000000-0000-0000-0000-000000000000"),
+	})
+	if err == nil || isNotFound(err) {
+		return nil
+	}
+	return fmt.Errorf("gcp secret backend: project %s, prefix %s: %w", b.projectID, b.prefix, err)
+}

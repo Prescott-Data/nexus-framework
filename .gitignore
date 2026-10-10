@@ -60,3 +60,8 @@ site/
 docs/site/
 node_modules/
 __pycache__/
+
+# Terraform working directories (deploy/terraform/**)
+.terraform/
+*.tfstate
+*.tfstate.*
