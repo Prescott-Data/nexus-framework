@@ -68,7 +68,7 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Configure deploy key for the tag push
+      - name: Create tag
         if: steps.check.outputs.exists == 'false'
         env:
           RELEASE_TAG_DEPLOY_KEY: ${{ secrets.RELEASE_TAG_DEPLOY_KEY }}
@@ -77,21 +77,19 @@ jobs:
             echo "::error::RELEASE_TAG_DEPLOY_KEY secret is not set. See the comment at the top of this workflow."
             exit 1
           fi
+          # The private key exists on disk only for the duration of this step.
+          key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s\n' "$RELEASE_TAG_DEPLOY_KEY" > "$key_file"
+          chmod 600 "$key_file"
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$RELEASE_TAG_DEPLOY_KEY" > ~/.ssh/release_key
-          chmod 600 ~/.ssh/release_key
           ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
-          git remote set-url origin "git@github.com:${GITHUB_REPOSITORY}.git"
 
-      - name: Create tag
-        if: steps.check.outputs.exists == 'false'
-        env:
-          GIT_SSH_COMMAND: ssh -i ~/.ssh/release_key -o IdentitiesOnly=yes
-        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
+          GIT_SSH_COMMAND="ssh -i $key_file -o IdentitiesOnly=yes" \
+            git push "git@github.com:${GITHUB_REPOSITORY}.git" "${{ steps.version.outputs.tag }}"
 
       - name: Generate release notes
         if: steps.check.outputs.exists == 'false'

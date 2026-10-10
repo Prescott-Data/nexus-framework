@@ -11,6 +11,7 @@
 #   openapi.yaml, nexus-broker/openapi.yaml   info.version
 #   mkdocs.yml                                extra.version
 #   nexus-sdk-ts/package.json                 "version"
+#   nexus-sdk-ts/package-lock.json            root "version" and packages[""].version
 #   nexus-sdk-python/pyproject.toml           version
 #   nexus-sdk-python/nexus_sdk/__init__.py    __version__
 #
@@ -66,8 +67,23 @@ edit_in_place "s/^  version: \".*\"/  version: \"${VERSION}\"/" "$ROOT/mkdocs.ym
 # TypeScript SDK: top-level "version" in package.json
 edit_in_place "s/^  \"version\": \"[^\"]*\"/  \"version\": \"${VERSION}\"/" "$ROOT/nexus-sdk-ts/package.json"
 
+# TypeScript SDK lockfile: the top-level "version" (2-space indent) and the
+# root package entry under packages[""] (6-space indent, first such line).
+# Dependency entries deeper in the file are left alone.
+stamp_lockfile() {
+  local file="$1" temporary
+  [[ -f "$file" ]] || return 0
+  temporary="$(mktemp)"
+  awk -v version="$VERSION" '
+    !top  && /^  "version": "/       { print "  \"version\": \"" version "\","; top = 1; next }
+    !root && /^      "version": "/   { print "      \"version\": \"" version "\","; root = 1; next }
+    { print }
+  ' "$file" > "$temporary" && mv "$temporary" "$file"
+}
+stamp_lockfile "$ROOT/nexus-sdk-ts/package-lock.json"
+
 # Python SDK: pyproject [project] version and the package __version__
 edit_in_place "s/^version = \"[^\"]*\"/version = \"${VERSION}\"/" "$ROOT/nexus-sdk-python/pyproject.toml"
 edit_in_place "s/^__version__ = \"[^\"]*\"/__version__ = \"${VERSION}\"/" "$ROOT/nexus-sdk-python/nexus_sdk/__init__.py"
 
-echo "Stamped version ${VERSION} into: openapi.yaml, nexus-broker/openapi.yaml, mkdocs.yml, nexus-sdk-ts/package.json, nexus-sdk-python/pyproject.toml, nexus-sdk-python/nexus_sdk/__init__.py"
+echo "Stamped version ${VERSION} into: openapi.yaml, nexus-broker/openapi.yaml, mkdocs.yml, nexus-sdk-ts/package.json, nexus-sdk-ts/package-lock.json, nexus-sdk-python/pyproject.toml, nexus-sdk-python/nexus_sdk/__init__.py"

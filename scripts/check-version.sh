@@ -20,7 +20,8 @@ fail=0
 #    against git, so the check behaves the same on a dirty working tree.
 stamped_files=(
   openapi.yaml nexus-broker/openapi.yaml mkdocs.yml
-  nexus-sdk-ts/package.json nexus-sdk-python/pyproject.toml nexus-sdk-python/nexus_sdk/__init__.py
+  nexus-sdk-ts/package.json nexus-sdk-ts/package-lock.json
+  nexus-sdk-python/pyproject.toml nexus-sdk-python/nexus_sdk/__init__.py
 )
 fingerprint() { shasum -a 256 "$ROOT/$1" | cut -d' ' -f1; }
 # Indexed arrays only: stock macOS bash is 3.2 and has no associative arrays.
@@ -38,6 +39,25 @@ if (( ${#drifted[@]} > 0 )); then
   fail=1
 fi
 
+# 1b. Each surface must actually carry the field. A no-op stamp proves nothing
+#     if the field was deleted or reformatted so that no expression matched.
+expect() {
+  local file="$1" pattern="$2"
+  if ! grep -qE "$pattern" "$ROOT/$file"; then
+    echo "❌ ${file}: expected a line matching /${pattern}/ carrying VERSION=${VERSION}." >&2
+    fail=1
+  fi
+}
+v="$(printf '%s' "$VERSION" | sed 's/\./\\./g')"
+expect openapi.yaml                           "^  version: ${v}\$"
+expect nexus-broker/openapi.yaml              "^  version: ${v}\$"
+expect mkdocs.yml                             "^  version: \"${v}\"\$"
+expect nexus-sdk-ts/package.json              "^  \"version\": \"${v}\",?\$"
+expect nexus-sdk-ts/package-lock.json         "^  \"version\": \"${v}\",?\$"
+expect nexus-sdk-ts/package-lock.json         "^      \"version\": \"${v}\",?\$"
+expect nexus-sdk-python/pyproject.toml        "^version = \"${v}\"\$"
+expect nexus-sdk-python/nexus_sdk/__init__.py "^__version__ = \"${v}\"\$"
+
 # 2. Changelog top section
 top="$(grep -m1 -E '^## ' "$ROOT/docs/CHANGELOG.md" | sed -E 's/^## ([^ <]+).*/\1/')"
 if [[ "$top" != "$VERSION" ]]; then
@@ -45,14 +65,22 @@ if [[ "$top" != "$VERSION" ]]; then
   fail=1
 fi
 
-# 3. Tags newer than VERSION
-latest_tag="$(git -C "$ROOT" tag -l 'v*' | sed 's/^v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
-if [[ -n "$latest_tag" ]]; then
-  newest="$(printf '%s\n%s\n' "$latest_tag" "$VERSION" | sort -V | tail -1)"
-  if [[ "$newest" != "$VERSION" ]]; then
-    echo "❌ Tag v${latest_tag} is newer than VERSION=${VERSION}. A release was tagged outside the release workflow. Bump VERSION past it." >&2
-    fail=1
-  fi
+# 3. Tags newer than VERSION. Compared numerically in awk; `sort -V` is not
+#    available on every BSD/busybox sort.
+semver_gt() { # semver_gt A B: true when A > B
+  awk -v a="$1" -v b="$2" 'BEGIN {
+    split(a, x, "."); split(b, y, ".")
+    for (i = 1; i <= 3; i++) { if (x[i]+0 > y[i]+0) exit 0; if (x[i]+0 < y[i]+0) exit 1 }
+    exit 1
+  }'
+}
+latest_tag=""
+for t in $(git -C "$ROOT" tag -l 'v*' | sed 's/^v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true); do
+  if [[ -z "$latest_tag" ]] || semver_gt "$t" "$latest_tag"; then latest_tag="$t"; fi
+done
+if [[ -n "$latest_tag" ]] && semver_gt "$latest_tag" "$VERSION"; then
+  echo "❌ Tag v${latest_tag} is newer than VERSION=${VERSION}. A release was tagged outside the release workflow. Bump VERSION past it." >&2
+  fail=1
 fi
 
 if [[ "$fail" -ne 0 ]]; then
