@@ -91,8 +91,10 @@ func Load() (*BrokerConfig, error) {
 	default:
 		return nil, fmt.Errorf("SECRET_BACKEND must be one of: internal, gcp-secret-manager (got %q)", cfg.SecretBackend)
 	}
-	if err := validateSecretPrefix(cfg.GCPSecretPrefix); err != nil {
-		return nil, err
+	if cfg.SecretBackend == "gcp-secret-manager" {
+		if err := validateSecretPrefix(cfg.GCPSecretPrefix); err != nil {
+			return nil, err
+		}
 	}
 
 	// Parse allowed return domains

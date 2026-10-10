@@ -129,23 +129,31 @@ func (b *Backend) Set(ctx context.Context, key, value string) error {
 	}
 
 	// Retire earlier versions so only the current value is readable and
-	// billed. Failure here is not fatal: the new version is already live.
+	// billed. The new version is already live at this point; a failure here
+	// is still reported so that callers do not believe the old value is gone.
 	it := b.client.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
 		Parent: name,
 		Filter: "state:ENABLED",
 	})
+	var retireErrs []error
 	for {
 		v, err := it.Next()
 		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {
-			return nil
+			retireErrs = append(retireErrs, fmt.Errorf("list versions: %w", err))
+			break
 		}
 		if v.GetName() == added.GetName() {
 			continue
 		}
-		_, _ = b.client.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{Name: v.GetName()})
+		if _, err := b.client.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{Name: v.GetName()}); err != nil {
+			retireErrs = append(retireErrs, fmt.Errorf("destroy %s: %w", v.GetName(), err))
+		}
+	}
+	if len(retireErrs) > 0 {
+		return fmt.Errorf("gcp secret backend: %s: new version is live but earlier versions were not retired: %w", b.secretID(key), errors.Join(retireErrs...))
 	}
 	return nil
 }

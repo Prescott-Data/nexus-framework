@@ -18,10 +18,18 @@ import (
 
 // failingBackend rejects every write so the store's rollback path can be
 // exercised without a real backend.
-type failingBackend struct{ providers.Memory }
+type failingBackend struct {
+	providers.Memory
+	deleted []string
+}
 
 func (f *failingBackend) Set(context.Context, string, string) error {
 	return errors.New("backend unavailable")
+}
+
+func (f *failingBackend) Delete(_ context.Context, key string) error {
+	f.deleted = append(f.deleted, key)
+	return nil
 }
 
 const (
@@ -81,7 +89,8 @@ func TestRegisterProfile_ExternalBackend_RowHoldsNull(t *testing.T) {
 }
 
 func TestRegisterProfile_ExternalBackend_WriteFailureRollsBackRow(t *testing.T) {
-	store, mock := newStoreWithBackend(t, &failingBackend{})
+	backend := &failingBackend{}
+	store, mock := newStoreWithBackend(t, backend)
 
 	mock.ExpectQuery(`SELECT id FROM provider_profiles WHERE name = \$1`).
 		WithArgs("acme").WillReturnError(sql.ErrNoRows)
@@ -94,6 +103,7 @@ func TestRegisterProfile_ExternalBackend_WriteFailureRollsBackRow(t *testing.T) 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "backend unavailable")
 	assert.NoError(t, mock.ExpectationsWereMet(), "the half-registered row must be removed")
+	assert.Equal(t, []string{testProviderID}, backend.deleted, "a partially written secret must be removed too")
 }
 
 func TestGetProfile_ExternalBackend_ResolvesSecret(t *testing.T) {

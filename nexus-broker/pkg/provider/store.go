@@ -258,10 +258,19 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 
 	if s.externalSecrets() && p.ClientSecret != nil {
 		if err := s.putSecret(id, *p.ClientSecret); err != nil {
-			// The row exists but its secret does not; remove the row so the
-			// caller can retry cleanly rather than leave a half-registered provider.
+			// Undo both halves. The backend write may have failed part way
+			// (container created, version not added, or an ambiguous timeout
+			// after the version went live), so the secret is removed as well
+			// as the row; deleting a missing secret is not an error.
+			var cleanup []error
 			if _, delErr := s.db.Exec(`DELETE FROM provider_profiles WHERE id = $1`, id); delErr != nil {
-				return nil, fmt.Errorf("%w (and failed to roll back row: %v)", err, delErr)
+				cleanup = append(cleanup, fmt.Errorf("roll back row: %w", delErr))
+			}
+			if dropErr := s.dropSecret(id); dropErr != nil {
+				cleanup = append(cleanup, dropErr)
+			}
+			if len(cleanup) > 0 {
+				return nil, fmt.Errorf("%w (cleanup also failed: %w)", err, errors.Join(cleanup...))
 			}
 			return nil, err
 		}
