@@ -96,10 +96,9 @@ services:
       STATE_KEY: ${STATE_KEY}
       BROKER_API_KEY: ${BROKER_API_KEY}
       
-      # Policies
-      ALLOWED_CIDRS: ${ALLOWED_CIDRS}
-      ALLOWED_RETURN_DOMAINS: ${ALLOWED_RETURN_DOMAINS}
-      REQUIRE_API_KEY: ${REQUIRE_API_KEY}
+      # Who may call the Gateway
+      GATEWAY_REQUIRE_API_KEY: ${GATEWAY_REQUIRE_API_KEY:-false}
+      GATEWAY_API_KEYS: ${GATEWAY_API_KEYS:-}
 
   sidecar:
     build:

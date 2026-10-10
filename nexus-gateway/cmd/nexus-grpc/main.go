@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/config"
 	"log"
 	"net/http"
 	"os"
@@ -74,11 +75,22 @@ func main() {
 		log.Printf("Warning: Failed to connect to Redis at %s: %v", redisURL, err)
 	}
 
+	keyCfg, err := config.LoadAPIKeyConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+	keySource, err := keyCfg.Source()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	srv, err := grpcsrv.NewServer(grpcsrv.Options{
-		GRPCAddress: ":" + portGRPC,
-		HTTPAddress: ":" + portHTTP,
-		Handler:     handler,
-		RedisClient: redisClient,
+		GRPCAddress:   ":" + portGRPC,
+		HTTPAddress:   ":" + portHTTP,
+		Handler:       handler,
+		RedisClient:   redisClient,
+		RequireAPIKey: keyCfg.Require,
+		APIKeys:       keySource,
 	})
 	if err != nil {
 		log.Fatal(err)

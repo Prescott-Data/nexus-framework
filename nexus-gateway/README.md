@@ -6,7 +6,8 @@ The **Gateway** is the public-facing entry point for the Nexus Framework. It act
 *   **Abstraction:** Hides internal Broker APIs and implementation details.
 *   **Provider Resolution:** Resolves human-readable provider names (e.g., "google") to internal UUIDs.
 *   **State Verification:** Pre-validates the `state` parameter and extracts `connection_id` immediately, enabling easier frontend polling.
-*   **Proxy:** Proxies token requests and metadata lookups to the Broker, handling authentication via a shared API Key.
+*   **Proxy:** Proxies token requests and metadata lookups to the Broker, authenticating to it with `BROKER_API_KEY`.
+*   **Gate:** With `GATEWAY_REQUIRE_API_KEY=true`, callers must present `X-API-Key` (one of `GATEWAY_API_KEYS`); `/health`, `/auth/callback` and the credential-capture pages stay public.
 
 ## API Endpoints (HTTP)
 
@@ -139,6 +140,9 @@ make build-grpc   # Build gRPC Gateway
 export BROKER_BASE_URL="http://localhost:8080"
 export STATE_KEY="<same-base64-key-as-broker>"
 export BROKER_API_KEY="<broker-api-key>"
+# Who may call the Gateway. Off by default (with a startup warning); turn on before exposing it.
+export GATEWAY_REQUIRE_API_KEY=true
+export GATEWAY_API_KEYS="<key-for-agents-and-sdks>"
 
 make run-rest
 ```

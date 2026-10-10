@@ -52,6 +52,10 @@ Both the Broker and the Gateway must receive the same value for `STATE_KEY`. If 
 | `BROKER_API_KEY` | Yes | API key used to authenticate the Gateway with the Broker. Must match the Broker's `API_KEY`. |
 | `STATE_KEY` | Yes | Same as the shared `STATE_KEY`. Must match the Broker exactly. |
 | `PORT` | No | Port the Gateway listens on. Default: `8090` |
+| `GATEWAY_REQUIRE_API_KEY` | No | When `true`, every route except `/health`, `/auth/callback`, `/v1/capture-schema` and `/v1/capture-credential` requires a valid `X-API-Key`. Default: `false`, which logs a warning at startup. Turn it on before exposing the Gateway. |
+| `GATEWAY_API_KEYS` | Conditional | Comma-separated keys callers (agents, SDKs, the frontend) present to the Gateway. Required with `GATEWAY_REQUIRE_API_KEY=true` unless a key file is set. Distinct from `BROKER_API_KEY`, which the Gateway presents to the Broker. |
+| `GATEWAY_API_KEY_FILE` / `GATEWAY_API_KEYS_FILE` | No | Mounted secret file(s) with one key, or comma- or newline-separated keys. Reloaded without restart. |
+| `GATEWAY_API_KEY_RELOAD_INTERVAL` | No | How often key files are re-read. Default: `30s` |
 
 ---
 

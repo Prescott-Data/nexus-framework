@@ -337,6 +337,11 @@ func (c *Client) do(ctx context.Context, method, urlStr string, headers map[stri
 		if err != nil {
 			return nil, err
 		}
+		// The Gateway checks X-API-Key when GATEWAY_REQUIRE_API_KEY is on;
+		// this is the key configured with WithBroker, as in the other SDKs.
+		if c.BrokerAPIKey != "" {
+			req.Header.Set("X-API-Key", c.BrokerAPIKey)
+		}
 		for k, v := range headers {
 			req.Header.Set(k, v)
 		}

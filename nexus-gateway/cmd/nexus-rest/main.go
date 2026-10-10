@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 
+	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/config"
 	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/server"
 )
 
@@ -76,7 +77,16 @@ func main() {
 		// We proceed anyway; RateLimiter fails open
 	}
 
-	srv := server.New(port, brokerBaseURL, stateKey, httpClient, redisClient)
+	keyCfg, err := config.LoadAPIKeyConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+	keySource, err := keyCfg.Source()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	srv := server.New(port, brokerBaseURL, stateKey, httpClient, redisClient, server.WithAPIKey(keyCfg.Require, keySource))
 
 	log.Printf("Starting Nexus on port %s, broker=%s", port, brokerBaseURL)
 	log.Printf("Version: %s", Version)

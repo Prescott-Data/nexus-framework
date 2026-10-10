@@ -49,6 +49,10 @@ Store these in your secret manager (AWS Secrets Manager, Azure Key Vault, HashiC
 | `BROKER_BASE_URL` | yes | Internal URL of the Broker, e.g. `http://broker.internal:8080` |
 | `BROKER_API_KEY` | yes | The Broker's `API_KEY` |
 | `PORT` | no | Port to listen on (default: `8090`) |
+| `GATEWAY_REQUIRE_API_KEY` | yes, in production | `true`: callers must present `X-API-Key`. The Gateway is the component agents reach, so this is the lock on token minting. |
+| `GATEWAY_API_KEYS` | with the above | Keys for agents and SDKs (or `GATEWAY_API_KEY_FILE` for a mounted secret) |
+
+The Gateway's `/health`, `/auth/callback` and the credential-capture pages stay public; they are reached by load balancers and by the user's browser, not by the SDK.
 
 ## Sidecar environment variables
 
