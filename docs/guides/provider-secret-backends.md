@@ -35,7 +35,7 @@ The Broker authenticates to Secret Manager with Application Default Credentials:
 
 Existing rows that still carry a column value keep working after you switch backends: the Broker reads the column when it is set and the backend only when it is NULL. New and updated providers go to the backend. Nothing moves automatically.
 
-Switching back from an external backend to `internal` is not transparent: providers registered while the backend was active have a NULL column, and the internal backend flags them as missing their secret rather than serving an empty one. Rotate each with `PATCH` to store the secret in the column, or keep the backend configured.
+Switching back from an external backend to `internal` is not transparent: providers registered while the backend was active have a NULL column, and the internal backend flags them as missing their secret rather than serving an empty one. Rotate each with `PATCH` to store the secret in the column, or keep the backend configured. Under the internal backend the Broker cannot delete Secret Manager secrets, so after rotating or deleting such a provider remove its old secret (`<prefix>-<provider id>`) yourself; cleaner is to delete the providers you intend to drop while the GCP backend is still configured.
 
 ## Startup check
 

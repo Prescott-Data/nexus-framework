@@ -362,22 +362,12 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	}
 
 	if err := tx.Commit(); err != nil {
-		// A commit error can have an unknown outcome (committed, then the
-		// acknowledgement was lost). Only drop the secret once the database
-		// confirms the row is absent; if it exists, or cannot be checked,
-		// keep the secret so a committed provider is never left without it.
-		var exists bool
-		checkErr := s.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM provider_profiles WHERE id = $1)`, id).Scan(&exists)
-		switch {
-		case checkErr != nil:
-			return nil, fmt.Errorf("database: failed to commit provider profile: %w (outcome unknown, secret %s kept: %w)", err, id, checkErr)
-		case exists:
-			return nil, fmt.Errorf("database: commit reported an error but provider %s exists; its secret is in place: %w", id, err)
-		}
-		if dropErr := s.dropSecret(id); dropErr != nil {
-			return nil, fmt.Errorf("database: failed to commit provider profile: %w (cleanup also failed: %w)", err, dropErr)
-		}
-		return nil, fmt.Errorf("database: failed to commit provider profile: %w", err)
+		// A commit error has an unknown outcome: the row may still become
+		// visible after the connection dropped. The secret is always kept,
+		// because an orphaned secret is cheap and easy to list, while a
+		// committed provider without its credential is broken. The error
+		// names the secret so an operator can remove it if the row is absent.
+		return nil, fmt.Errorf("database: commit of provider profile failed with an unknown outcome; secret %s kept, verify the row and remove the secret if it is absent: %w", id, err)
 	}
 
 	p.ID = inserted
