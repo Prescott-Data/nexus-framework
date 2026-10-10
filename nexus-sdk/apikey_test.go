@@ -16,7 +16,7 @@ func TestClientSendsAPIKeyToGateway(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(WithBroker(srv.URL, "agent-key"))
+	c := New(srv.URL, WithBroker(srv.URL, "agent-key"))
 	resp, err := c.do(context.Background(), http.MethodGet, srv.URL+"/v1/providers", nil, nil)
 	if err != nil {
 		t.Fatal(err)
