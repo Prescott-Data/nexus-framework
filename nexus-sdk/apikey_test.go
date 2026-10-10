@@ -16,13 +16,13 @@ func TestClientSendsAPIKeyToGateway(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, WithBroker(srv.URL, "agent-key"))
+	c := New(srv.URL, WithAPIKey("agent-key"), WithBroker("http://broker.internal", "broker-admin-key"))
 	resp, err := c.do(context.Background(), http.MethodGet, srv.URL+"/v1/providers", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
 	if got != "agent-key" {
-		t.Fatalf("X-API-Key = %q, want agent-key", got)
+		t.Fatalf("X-API-Key = %q, want the gateway key, never the broker key", got)
 	}
 }

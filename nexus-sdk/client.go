@@ -23,6 +23,9 @@ type Client struct {
 	// Optional for temporary direct refresh via Broker until gateway has proxy
 	BrokerBaseURL string
 	BrokerAPIKey  string
+	// APIKey is presented to the Gateway as X-API-Key on every request.
+	// Required when the Gateway runs with GATEWAY_REQUIRE_API_KEY=true.
+	APIKey string
 
 	// Optional logger and retry policy
 	Logger      Logger
@@ -55,6 +58,9 @@ func WithBroker(baseURL, apiKey string) Option {
 	}
 }
 func WithLogger(l Logger) Option     { return func(c *Client) { c.Logger = l } }
+
+// WithAPIKey sets the key the Gateway requires from callers (X-API-Key).
+func WithAPIKey(key string) Option { return func(c *Client) { c.APIKey = key } }
 func WithRetry(p RetryPolicy) Option { return func(c *Client) { c.RetryPolicy = p } }
 
 // Logger is a minimal logging interface.
@@ -337,10 +343,12 @@ func (c *Client) do(ctx context.Context, method, urlStr string, headers map[stri
 		if err != nil {
 			return nil, err
 		}
-		// The Gateway checks X-API-Key when GATEWAY_REQUIRE_API_KEY is on;
-		// this is the key configured with WithBroker, as in the other SDKs.
-		if c.BrokerAPIKey != "" {
-			req.Header.Set("X-API-Key", c.BrokerAPIKey)
+		// The Gateway checks X-API-Key when GATEWAY_REQUIRE_API_KEY is on.
+		// This is the caller key from WithAPIKey, the same option the
+		// TypeScript and Python SDKs expose as apiKey; BrokerAPIKey is the
+		// separate credential for talking to the Broker directly.
+		if c.APIKey != "" {
+			req.Header.Set("X-API-Key", c.APIKey)
 		}
 		for k, v := range headers {
 			req.Header.Set(k, v)

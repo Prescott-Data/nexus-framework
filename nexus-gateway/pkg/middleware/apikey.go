@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -116,7 +117,11 @@ func (s *ReloadingAPIKeySource) reloadIfDue() {
 	next, err := s.load()
 	s.lastReload = now
 	if err != nil {
-		return // keep the last good set
+		// Keep the last good set so a transient mount problem does not lock
+		// every caller out, but say so: a revoked key stays valid until the
+		// next successful reload. At most once per interval.
+		log.Printf("WARNING: gateway api key reload failed; keeping the previous %d key(s) until the next attempt in %s: %v", len(s.keys), s.reloadInterval, err)
+		return
 	}
 	s.keys = next
 }

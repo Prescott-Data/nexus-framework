@@ -10,6 +10,13 @@ servers:
     description: Production
   - url: http://localhost:8090
     description: Local development
+# Every operation in this contract requires the caller key when the Gateway
+# runs with GATEWAY_REQUIRE_API_KEY=true (recommended wherever it is reachable).
+# Missing key: 401 missing_api_key. Wrong key: 403 invalid_api_key. The public
+# paths (/health, /auth/callback, /v1/capture-schema, /v1/capture-credential)
+# are outside this contract and never require it.
+security:
+  - ApiKeyAuth: []
 paths:
   /v1/providers:
     get:
@@ -191,6 +198,12 @@ paths:
         '503':
           $ref: '#/components/responses/UpstreamError'
 components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Caller key, one of the Gateway's GATEWAY_API_KEYS. Enforced when GATEWAY_REQUIRE_API_KEY=true.
   schemas:
     ProviderMetadataResponse:
       type: object
