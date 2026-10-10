@@ -204,14 +204,23 @@ func (b *Backend) Delete(ctx context.Context, key string) error {
 // a second, so the cost is nil. Any failure, such as a missing create binding,
 // PermissionDenied on the prefix, or the API being disabled, is reported at
 // startup rather than on the first registration.
-func (b *Backend) Ping(ctx context.Context) error {
+func (b *Backend) Ping(ctx context.Context) (err error) {
 	key := uuid.NewString()
 	defer func() {
-		// Best-effort cleanup under its own short deadline, so a probe that
-		// timed out does not leave startup hanging in the delete.
+		// Cleanup under its own short deadline, so a probe that timed out
+		// does not leave startup hanging in the delete. A cleanup failure is
+		// reported with the secret id: it means a probe container may remain,
+		// which `gcloud secrets list --filter=name:<prefix>-` will show.
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		_ = b.Delete(cleanupCtx, key)
+		if cleanupErr := b.Delete(cleanupCtx, key); cleanupErr != nil {
+			cleanupErr = fmt.Errorf("probe secret %s was not cleaned up: %w", b.secretID(key), cleanupErr)
+			if err == nil {
+				err = cleanupErr
+			} else {
+				err = errors.Join(err, cleanupErr)
+			}
+		}
 	}()
 
 	// Written twice so the second Set has to retire the first version,

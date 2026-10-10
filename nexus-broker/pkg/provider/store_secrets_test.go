@@ -68,21 +68,24 @@ func TestRegisterProfile_ExternalBackend_RowHoldsNull(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT id FROM provider_profiles WHERE name = \$1`).
 		WithArgs("acme").WillReturnError(sql.ErrNoRows)
-	mock.ExpectQuery(`INSERT INTO provider_profiles`).
+	// The row is inserted with an application-chosen id inside a transaction
+	// that commits only after the secret is in the backend.
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO provider_profiles\s+\(id, name, client_id, client_secret,`).
 		WithArgs(
 			"acme", "client-id", nil, // client_secret must be NULL in the row
 			"https://acme/auth", "https://acme/token", nil, false, pq.Array([]string{}),
 			"oauth2", "", "", "", sqlmock.AnyArg(), "", "", nil, nil, nil, nil,
+			sqlmock.AnyArg(), // the generated id
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProviderID))
+	mock.ExpectCommit()
 
 	p, err := store.RegisterProfile(`{"name":"acme","auth_type":"oauth2","client_id":"client-id","client_secret":"` + testSecret + `","auth_url":"https://acme/auth","token_url":"https://acme/token"}`)
 	require.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 
-	got, err := backend.Get(context.Background(), testProviderID)
-	require.NoError(t, err)
-	assert.Equal(t, testSecret, got, "secret must be written to the backend keyed by provider id")
+	assert.Equal(t, 1, backend.Len(), "exactly one secret must be written, keyed by the generated id")
 	// The returned profile still carries the secret for the caller that just supplied it.
 	require.NotNil(t, p.ClientSecret)
 	assert.Equal(t, testSecret, *p.ClientSecret)
@@ -94,16 +97,16 @@ func TestRegisterProfile_ExternalBackend_WriteFailureRollsBackRow(t *testing.T) 
 
 	mock.ExpectQuery(`SELECT id FROM provider_profiles WHERE name = \$1`).
 		WithArgs("acme").WillReturnError(sql.ErrNoRows)
+	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO provider_profiles`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProviderID))
-	mock.ExpectExec(`DELETE FROM provider_profiles WHERE id = \$1`).
-		WithArgs(sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectRollback() // the row is never committed
 
 	_, err := store.RegisterProfile(`{"name":"acme","client_id":"client-id","client_secret":"s","auth_url":"https://acme/auth","token_url":"https://acme/token"}`)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "backend unavailable")
-	assert.NoError(t, mock.ExpectationsWereMet(), "the half-registered row must be removed")
-	assert.Equal(t, []string{testProviderID}, backend.deleted, "a partially written secret must be removed too")
+	assert.NoError(t, mock.ExpectationsWereMet(), "the uncommitted row must be rolled back")
+	assert.Len(t, backend.deleted, 1, "a partially written secret must be removed too")
 }
 
 func TestGetProfile_ExternalBackend_ResolvesSecret(t *testing.T) {

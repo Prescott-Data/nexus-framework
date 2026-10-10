@@ -31,16 +31,18 @@ func NewProvidersHandler(store provider.ProfileStorer, auditSvc audit.Logger) *P
 // writeStoreError maps an operational secret-backend failure to a sanitized
 // 503; everything else gets the status and code the caller chose.
 func writeStoreError(w http.ResponseWriter, err error, status int, code, message string) {
+	// Backend failures first: a not-found that also failed to clean up its
+	// secret must read as retryable, not as a final 404.
+	if errors.Is(err, provider.ErrSecretBackend) {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "secret_backend_unavailable", "The provider secret backend is unavailable; retry later")
+		return
+	}
 	if errors.Is(err, provider.ErrProviderNotFound) {
 		httputil.WriteError(w, http.StatusNotFound, "provider_not_found", "Provider not found")
 		return
 	}
 	if errors.Is(err, provider.ErrInvalidProfile) {
 		httputil.WriteError(w, http.StatusBadRequest, "invalid_profile", strings.TrimPrefix(err.Error(), provider.ErrInvalidProfile.Error()+": "))
-		return
-	}
-	if errors.Is(err, provider.ErrSecretBackend) {
-		httputil.WriteError(w, http.StatusServiceUnavailable, "secret_backend_unavailable", "The provider secret backend is unavailable; retry later")
 		return
 	}
 	httputil.WriteError(w, status, code, message)

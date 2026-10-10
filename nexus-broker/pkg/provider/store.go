@@ -312,44 +312,64 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		RETURNING id`
 
-	// With an external backend the row never holds the secret.
-	columnSecret := p.ClientSecret
-	if s.externalSecrets() {
-		columnSecret = nil
+	if !s.externalSecrets() || p.ClientSecret == nil {
+		var id uuid.UUID
+		err = s.db.QueryRow(query,
+			p.Name, p.ClientID, p.ClientSecret, authURL, tokenURL, issuer,
+			p.EnableDiscovery, scopes, p.AuthType, p.AuthHeader,
+			p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category,
+			p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID,
+		).Scan(&id)
+		if err != nil {
+			return nil, fmt.Errorf("database: failed to create provider profile: %w", err)
+		}
+		p.ID = id
+		return &p, nil
 	}
 
-	var id uuid.UUID
-	err = s.db.QueryRow(query,
-		p.Name, p.ClientID, columnSecret, authURL, tokenURL, issuer,
+	// External backend: the id is chosen here so the secret can be written
+	// under it before the row is published. The insert stays uncommitted
+	// until the backend write succeeds, so no reader ever sees a row whose
+	// secret does not exist yet, and a crash in between leaves no row behind.
+	id := uuid.New()
+	query = strings.Replace(query, "(name, client_id, client_secret,", "(id, name, client_id, client_secret,", 1)
+	query = strings.Replace(query, "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)", "VALUES ($20,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)", 1)
+
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, fmt.Errorf("database: failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var inserted uuid.UUID
+	err = tx.QueryRow(query,
+		p.Name, p.ClientID, nil, authURL, tokenURL, issuer,
 		p.EnableDiscovery, scopes, p.AuthType, p.AuthHeader,
 		p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category,
 		p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID,
-	).Scan(&id)
+		id,
+	).Scan(&inserted)
 	if err != nil {
 		return nil, fmt.Errorf("database: failed to create provider profile: %w", err)
 	}
 
-	p.ID = id
-
-	if s.externalSecrets() && p.ClientSecret != nil {
-		if err := s.putSecret(id, *p.ClientSecret); err != nil {
-			// Undo both halves. The backend write may have failed part way
-			// (container created, version not added, or an ambiguous timeout
-			// after the version went live), so the secret is removed as well
-			// as the row; deleting a missing secret is not an error.
-			// Row first. The secret is dropped only once the row is gone: if
-			// the row must remain, an ambiguously written secret is the safer
-			// state, since a NULL column with no secret would block retries by
-			// name while leaving the provider unusable.
-			if _, delErr := s.db.Exec(`DELETE FROM provider_profiles WHERE id = $1`, id); delErr != nil {
-				return nil, fmt.Errorf("%w (row %s could not be rolled back and still exists: %w)", err, id, delErr)
-			}
-			if dropErr := s.dropSecret(id); dropErr != nil {
-				return nil, fmt.Errorf("%w (cleanup also failed: %w)", err, dropErr)
-			}
-			return nil, err
+	if err := s.putSecret(id, *p.ClientSecret); err != nil {
+		// The row was never committed; only the secret may exist part way.
+		if dropErr := s.dropSecret(id); dropErr != nil {
+			return nil, fmt.Errorf("%w (cleanup also failed: %w)", err, dropErr)
 		}
+		return nil, err
 	}
+
+	if err := tx.Commit(); err != nil {
+		// The secret exists but the row does not; compensate.
+		if dropErr := s.dropSecret(id); dropErr != nil {
+			return nil, fmt.Errorf("database: failed to commit provider profile: %w (cleanup also failed: %w)", err, dropErr)
+		}
+		return nil, fmt.Errorf("database: failed to commit provider profile: %w", err)
+	}
+
+	p.ID = inserted
 	return &p, nil
 }
 
