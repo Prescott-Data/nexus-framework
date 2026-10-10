@@ -67,7 +67,7 @@ One version, read from the root `VERSION` file, everywhere. The rule is enforced
 - **The check fails the PR when** any stamped file disagrees with `VERSION`, the top changelog heading is not `VERSION`, or a tag exists that is newer than `VERSION`.
 - **Tags are never moved or deleted.** If a version is wrong, bump past it.
 
-Stamped surfaces: both OpenAPI specs, `mkdocs.yml`, `nexus-sdk-ts/package.json`, `nexus-sdk-python/pyproject.toml` and `nexus_sdk/__init__.py`. Binaries and images read `VERSION` at build time.
+Stamped surfaces: both OpenAPI specs, `mkdocs.yml`, `nexus-sdk-ts/package.json`, `nexus-sdk-ts/package-lock.json` (root metadata and the `packages[""]` entry), `nexus-sdk-python/pyproject.toml` and `nexus_sdk/__init__.py`. Binaries and images read `VERSION` at build time.
 
 ## Questions?
 

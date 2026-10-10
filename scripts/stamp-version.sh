@@ -68,15 +68,18 @@ edit_in_place "s/^  version: \".*\"/  version: \"${VERSION}\"/" "$ROOT/mkdocs.ym
 edit_in_place "s/^  \"version\": \"[^\"]*\"/  \"version\": \"${VERSION}\"/" "$ROOT/nexus-sdk-ts/package.json"
 
 # TypeScript SDK lockfile: the top-level "version" (2-space indent) and the
-# root package entry under packages[""] (6-space indent, first such line).
-# Dependency entries deeper in the file are left alone.
+# "version" inside the root package entry, the object keyed "" under
+# "packages". Only lines inside that object are touched; dependency entries
+# further down are left alone even if the root field is missing.
 stamp_lockfile() {
   local file="$1" temporary
   [[ -f "$file" ]] || return 0
   temporary="$(mktemp)"
   awk -v version="$VERSION" '
-    !top  && /^  "version": "/       { print "  \"version\": \"" version "\","; top = 1; next }
-    !root && /^      "version": "/   { print "      \"version\": \"" version "\","; root = 1; next }
+    !top && /^  "version": "/            { print "  \"version\": \"" version "\","; top = 1; next }
+    /^    "": \{/                          { inroot = 1 }
+    inroot && /^    \}/                   { inroot = 0 }
+    inroot && !root && /^      "version": "/ { print "      \"version\": \"" version "\","; root = 1; next }
     { print }
   ' "$file" > "$temporary" && mv "$temporary" "$file"
 }

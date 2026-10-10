@@ -54,7 +54,17 @@ expect nexus-broker/openapi.yaml              "^  version: ${v}\$"
 expect mkdocs.yml                             "^  version: \"${v}\"\$"
 expect nexus-sdk-ts/package.json              "^  \"version\": \"${v}\",?\$"
 expect nexus-sdk-ts/package-lock.json         "^  \"version\": \"${v}\",?\$"
-expect nexus-sdk-ts/package-lock.json         "^      \"version\": \"${v}\",?\$"
+# The root package entry is the object keyed "" under "packages"; its version
+# is read in place so a dependency with the same number cannot satisfy the check.
+lock_root_version="$(awk '
+  /^    "": \{/ { inroot = 1; next }
+  inroot && /^    \}/ { exit }
+  inroot && /^      "version": "/ { gsub(/.*"version": "|",?$/, ""); print; exit }
+' "$ROOT/nexus-sdk-ts/package-lock.json")"
+if [[ "$lock_root_version" != "$VERSION" ]]; then
+  echo "❌ nexus-sdk-ts/package-lock.json: packages[\"\"].version is '${lock_root_version:-missing}', VERSION is '${VERSION}'." >&2
+  fail=1
+fi
 expect nexus-sdk-python/pyproject.toml        "^version = \"${v}\"\$"
 expect nexus-sdk-python/nexus_sdk/__init__.py "^__version__ = \"${v}\"\$"
 
