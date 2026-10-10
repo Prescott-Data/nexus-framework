@@ -24,7 +24,7 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 **Changed**
 
-- The token encryption helpers moved from `pkg/vault` to `pkg/vault/tokens`, so that `pkg/vault` can hold both the token vault and the provider secret backends. No behaviour change.
+- The token encryption helpers moved from `pkg/vault` to `pkg/vault/tokens`, so that `pkg/vault` can hold both the token vault and the provider secret backends. `vault.Encrypt` and `vault.Decrypt` remain as deprecated wrappers. No behaviour change.
 
 </div>
 

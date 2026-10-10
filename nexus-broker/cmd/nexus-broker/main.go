@@ -89,17 +89,23 @@ func main() {
 
 	var storeOpts []provider.Option
 	if cfg.SecretBackend == string(providers.KindGCPSecretManager) {
-		backend, err := gcpsecrets.New(context.Background(), gcpsecrets.Config{
+		// Bounded so an unreachable Secret Manager fails startup fast
+		// instead of hanging in client retries.
+		probeCtx, cancelProbe := context.WithTimeout(context.Background(), 15*time.Second)
+		backend, err := gcpsecrets.New(probeCtx, gcpsecrets.Config{
 			ProjectID: cfg.GCPProjectID,
 			Prefix:    cfg.GCPSecretPrefix,
 		})
 		if err != nil {
+			cancelProbe()
 			log.Fatal("Failed to configure secret backend:", err)
 		}
 		defer backend.Close()
-		if err := backend.Ping(context.Background()); err != nil {
+		if err := backend.Ping(probeCtx); err != nil {
+			cancelProbe()
 			log.Fatal("Secret backend check failed:", err)
 		}
+		cancelProbe()
 		log.Printf("Provider client secrets: %s (project %s, prefix %s)", backend.Kind(), backend.ProjectID(), cfg.GCPSecretPrefix)
 		storeOpts = append(storeOpts, provider.WithSecretBackend(backend))
 	} else {

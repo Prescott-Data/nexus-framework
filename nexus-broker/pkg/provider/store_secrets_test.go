@@ -264,3 +264,20 @@ func TestInternalBackend_IsUnchanged(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestRotate_ExternalBackend_RejectsEmptySecret(t *testing.T) {
+	backend := providers.NewMemory()
+	store, _ := newStoreWithBackend(t, backend)
+	id := uuid.MustParse(testProviderID)
+	empty := "  "
+
+	err := store.PatchProfile(id, map[string]interface{}{"client_secret": ""})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must not be empty")
+
+	cid := "client-id"
+	err = store.UpdateProfile(&Profile{ID: id, Name: "acme", AuthType: "oauth2", ClientID: &cid, ClientSecret: &empty})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must not be empty")
+	assert.Equal(t, 0, backend.Len(), "an empty secret must never reach the backend")
+}

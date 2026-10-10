@@ -423,6 +423,9 @@ func (s *Store) UpdateProfile(p *Profile) error {
 		// written before the switch, still in the column. Clearing a secret
 		// is done by deleting the provider, not by PUT.
 		if p.ClientSecret != nil {
+			if strings.TrimSpace(*p.ClientSecret) == "" {
+				return fmt.Errorf("client_secret: must not be empty; delete the provider to clear its secret")
+			}
 			if err := s.putSecret(p.ID, *p.ClientSecret); err != nil {
 				return err
 			}
@@ -491,6 +494,9 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 				secret, ok := value.(string)
 				if !ok {
 					return fmt.Errorf("client_secret: must be a string")
+				}
+				if strings.TrimSpace(secret) == "" {
+					return fmt.Errorf("client_secret: must not be empty; delete the provider to clear its secret")
 				}
 				if err := s.putSecret(id, secret); err != nil {
 					return err
