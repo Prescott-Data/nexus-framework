@@ -28,7 +28,7 @@ nexus-gateway/nexus-gateway-grpc
 nexus-bridge/nexus-bridge
 oha
 oha-grpc
-server
+/server
 
 # Go Vendor
 vendor/
