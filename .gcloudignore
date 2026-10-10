@@ -1,0 +1,12 @@
+# What `gcloud builds submit` leaves out of the source upload. Without this
+# file gcloud derives the list from .gitignore, whose patterns for built
+# binaries have excluded source directories (a bare `server` dropped
+# nexus-gateway/pkg/server and the image build failed).
+.git/
+.gcloudignore
+site/
+temp/
+**/node_modules/
+**/dist/
+**/.terraform/
+**/*.tfstate*
