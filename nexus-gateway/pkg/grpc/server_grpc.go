@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	nexuspb "github.com/Prescott-Data/nexus-framework/nexus-gateway/gen/go/api/proto/nexus/v1"
@@ -135,6 +136,9 @@ type Server struct {
 	listener    net.Listener
 	service     *Service
 	redisClient *redis.Client
+
+	requireAPIKey bool
+	apiKeys       gwmiddleware.APIKeySource
 }
 
 type Options struct {
@@ -142,6 +146,11 @@ type Options struct {
 	HTTPAddress string
 	Handler     *usecase.Handler
 	RedisClient *redis.Client
+
+	// RequireAPIKey enforces X-API-Key (HTTP) / x-api-key (gRPC metadata) on
+	// every call except the public paths; see server.PublicPaths.
+	RequireAPIKey bool
+	APIKeys       gwmiddleware.APIKeySource
 }
 
 func NewServer(opts Options) (*Server, error) {
@@ -155,7 +164,10 @@ func NewServer(opts Options) (*Server, error) {
 		opts.HTTPAddress = ":8090"
 	}
 	service := NewService(opts.Handler)
-	grpcSrv := grpc.NewServer(grpc.UnaryInterceptor(usecaseErrorInterceptor))
+	grpcSrv := grpc.NewServer(grpc.ChainUnaryInterceptor(
+		gwmiddleware.APIKeyUnaryInterceptor(opts.RequireAPIKey, opts.APIKeys),
+		usecaseErrorInterceptor,
+	))
 	nexuspb.RegisterNexusServiceServer(grpcSrv, service)
 	return &Server{
 		grpcAddress: opts.GRPCAddress,
@@ -163,6 +175,9 @@ func NewServer(opts Options) (*Server, error) {
 		grpcServer:  grpcSrv,
 		service:     service,
 		redisClient: opts.RedisClient,
+
+		requireAPIKey: opts.RequireAPIKey,
+		apiKeys:       opts.APIKeys,
 	}, nil
 }
 
@@ -172,6 +187,16 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("listen gRPC: %w", err)
 	}
 	s.listener = l
+	s.grpcAddress = l.Addr().String() // resolves ":0" for tests
+
+	// Bind the HTTP side before serving anything, so a failure here leaves
+	// no server running behind an error.
+	hl, err := net.Listen("tcp", s.httpAddress)
+	if err != nil {
+		_ = l.Close()
+		return fmt.Errorf("listen HTTP: %w", err)
+	}
+	s.httpAddress = hl.Addr().String()
 
 	go func() {
 		log.Printf("gRPC listening on %s", s.grpcAddress)
@@ -180,9 +205,19 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 
-	gwMux := runtime.NewServeMux()
+	// The default matcher drops custom headers, so X-API-Key would never
+	// reach the interceptor on the transcoded path and every call would be
+	// Unauthenticated even after the HTTP middleware accepted it.
+	gwMux := runtime.NewServeMux(runtime.WithIncomingHeaderMatcher(func(key string) (string, bool) {
+		if strings.EqualFold(key, gwmiddleware.APIKeyHeader) {
+			return "x-api-key", true
+		}
+		return runtime.DefaultHeaderMatcher(key)
+	}))
 	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	if err := nexuspb.RegisterNexusServiceHandlerFromEndpoint(ctx, gwMux, s.grpcAddress, dialOpts); err != nil {
+		s.grpcServer.Stop()
+		_ = hl.Close()
 		return fmt.Errorf("register gateway: %w", err)
 	}
 
@@ -190,7 +225,7 @@ func (s *Server) Start(ctx context.Context) error {
 	corsMiddleware := cors.Handler(cors.Options{
 		AllowedOrigins:   config.GetAllowedOrigins(),
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "Grpc-Metadata-X-Request-ID"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-API-Key", "Grpc-Metadata-X-Request-ID"},
 		ExposedHeaders:   []string{"Link", "Grpc-Metadata-X-Request-ID"},
 		AllowCredentials: true,
 		MaxAge:           300,
@@ -198,10 +233,11 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Add Rate Limiter (wrapped over cors)
 	rateLimiter := gwmiddleware.RateLimiter(s.redisClient)
+	apiKey := gwmiddleware.APIKey(s.requireAPIKey, s.apiKeys, "/health", "/auth/callback", "/v1/capture-schema", "/v1/capture-credential")
 
 	httpSrv := &http.Server{
 		Addr:              s.httpAddress,
-		Handler:           corsMiddleware(rateLimiter(gwMux)),
+		Handler:           corsMiddleware(rateLimiter(apiKey(gwMux))),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -210,13 +246,16 @@ func (s *Server) Start(ctx context.Context) error {
 
 	go func() {
 		log.Printf("HTTP gateway listening on %s", s.httpAddress)
-		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := httpSrv.Serve(hl); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("gateway serve error: %v", err)
 		}
 	}()
 
 	return nil
 }
+
+// HTTPAddress is the bound HTTP address, known once Start has returned.
+func (s *Server) HTTPAddress() string { return s.httpAddress }
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.grpcServer.GracefulStop()

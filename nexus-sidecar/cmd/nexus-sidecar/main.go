@@ -29,7 +29,7 @@ func main() {
 	}
 	sort.Strings(routeNames)
 
-	tokenClient := oauthsdk.New(cfg.GatewayBaseURL, oauthsdk.WithRetry(oauthsdk.RetryPolicy{
+	tokenClient := oauthsdk.New(cfg.GatewayBaseURL, oauthsdk.WithAPIKey(cfg.GatewayAPIKey), oauthsdk.WithRetry(oauthsdk.RetryPolicy{
 		Retries:    2,
 		MinDelay:   200 * time.Millisecond,
 		MaxDelay:   2 * time.Second,

@@ -21,16 +21,37 @@ type Server struct {
 	mux     *chi.Mux
 	port    string
 	handler *usecase.Handler
+
+	requireAPIKey bool
+	apiKeys       gwmiddleware.APIKeySource
 }
 
-func New(port, brokerBaseURL string, stateKey []byte, httpClient *http.Client, redisClient *redis.Client) *Server {
+// Option configures a Server.
+type Option func(*Server)
+
+// WithAPIKey requires X-API-Key on every route except the browser-facing
+// ones (see PublicPaths). A nil source with require=true rejects everything.
+func WithAPIKey(require bool, source gwmiddleware.APIKeySource) Option {
+	return func(s *Server) {
+		s.requireAPIKey = require
+		s.apiKeys = source
+	}
+}
+
+// PublicPaths are reachable without an API key: the health check for load
+// balancers and uptime probes, the OAuth callback that providers redirect
+// the user's browser to, and the static-credential capture pages that the
+// consent UI calls. Everything else needs the key.
+var PublicPaths = []string{"/health", "/auth/callback", "/v1/capture-schema", "/v1/capture-credential"}
+
+func New(port, brokerBaseURL string, stateKey []byte, httpClient *http.Client, redisClient *redis.Client, opts ...Option) *Server {
 	mux := chi.NewRouter()
 
 	// CORS Setup
 	mux.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   config.GetAllowedOrigins(),
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-API-Key"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
 		MaxAge:           300,
@@ -41,16 +62,23 @@ func New(port, brokerBaseURL string, stateKey []byte, httpClient *http.Client, r
 	mux.Use(middleware.Recoverer)
 	mux.Use(middleware.Timeout(30 * time.Second))
 	mux.Use(middleware.RealIP)
-	
+
 	// Add Rate Limiter
 	mux.Use(gwmiddleware.RateLimiter(redisClient))
 
 	h := usecase.NewHandler(brokerBaseURL, stateKey, httpClient)
 
 	s := &Server{mux: mux, port: port, handler: h}
+	for _, o := range opts {
+		o(s)
+	}
+	mux.Use(gwmiddleware.APIKey(s.requireAPIKey, s.apiKeys, PublicPaths...))
 	s.routes()
 	return s
 }
+
+// Handler exposes the router for tests.
+func (s *Server) Handler() http.Handler { return s.mux }
 
 func (s *Server) routes() {
 	s.mux.Get("/health", func(w http.ResponseWriter, r *http.Request) {

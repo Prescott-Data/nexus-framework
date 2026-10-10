@@ -49,6 +49,10 @@ Store these in your secret manager (AWS Secrets Manager, Azure Key Vault, HashiC
 | `BROKER_BASE_URL` | yes | Internal URL of the Broker, e.g. `http://broker.internal:8080` |
 | `BROKER_API_KEY` | yes | The Broker's `API_KEY` |
 | `PORT` | no | Port to listen on (default: `8090`) |
+| `GATEWAY_REQUIRE_API_KEY` | yes, in production | `true`: callers must present `X-API-Key`. The Gateway is the component agents reach, so this is the lock on token minting. |
+| `GATEWAY_API_KEYS` | with the above | Keys for agents and SDKs (or `GATEWAY_API_KEY_FILE` for a mounted secret) |
+
+The Gateway's `/health`, `/auth/callback` and the credential-capture pages stay public; they are reached by load balancers and by the user's browser, not by the SDK.
 
 ## Sidecar environment variables
 
@@ -57,6 +61,7 @@ The Sidecar is optional. Deploy it next to each agent that needs it (same pod or
 | Variable | Required | Description |
 |---|---|---|
 | `GATEWAY_BASE_URL` | yes | URL of the Gateway, e.g. `http://gateway:8090` |
+| `GATEWAY_API_KEY` | when the Gateway requires a key | One of the Gateway's `GATEWAY_API_KEYS` |
 | `NEXUS_ROUTES` | yes | Allowlisted upstream routes, e.g. `github=https://api.github.com` |
 | `TOKEN_CACHE_TTL` | no | Fallback credential cache lifetime for payloads without an expiry, e.g. `5m` |
 | `REQUEST_BODY_LIMIT` | no | Body buffer cap for signing strategies (default: `10MiB`) |

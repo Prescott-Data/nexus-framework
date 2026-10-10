@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus Gateway API
-  version: 0.5.0
+  version: 0.6.0
   description: |
     Stable v1 contract for the Nexus Gateway. This spec freezes the agent-facing endpoints.
     Breaking changes require a new major version (e.g., /v2). Additive changes only in v1.
@@ -10,6 +10,15 @@ servers:
     description: Production
   - url: http://localhost:8090
     description: Local development
+# Every operation in this contract requires the caller key when the Gateway
+# runs with GATEWAY_REQUIRE_API_KEY=true (recommended wherever it is reachable);
+# the anonymous alternative below is the default, intended for private networks.
+# Missing key: 401 missing_api_key. Wrong key: 403 invalid_api_key. The public
+# paths (/health, /auth/callback, /v1/capture-schema, /v1/capture-credential)
+# are outside this contract and never require it.
+security:
+  - ApiKeyAuth: []
+  - {} # anonymous: the default GATEWAY_REQUIRE_API_KEY=false, for private networks only
 paths:
   /v1/providers:
     get:
@@ -26,6 +35,10 @@ paths:
           $ref: '#/components/responses/UpstreamError'
         '503':
           $ref: '#/components/responses/UpstreamError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /v1/request-connection:
     post:
       summary: Initiate a user consent connection
@@ -49,6 +62,10 @@ paths:
           $ref: '#/components/responses/UpstreamError'
         '503':
           $ref: '#/components/responses/UpstreamError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /v1/check-connection/{connection_id}:
     get:
       summary: Check connection status
@@ -72,6 +89,10 @@ paths:
           $ref: '#/components/responses/UpstreamError'
         '503':
           $ref: '#/components/responses/UpstreamError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /v1/token/{connection_id}:
     get:
       summary: Retrieve token for a connection
@@ -101,6 +122,8 @@ paths:
           $ref: '#/components/responses/UpstreamError'
         '503':
           $ref: '#/components/responses/UpstreamError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /v1/refresh/{connection_id}:
     post:
       summary: Force a token refresh for a connection
@@ -128,6 +151,10 @@ paths:
           $ref: '#/components/responses/UpstreamError'
         '503':
           $ref: '#/components/responses/UpstreamError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /v1/connections/{connection_id}:
     delete:
       summary: Revoke a connection
@@ -190,7 +217,17 @@ paths:
           $ref: '#/components/responses/UpstreamError'
         '503':
           $ref: '#/components/responses/UpstreamError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Caller key, one of the Gateway's GATEWAY_API_KEYS. Enforced when GATEWAY_REQUIRE_API_KEY=true.
   schemas:
     ProviderMetadataResponse:
       type: object
@@ -293,9 +330,15 @@ components:
     ErrorEnvelope:
       type: object
       properties:
+        error:
+          type: string
+          description: Error code as the Gateway's handlers and API key middleware write it (`missing_api_key`, `invalid_api_key`, ...). Older operations may use `code` instead.
         code: { type: string }
         message: { type: string }
-      required: [code, message]
+      required: [message]
+      anyOf:
+        - required: [code]
+        - required: [error]
   responses:
     BadRequest:
       description: Bad request
@@ -304,7 +347,13 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
     Unauthorized:
-      description: Unauthorized
+      description: No X-API-Key presented while GATEWAY_REQUIRE_API_KEY is on (error `missing_api_key`), or the Broker rejected the Gateway's own key.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: The X-API-Key presented is not one of the Gateway's keys (error `invalid_api_key`).
       content:
         application/json:
           schema:

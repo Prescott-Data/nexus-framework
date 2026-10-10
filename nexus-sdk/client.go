@@ -23,6 +23,9 @@ type Client struct {
 	// Optional for temporary direct refresh via Broker until gateway has proxy
 	BrokerBaseURL string
 	BrokerAPIKey  string
+	// APIKey is presented to the Gateway as X-API-Key on every request.
+	// Required when the Gateway runs with GATEWAY_REQUIRE_API_KEY=true.
+	APIKey string
 
 	// Optional logger and retry policy
 	Logger      Logger
@@ -54,7 +57,10 @@ func WithBroker(baseURL, apiKey string) Option {
 		c.BrokerAPIKey = apiKey
 	}
 }
-func WithLogger(l Logger) Option     { return func(c *Client) { c.Logger = l } }
+func WithLogger(l Logger) Option { return func(c *Client) { c.Logger = l } }
+
+// WithAPIKey sets the key the Gateway requires from callers (X-API-Key).
+func WithAPIKey(key string) Option   { return func(c *Client) { c.APIKey = key } }
 func WithRetry(p RetryPolicy) Option { return func(c *Client) { c.RetryPolicy = p } }
 
 // Logger is a minimal logging interface.
@@ -155,6 +161,11 @@ type ErrorEnvelope struct {
 	Code       string `json:"code"`
 	Message    string `json:"message"`
 	StatusCode int    `json:"-"` // HTTP status code (not serialized)
+
+	// ErrorCode carries the Gateway's own envelope, {"error": "<code>", ...},
+	// which its handlers and the API key middleware write. Code is filled
+	// from it when "code" is absent, so callers can keep matching on Code.
+	ErrorCode string `json:"error"`
 }
 
 func (e ErrorEnvelope) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Message) }
@@ -289,9 +300,14 @@ func (c *Client) RefreshViaBroker(ctx context.Context, connectionID string) (*To
 func readGatewayError(r io.Reader, status int) error {
 	var e ErrorEnvelope
 	b, _ := io.ReadAll(r)
-	if err := json.Unmarshal(b, &e); err == nil && e.Code != "" {
-		e.StatusCode = status
-		return e
+	if err := json.Unmarshal(b, &e); err == nil {
+		if e.Code == "" {
+			e.Code = e.ErrorCode
+		}
+		if e.Code != "" {
+			e.StatusCode = status
+			return e
+		}
 	}
 	if len(b) > 0 {
 		return fmt.Errorf("gateway error %d: %s", status, strings.TrimSpace(string(b)))
@@ -336,6 +352,13 @@ func (c *Client) do(ctx context.Context, method, urlStr string, headers map[stri
 		req, err := http.NewRequestWithContext(ctx, method, urlStr, bodyReader)
 		if err != nil {
 			return nil, err
+		}
+		// The Gateway checks X-API-Key when GATEWAY_REQUIRE_API_KEY is on.
+		// This is the caller key from WithAPIKey, the same option the
+		// TypeScript and Python SDKs expose as apiKey; BrokerAPIKey is the
+		// separate credential for talking to the Broker directly.
+		if c.APIKey != "" {
+			req.Header.Set("X-API-Key", c.APIKey)
 		}
 		for k, v := range headers {
 			req.Header.Set(k, v)

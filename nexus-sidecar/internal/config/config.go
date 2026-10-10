@@ -25,6 +25,7 @@ type Route struct {
 type Config struct {
 	Port             string
 	GatewayBaseURL   string
+	GatewayAPIKey    string
 	Routes           map[string]Route
 	TokenCacheTTL    time.Duration
 	RequestBodyLimit int64
@@ -34,6 +35,7 @@ func LoadFromEnv() (Config, error) {
 	cfg := Config{
 		Port:             envOr("PORT", DefaultPort),
 		GatewayBaseURL:   strings.TrimRight(strings.TrimSpace(os.Getenv("GATEWAY_BASE_URL")), "/"),
+		GatewayAPIKey:    strings.TrimSpace(os.Getenv("GATEWAY_API_KEY")),
 		TokenCacheTTL:    0,
 		RequestBodyLimit: DefaultRequestBodyLimit,
 	}
