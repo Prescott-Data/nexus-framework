@@ -21,7 +21,7 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 **Added**
 
 - **The Gateway can require an API key from its callers.** Until now the Gateway authenticated only itself to the Broker (`BROKER_API_KEY`) and checked nothing on the way in, so anyone who could reach it could list providers and mint tokens; the `REQUIRE_API_KEY` the Compose file handed it was never read. With `GATEWAY_REQUIRE_API_KEY=true`, every route except `/health`, `/auth/callback`, `/v1/capture-schema` and `/v1/capture-credential` (the ones a browser or a load balancer reaches) requires `X-API-Key` to match one of `GATEWAY_API_KEYS` or a mounted `GATEWAY_API_KEY_FILE` / `GATEWAY_API_KEYS_FILE`, reloaded every `GATEWAY_API_KEY_RELOAD_INTERVAL` (30s) so keys rotate without a restart. Missing key is 401, wrong key is 403; the gRPC server applies the same check on `x-api-key` metadata. Off by default for existing deployments, with a loud startup warning. Enabling it with no keys configured refuses to start.
-- **The Go SDK can send the key.** New `WithAPIKey(key)` option, the counterpart of the TypeScript and Python SDKs' `apiKey`; it is sent as `X-API-Key` on every Gateway call. `WithBroker` is unchanged and stays the Broker credential. The Gateway OpenAPI contract declares the `ApiKeyAuth` scheme on every operation.
+- **The Go SDK can send the key.** New `WithAPIKey(key)` option, the counterpart of the TypeScript and Python SDKs' `apiKey`; it is sent as `X-API-Key` on every Gateway call. `WithBroker` is unchanged and stays the Broker credential. The Sidecar passes `GATEWAY_API_KEY` through it. The Gateway OpenAPI contract declares the `ApiKeyAuth` scheme on every operation.
 
 **Changed**
 

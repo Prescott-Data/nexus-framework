@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	nexuspb "github.com/Prescott-Data/nexus-framework/nexus-gateway/gen/go/api/proto/nexus/v1"
@@ -186,6 +187,7 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("listen gRPC: %w", err)
 	}
 	s.listener = l
+	s.grpcAddress = l.Addr().String() // resolves ":0" for tests
 
 	go func() {
 		log.Printf("gRPC listening on %s", s.grpcAddress)
@@ -194,7 +196,15 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 
-	gwMux := runtime.NewServeMux()
+	// The default matcher drops custom headers, so X-API-Key would never
+	// reach the interceptor on the transcoded path and every call would be
+	// Unauthenticated even after the HTTP middleware accepted it.
+	gwMux := runtime.NewServeMux(runtime.WithIncomingHeaderMatcher(func(key string) (string, bool) {
+		if strings.EqualFold(key, gwmiddleware.APIKeyHeader) {
+			return "x-api-key", true
+		}
+		return runtime.DefaultHeaderMatcher(key)
+	}))
 	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	if err := nexuspb.RegisterNexusServiceHandlerFromEndpoint(ctx, gwMux, s.grpcAddress, dialOpts); err != nil {
 		return fmt.Errorf("register gateway: %w", err)
@@ -214,6 +224,12 @@ func (s *Server) Start(ctx context.Context) error {
 	rateLimiter := gwmiddleware.RateLimiter(s.redisClient)
 	apiKey := gwmiddleware.APIKey(s.requireAPIKey, s.apiKeys, "/health", "/auth/callback", "/v1/capture-schema", "/v1/capture-credential")
 
+	hl, err := net.Listen("tcp", s.httpAddress)
+	if err != nil {
+		return fmt.Errorf("listen HTTP: %w", err)
+	}
+	s.httpAddress = hl.Addr().String()
+
 	httpSrv := &http.Server{
 		Addr:              s.httpAddress,
 		Handler:           corsMiddleware(rateLimiter(apiKey(gwMux))),
@@ -225,13 +241,16 @@ func (s *Server) Start(ctx context.Context) error {
 
 	go func() {
 		log.Printf("HTTP gateway listening on %s", s.httpAddress)
-		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := httpSrv.Serve(hl); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("gateway serve error: %v", err)
 		}
 	}()
 
 	return nil
 }
+
+// HTTPAddress is the bound HTTP address, known once Start has returned.
+func (s *Server) HTTPAddress() string { return s.httpAddress }
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.grpcServer.GracefulStop()

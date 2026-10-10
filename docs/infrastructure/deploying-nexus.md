@@ -61,6 +61,7 @@ The Sidecar is optional. Deploy it next to each agent that needs it (same pod or
 | Variable | Required | Description |
 |---|---|---|
 | `GATEWAY_BASE_URL` | yes | URL of the Gateway, e.g. `http://gateway:8090` |
+| `GATEWAY_API_KEY` | when the Gateway requires a key | One of the Gateway's `GATEWAY_API_KEYS` |
 | `NEXUS_ROUTES` | yes | Allowlisted upstream routes, e.g. `github=https://api.github.com` |
 | `TOKEN_CACHE_TTL` | no | Fallback credential cache lifetime for payloads without an expiry, e.g. `5m` |
 | `REQUEST_BODY_LIMIT` | no | Body buffer cap for signing strategies (default: `10MiB`) |

@@ -64,6 +64,7 @@ Both the Broker and the Gateway must receive the same value for `STATE_KEY`. If 
 | Variable | Required | Description |
 |---|---|---|
 | `GATEWAY_BASE_URL` | Yes | URL of the Gateway the Sidecar fetches credentials from. Example: `http://nexus-gateway:8090` |
+| `GATEWAY_API_KEY` | Conditional | Key the Sidecar presents to the Gateway as `X-API-Key`. Required when the Gateway runs with `GATEWAY_REQUIRE_API_KEY=true`. |
 | `NEXUS_ROUTES` | Yes | Comma-separated allowlist of named upstream routes in `name=https://target` format. Example: `github=https://api.github.com,slack=https://slack.com/api` |
 | `TOKEN_CACHE_TTL` | No | Fallback cache lifetime for credential payloads that carry no expiry of their own (Go duration, e.g. `5m`). Default: no fallback caching. |
 | `REQUEST_BODY_LIMIT` | No | Maximum request body size buffered for body-signing strategies. Accepts sizes like `10MiB`. Default: `10MiB` |

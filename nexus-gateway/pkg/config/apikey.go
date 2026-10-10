@@ -25,9 +25,17 @@ type APIKeyConfig struct {
 // GATEWAY_API_KEY_FILE, GATEWAY_API_KEYS_FILE and GATEWAY_API_KEY_RELOAD_INTERVAL.
 func LoadAPIKeyConfig() (APIKeyConfig, error) {
 	cfg := APIKeyConfig{
-		Require:        strings.EqualFold(strings.TrimSpace(os.Getenv("GATEWAY_REQUIRE_API_KEY")), "true"),
 		Keys:           map[string]struct{}{},
 		ReloadInterval: 30 * time.Second,
+	}
+	// Strict: a typo must not silently start an unauthenticated Gateway.
+	switch raw := strings.ToLower(strings.TrimSpace(os.Getenv("GATEWAY_REQUIRE_API_KEY"))); raw {
+	case "", "false", "0":
+		cfg.Require = false
+	case "true", "1":
+		cfg.Require = true
+	default:
+		return cfg, fmt.Errorf("GATEWAY_REQUIRE_API_KEY must be true or false, got %q", raw)
 	}
 	for _, key := range gwmiddleware.ParseAPIKeys(os.Getenv("GATEWAY_API_KEYS")) {
 		cfg.Keys[key] = struct{}{}

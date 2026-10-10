@@ -22,6 +22,7 @@ func TestLoadAPIKeyConfig(t *testing.T) {
 		{"on with inline keys", map[string]string{"GATEWAY_REQUIRE_API_KEY": "true", "GATEWAY_API_KEYS": "a, b"}, false, true, 2},
 		{"on with a file", map[string]string{"GATEWAY_REQUIRE_API_KEY": "true", "GATEWAY_API_KEY_FILE": keyFile}, false, true, 0},
 		{"on without keys is a startup error", map[string]string{"GATEWAY_REQUIRE_API_KEY": "true"}, true, true, 0},
+		{"typo is a startup error, not off", map[string]string{"GATEWAY_REQUIRE_API_KEY": "tru", "GATEWAY_API_KEYS": "a"}, true, false, 0},
 		{"bad interval", map[string]string{"GATEWAY_REQUIRE_API_KEY": "true", "GATEWAY_API_KEYS": "a", "GATEWAY_API_KEY_RELOAD_INTERVAL": "soon"}, true, true, 1},
 	}
 	for _, c := range cases {
