@@ -148,6 +148,9 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 
 	p, err := s.providerStore.GetProfile(providerID)
 	if err != nil {
+		if errors.Is(err, provider.ErrSecretBackend) {
+			return nil, ErrBadGatewayWithErr(err, "secret_backend_unavailable", "Provider secret backend unavailable")
+		}
 		return nil, ErrNotFoundWithErr(err, "provider_not_found", "Provider not found")
 	}
 

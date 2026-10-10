@@ -18,6 +18,7 @@ import (
 	"cloud.google.com/go/compute/metadata"
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+	"github.com/google/uuid"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -188,38 +189,27 @@ func (b *Backend) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// probeKey is the nil UUID, which no provider can ever have, so the probe
-// secret "<prefix>-00000000-0000-0000-0000-000000000000" never collides.
-const probeKey = "00000000-0000-0000-0000-000000000000"
-
-// Ping proves the service account can do everything Set and Delete need
-// under the prefix: it creates the probe secret (AlreadyExists from a
-// crashed earlier probe is fine), reads its metadata, and deletes it. No
-// version is added, so nothing is billed. Any failure, such as a missing
-// create binding, PermissionDenied on the prefix, or the API being
-// disabled, is reported at startup rather than on the first registration.
+// Ping proves the service account can do everything a registration does:
+// it runs Set, Get and Delete on a probe secret under the prefix, which
+// exercises secret create, version add, version access, version list and
+// destroy, and secret delete. The key is a fresh UUID per call so that
+// replicas starting together cannot interfere with each other's probe, and
+// the probe is deleted on every exit path. The version lives for well under
+// a second, so the cost is nil. Any failure, such as a missing create binding,
+// PermissionDenied on the prefix, or the API being disabled, is reported at
+// startup rather than on the first registration.
 func (b *Backend) Ping(ctx context.Context) error {
-	name := b.secretName(probeKey)
-	_, err := b.client.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
-		Parent:   "projects/" + b.projectID,
-		SecretId: b.secretID(probeKey),
-		Secret: &secretmanagerpb.Secret{
-			Replication: &secretmanagerpb.Replication{
-				Replication: &secretmanagerpb.Replication_Automatic_{
-					Automatic: &secretmanagerpb.Replication_Automatic{},
-				},
-			},
-			Labels: map[string]string{"managed-by": managedByLabel, "purpose": "startup-probe"},
-		},
-	})
-	if err != nil && status.Code(err) != codes.AlreadyExists {
-		return fmt.Errorf("gcp secret backend: project %s, prefix %s: create: %w", b.projectID, b.prefix, err)
+	key := uuid.NewString()
+	defer func() { _ = b.Delete(context.WithoutCancel(ctx), key) }()
+
+	if err := b.Set(ctx, key, "startup-probe"); err != nil {
+		return fmt.Errorf("gcp secret backend: project %s, prefix %s: %w", b.projectID, b.prefix, err)
 	}
-	if _, err := b.client.GetSecret(ctx, &secretmanagerpb.GetSecretRequest{Name: name}); err != nil {
-		return fmt.Errorf("gcp secret backend: project %s, prefix %s: get: %w", b.projectID, b.prefix, err)
+	if _, err := b.Get(ctx, key); err != nil {
+		return fmt.Errorf("gcp secret backend: project %s, prefix %s: %w", b.projectID, b.prefix, err)
 	}
-	if err := b.client.DeleteSecret(ctx, &secretmanagerpb.DeleteSecretRequest{Name: name}); err != nil && !isNotFound(err) {
-		return fmt.Errorf("gcp secret backend: project %s, prefix %s: delete: %w", b.projectID, b.prefix, err)
+	if err := b.Delete(ctx, key); err != nil {
+		return fmt.Errorf("gcp secret backend: project %s, prefix %s: %w", b.projectID, b.prefix, err)
 	}
 	return nil
 }

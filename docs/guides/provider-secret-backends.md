@@ -37,7 +37,7 @@ Existing rows that still carry a column value keep working after you switch back
 
 ## Startup check
 
-With an external backend the Broker verifies at boot that it can create, read and delete a secret under the prefix (a probe named `<prefix>-00000000-0000-0000-0000-000000000000`, deleted immediately, never versioned so never billed) and refuses to start otherwise. A missing permission therefore shows up in the first log lines rather than on the first provider registration. The first log lines say which backend is active:
+With an external backend the Broker verifies at boot that it can do everything a registration does: it writes, reads and deletes a probe secret under the prefix (a fresh random id per start, removed on every exit path, alive for under a second) and refuses to start otherwise. A missing permission therefore shows up in the first log lines rather than on the first provider registration. The first log lines say which backend is active:
 
 ```
 Provider client secrets: gcp-secret-manager (project my-project, prefix nexus-providers)
