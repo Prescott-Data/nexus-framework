@@ -13,7 +13,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
+VERSION="$(sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' "$ROOT/VERSION" | head -1)"
 fail=0
 
 # 1. Stamped surfaces: stamping must be a no-op. Compared by content, not
@@ -91,6 +91,17 @@ done
 if [[ -n "$latest_tag" ]] && semver_gt "$latest_tag" "$VERSION"; then
   echo "❌ Tag v${latest_tag} is newer than VERSION=${VERSION}. A release was tagged outside the release workflow. Bump VERSION past it." >&2
   fail=1
+fi
+
+# 3b. VERSION equal to an existing tag is fine only when that release is in
+#     this branch's history (the normal state of every non-release PR). A tag
+#     with the same number that is not an ancestor means VERSION was set to a
+#     number already used elsewhere; the release workflow would refuse it.
+if git -C "$ROOT" rev-parse -q --verify "refs/tags/v${VERSION}^{commit}" >/dev/null 2>&1; then
+  if ! git -C "$ROOT" merge-base --is-ancestor "refs/tags/v${VERSION}^{commit}" HEAD; then
+    echo "❌ Tag v${VERSION} already exists on a commit that is not in this branch's history. Tags are never moved; bump VERSION." >&2
+    fail=1
+  fi
 fi
 
 if [[ "$fail" -ne 0 ]]; then

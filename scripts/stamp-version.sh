@@ -24,7 +24,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
+# Trim only the surrounding whitespace so an internal space such as "0.4 .3"
+# still fails validation instead of being silently squashed into a valid value.
+VERSION="$(sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' "$ROOT/VERSION" | head -1)"
 
 if [[ -z "$VERSION" ]]; then
   echo "error: root VERSION file is empty" >&2
