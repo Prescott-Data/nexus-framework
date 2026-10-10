@@ -13,8 +13,11 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/usecase"
 )
 
-// Exercises the real transcoding path: HTTP -> grpc-gateway mux -> gRPC
-// server -> interceptor, so a header the mux fails to forward shows up here.
+// Exercises the real transcoding path on a route NexusService actually
+// serves (GET /v1/token/{id}): HTTP -> grpc-gateway mux -> gRPC server ->
+// interceptor. If the mux failed to forward the header, the interceptor
+// would answer Unauthenticated, which grpc-gateway maps to 401, and the
+// right-key case would fail.
 func TestHTTPGateway_APIKeyReachesInterceptor(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -41,7 +44,7 @@ func TestHTTPGateway_APIKeyReachesInterceptor(t *testing.T) {
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 
 	get := func(key string) int {
-		req, _ := http.NewRequest(http.MethodGet, "http://"+srv.HTTPAddress()+"/v1/providers", nil)
+		req, _ := http.NewRequest(http.MethodGet, "http://"+srv.HTTPAddress()+"/v1/token/conn-1", nil)
 		if key != "" {
 			req.Header.Set("X-API-Key", key)
 		}
@@ -58,7 +61,7 @@ func TestHTTPGateway_APIKeyReachesInterceptor(t *testing.T) {
 	if got := get("wrong"); got != http.StatusForbidden {
 		t.Fatalf("wrong key: %d, want 403", got)
 	}
-	if got := get("agent-key"); got == http.StatusUnauthorized || got == http.StatusForbidden {
-		t.Fatalf("right key must pass both the HTTP middleware and the interceptor, got %d", got)
+	if got := get("agent-key"); got == http.StatusUnauthorized || got == http.StatusForbidden || got == http.StatusNotFound {
+		t.Fatalf("right key must pass both the HTTP middleware and the interceptor and reach the handler, got %d", got)
 	}
 }

@@ -189,6 +189,15 @@ func (s *Server) Start(ctx context.Context) error {
 	s.listener = l
 	s.grpcAddress = l.Addr().String() // resolves ":0" for tests
 
+	// Bind the HTTP side before serving anything, so a failure here leaves
+	// no server running behind an error.
+	hl, err := net.Listen("tcp", s.httpAddress)
+	if err != nil {
+		_ = l.Close()
+		return fmt.Errorf("listen HTTP: %w", err)
+	}
+	s.httpAddress = hl.Addr().String()
+
 	go func() {
 		log.Printf("gRPC listening on %s", s.grpcAddress)
 		if err := s.grpcServer.Serve(l); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
@@ -207,6 +216,8 @@ func (s *Server) Start(ctx context.Context) error {
 	}))
 	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	if err := nexuspb.RegisterNexusServiceHandlerFromEndpoint(ctx, gwMux, s.grpcAddress, dialOpts); err != nil {
+		s.grpcServer.Stop()
+		_ = hl.Close()
 		return fmt.Errorf("register gateway: %w", err)
 	}
 
@@ -223,12 +234,6 @@ func (s *Server) Start(ctx context.Context) error {
 	// Add Rate Limiter (wrapped over cors)
 	rateLimiter := gwmiddleware.RateLimiter(s.redisClient)
 	apiKey := gwmiddleware.APIKey(s.requireAPIKey, s.apiKeys, "/health", "/auth/callback", "/v1/capture-schema", "/v1/capture-credential")
-
-	hl, err := net.Listen("tcp", s.httpAddress)
-	if err != nil {
-		return fmt.Errorf("listen HTTP: %w", err)
-	}
-	s.httpAddress = hl.Addr().String()
 
 	httpSrv := &http.Server{
 		Addr:              s.httpAddress,
