@@ -58,6 +58,17 @@ All Go code should follow the standard `gofmt` formatting and the idioms describ
 *   Use [Markdown](https://daringfireball.net/projects/markdown/).
 *   Reference specific files and directories using relative paths.
 
+## Versioning
+
+One version, read from the root `VERSION` file, everywhere. The rule is enforced by `make check-version`, which CI runs on every pull request and which the merge requires.
+
+- **Releases are pull requests.** To ship a change, bump `VERSION` on your branch, run `make stamp`, and describe the release under `## <version>` at the top of `docs/CHANGELOG.md`. When the PR merges, the release workflow tags `v<version>` and publishes the GitHub Release and container images.
+- **Nobody tags by hand.** A repository ruleset blocks `v*` tags from everyone but the release workflow. Creating a release in the GitHub UI is the way the versions drifted in the past; it is no longer possible for contributors.
+- **The check fails the PR when** any stamped file disagrees with `VERSION`, the top changelog heading is not `VERSION`, or a tag exists that is newer than `VERSION`.
+- **Tags are never moved or deleted.** If a version is wrong, bump past it.
+
+Stamped surfaces: both OpenAPI specs, `mkdocs.yml`, `nexus-sdk-ts/package.json`, `nexus-sdk-ts/package-lock.json` (root metadata and the `packages[""]` entry), `nexus-sdk-python/pyproject.toml` and `nexus-sdk-python/nexus_sdk/__init__.py`. Binaries and images read `VERSION` at build time.
+
 ## Questions?
 
 Feel free to open an issue for any questions you might have!

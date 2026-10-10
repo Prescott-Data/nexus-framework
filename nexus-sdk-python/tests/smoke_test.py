@@ -12,7 +12,7 @@ import sys
 # Add parent dir to path for local import
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from nexus_sdk import NexusClient, NexusClientOptions, TokenCache, RequestConnectionInput
+from nexus_sdk import NexusClient, NexusClientOptions, TokenCache, __version__
 
 GATEWAY_URL = os.environ.get("NEXUS_GATEWAY_URL", "")
 if not GATEWAY_URL:
@@ -76,7 +76,7 @@ def main():
         status, _, body = client.authenticated_fetch(
             cache, WORKSPACE, "github",
             "https://api.github.com/user",
-            headers={"User-Agent": "NexusPythonSDK/0.2.3"},
+            headers={"User-Agent": f"NexusPythonSDK/{__version__}"},
         )
         user = json.loads(body)
         if "login" in user:

@@ -3,11 +3,19 @@
 #
 # HOW TO RELEASE:
 #   1. Bump the version in the VERSION file on your feature branch
-#   2. Merge the PR to main
-#   3. This workflow automatically creates the tag + release
+#   2. Run `make stamp` and document the release under `## <version>`
+#      at the top of docs/CHANGELOG.md
+#   3. Merge the PR to main (CI blocks the merge if anything drifts)
+#   4. This workflow creates the tag and the GitHub Release
 #
-# This eliminates manual tagging entirely. The VERSION file is the
-# single source of truth.
+# Nobody tags by hand. The VERSION file is the single source of truth, and
+# the "Release tags only via release workflow" ruleset blocks v* tags from
+# anyone but this workflow's deploy key and repository admins.
+#
+# The tag is pushed over SSH with the RELEASE_TAG_DEPLOY_KEY secret rather
+# than GITHUB_TOKEN, for two reasons: the token cannot bypass the tag
+# ruleset, and a tag pushed with it would not trigger the tag-driven image
+# build. A deploy-key push does both.
 
 name: Release
 
@@ -18,7 +26,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -40,6 +47,9 @@ jobs:
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
           echo "📦 Version: ${VERSION} → Tag: v${VERSION}"
 
+      - name: Verify every version surface agrees with VERSION
+        run: make check-version
+
       - name: Check if tag already exists
         id: check
         run: |
@@ -51,7 +61,7 @@ jobs:
               echo "exists=true" >> "$GITHUB_OUTPUT"
               echo "✅ Tag ${TAG} already exists on this commit — skipping tag creation"
             else
-              echo "::error::Tag ${TAG} exists but points to ${TAG_SHA}, not current commit ${CURRENT_SHA}. Delete the stale tag or bump VERSION."
+              echo "::error::Tag ${TAG} exists but points to ${TAG_SHA}, not current commit ${CURRENT_SHA}. Bump VERSION; tags are never moved."
               exit 1
             fi
           else
@@ -60,11 +70,28 @@ jobs:
 
       - name: Create tag
         if: steps.check.outputs.exists == 'false'
+        env:
+          RELEASE_TAG_DEPLOY_KEY: ${{ secrets.RELEASE_TAG_DEPLOY_KEY }}
         run: |
+          if [ -z "$RELEASE_TAG_DEPLOY_KEY" ]; then
+            echo "::error::RELEASE_TAG_DEPLOY_KEY secret is not set. See the comment at the top of this workflow."
+            exit 1
+          fi
+          # The private key exists on disk only for the duration of this step.
+          key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s\n' "$RELEASE_TAG_DEPLOY_KEY" > "$key_file"
+          chmod 600 "$key_file"
+          # Pin GitHub's published ed25519 host key (https://api.github.com/meta)
+          # instead of trusting whatever ssh-keyscan returns over the network.
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" >> ~/.ssh/known_hosts
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
+          GIT_SSH_COMMAND="ssh -i $key_file -o IdentitiesOnly=yes" \
+            git push "git@github.com:${GITHUB_REPOSITORY}.git" "${{ steps.version.outputs.tag }}"
 
       - name: Generate release notes
         if: steps.check.outputs.exists == 'false'
@@ -92,14 +119,5 @@ jobs:
           body_path: /tmp/release_notes.md
           generate_release_notes: false
 
-      # The tag above is pushed with GITHUB_TOKEN, which by design does NOT
-      # trigger the tag-driven docker-publish workflow. Explicitly dispatch it
-      # on the new tag ref so container images are built for every release.
-      # (workflow_dispatch is an allowed exception and runs under GITHUB_TOKEN.)
-      - name: Trigger container image build for the new tag
-        if: steps.check.outputs.exists == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh workflow run docker-publish.yml --ref "${{ steps.version.outputs.tag }}"
-          echo "Dispatched docker-publish.yml for ${{ steps.version.outputs.tag }}"
+      # The deploy-key push above triggers docker-publish.yml on the new tag,
+      # so no manual dispatch is needed.

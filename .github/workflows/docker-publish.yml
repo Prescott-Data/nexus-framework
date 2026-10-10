@@ -23,6 +23,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # The binaries report the VERSION file, never the git ref, so every
+      # surface agrees. A tag that disagrees with the file is a release cut
+      # outside the release workflow and is refused.
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if [[ "${GITHUB_REF}" == refs/tags/* && "${GITHUB_REF#refs/tags/}" != "v${VERSION}" ]]; then
+            echo "::error::Tag ${GITHUB_REF#refs/tags/} does not match VERSION=${VERSION}. Releases are cut by bumping VERSION, not by tagging."
+            exit 1
+          fi
+
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -49,7 +62,7 @@ jobs:
           file: ./nexus-broker/Dockerfile
           push: true
           build-args: |
-            VERSION=${{ steps.meta-broker.outputs.version }}
+            VERSION=${{ steps.version.outputs.version }}
           tags: ${{ steps.meta-broker.outputs.tags }}
           labels: ${{ steps.meta-broker.outputs.labels }}
 
@@ -60,6 +73,6 @@ jobs:
           file: ./nexus-gateway/Dockerfile
           push: true
           build-args: |
-            VERSION=${{ steps.meta-gateway.outputs.version }}
+            VERSION=${{ steps.version.outputs.version }}
           tags: ${{ steps.meta-gateway.outputs.tags }}
           labels: ${{ steps.meta-gateway.outputs.labels }}
