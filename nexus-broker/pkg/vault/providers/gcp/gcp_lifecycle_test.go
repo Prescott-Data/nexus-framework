@@ -109,6 +109,10 @@ func TestRetire_KeepsReferencedAndNewerVersions(t *testing.T) {
 }
 
 func TestRetire_DestroyRaceIsIdempotent(t *testing.T) {
+	// Another rotation destroys the same old version an instant before ours
+	// does. The fake performs that destruction and then answers as Secret
+	// Manager would (FailedPrecondition); our Retire must treat it as done
+	// and leave exactly the kept version enabled.
 	b, f := newTestBackend()
 	ctx := context.Background()
 	if _, err := b.Set(ctx, testKey, "v1"); err != nil {
@@ -118,14 +122,44 @@ func TestRetire_DestroyRaceIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Another rotation destroyed version 1 just before ours tries to.
-	f.failNext("DestroySecretVersion", status.Error(codes.FailedPrecondition, "already destroyed"))
-	if err := b.Retire(ctx, testKey, ref); err != nil {
-		t.Fatalf("FailedPrecondition on destroy must count as success, got %v", err)
+	name := b.secretName(testKey)
+	// The hook runs with the fake's lock held, before its state check, so
+	// destroying the target there makes the fake answer FailedPrecondition
+	// exactly as Secret Manager does for an already destroyed version.
+	raced := 0
+	f.onDestroy = func(target string) {
+		f.destroyLocked(target)
+		raced++
 	}
-	f.failNext("DestroySecretVersion", status.Error(codes.NotFound, "gone"))
 	if err := b.Retire(ctx, testKey, ref); err != nil {
-		t.Fatalf("NotFound on destroy must count as success, got %v", err)
+		t.Fatalf("a version destroyed concurrently must count as retired, got %v", err)
+	}
+	f.onDestroy = nil
+	if raced != 1 {
+		t.Fatalf("expected one destroy attempt, got %d", raced)
+	}
+	if got := f.enabledVersions(name); len(got) != 1 || got[0] != 2 {
+		t.Fatalf("enabled = %v, want [2]", got)
+	}
+
+	// And the NotFound flavour: the version is gone entirely before our call.
+	if _, err := b.Set(ctx, testKey, "v3"); err != nil {
+		t.Fatal(err)
+	}
+	ref4, err := b.Set(ctx, testKey, "v4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.onDestroy = func(target string) {
+		secret, n, _ := splitVersion(target)
+		delete(f.secrets[secret].versions, n) // lock already held by the fake
+	}
+	if err := b.Retire(ctx, testKey, ref4); err != nil {
+		t.Fatalf("a version removed concurrently must count as retired, got %v", err)
+	}
+	f.onDestroy = nil
+	if got := f.enabledVersions(name); len(got) != 1 || got[0] != 4 {
+		t.Fatalf("enabled = %v, want [4]", got)
 	}
 }
 

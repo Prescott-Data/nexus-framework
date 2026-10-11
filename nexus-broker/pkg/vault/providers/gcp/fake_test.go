@@ -28,6 +28,10 @@ type fakeClient struct {
 	// before the listing is built; tests use it to simulate a concurrent
 	// writer adding a version between a Set's AddSecretVersion and its list.
 	onList func()
+	// onDestroy runs inside DestroySecretVersion before the state check, with
+	// the target version name; tests use it to simulate a concurrent
+	// rotation destroying that very version first.
+	onDestroy func(name string)
 }
 
 type fakeSecret struct {
@@ -166,6 +170,9 @@ func (f *fakeClient) DestroySecretVersion(_ context.Context, req *secretmanagerp
 	if err := f.take("DestroySecretVersion"); err != nil {
 		return nil, err
 	}
+	if f.onDestroy != nil {
+		f.onDestroy(req.GetName())
+	}
 	secret, n, ok := splitVersion(req.GetName())
 	s := f.secrets[secret]
 	if !ok || s == nil || s.versions[n] == nil {
@@ -217,4 +224,13 @@ func (f *fakeClient) addVersionLocked(secretName, data string) {
 	n := s.next
 	s.next++
 	s.versions[n] = &fakeVersion{data: []byte(data), enabled: true}
+}
+
+// destroyLocked marks a version destroyed without taking the lock; for use
+// from onDestroy, which runs with the lock held.
+func (f *fakeClient) destroyLocked(name string) {
+	secret, n, ok := splitVersion(name)
+	if s := f.secrets[secret]; ok && s != nil && s.versions[n] != nil {
+		s.versions[n].enabled = false
+	}
 }
