@@ -20,7 +20,6 @@ import (
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/google/uuid"
-	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -31,7 +30,7 @@ const managedByLabel = "nexus-broker"
 
 // Backend implements providers.Backend on Secret Manager.
 type Backend struct {
-	client    *secretmanager.Client
+	client    secretClient
 	projectID string
 	prefix    string
 }
@@ -66,7 +65,12 @@ func New(ctx context.Context, cfg Config) (*Backend, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gcp secret backend: create client: %w", err)
 	}
-	return &Backend{client: client, projectID: projectID, prefix: cfg.Prefix}, nil
+	return newWithClient(gapiClient{c: client}, projectID, cfg.Prefix), nil
+}
+
+// newWithClient wires a Backend to any secretClient; tests pass the fake.
+func newWithClient(c secretClient, projectID, prefix string) *Backend {
+	return &Backend{client: c, projectID: projectID, prefix: prefix}
 }
 
 // Close releases the underlying gRPC connection.
@@ -152,20 +156,12 @@ func (b *Backend) Set(ctx context.Context, key, value string) error {
 	// Retire earlier versions so only the current value is readable and
 	// billed. The new version is already live at this point; a failure here
 	// is still reported so that callers do not believe the old value is gone.
-	it := b.client.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
-		Parent: name,
-		Filter: "state:ENABLED",
-	})
+	versions, err := b.client.ListEnabledVersions(ctx, name)
 	var retireErrs []error
-	for {
-		v, err := it.Next()
-		if errors.Is(err, iterator.Done) {
-			break
-		}
-		if err != nil {
-			retireErrs = append(retireErrs, fmt.Errorf("list versions: %w", err))
-			break
-		}
+	if err != nil {
+		retireErrs = append(retireErrs, fmt.Errorf("list versions: %w", err))
+	}
+	for _, v := range versions {
 		// Retire only versions older than the one just added. A concurrent
 		// writer may have added a newer one; destroying it would lose that
 		// caller's value.

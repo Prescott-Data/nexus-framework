@@ -12,6 +12,22 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## 0.6.1 <span class="changelog-date">2026-10-13</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.1" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Changed**
+
+- **The GCP Secret Manager backend is tested without cloud credentials.** The backend now talks to a small interface over the Secret Manager client, and an in-memory fake with the service's real gRPC codes exercises every lifecycle path in `go test`: create-or-reuse (AlreadyExists), rotation retiring only older versions, destroy races (NotFound, FailedPrecondition), a listing failure that leaves the new version live but is still reported, delete of a missing secret, and the startup probe including its cleanup on failure. The credentialed round-trip test remains for the real client. No behaviour change. (#115)
+
+</div>
+
+---
+
+<div class="changelog-release" markdown>
+
 ## 0.6.0 <span class="changelog-date">2026-10-10</span>
 
 <div class="changelog-meta" markdown>
