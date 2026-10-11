@@ -89,7 +89,7 @@ providers:
 
 ---
 
-`client_secret` is write-only: the Broker never returns it, so `plan` does not compare it and `apply` does not re-send it for an unchanged provider. Rotate a secret deliberately with `PATCH /providers/{id}` and a new `client_secret`; a manifest apply never re-sends it. Placeholders such as `${GITHUB_CLIENT_SECRET}` are expanded inside string values only, including nested `params`, after the YAML is parsed. Comments and keys are left alone, so a `$` in a comment is not a placeholder. Every unset placeholder is reported by name before anything is sent to the Broker.
+`client_secret` is write-only: the Broker never returns it. It returns `client_secret_fingerprint`, a truncated SHA-256 of the stored secret, and `plan` compares the manifest value's fingerprint against it, so a rotated secret in the manifest shows as drift and `apply` sends only that, while an unchanged one is left alone. A provider registered before 0.6.4 has no fingerprint until its next rotation or the Broker's next use of the secret, and is not compared until then. Placeholders such as `${GITHUB_CLIENT_SECRET}` are expanded inside string values only, including nested `params`, after the YAML is parsed. Comments and keys are left alone, so a `$` in a comment is not a placeholder. Every unset placeholder is reported by name before anything is sent to the Broker.
 
 ## Commands
 

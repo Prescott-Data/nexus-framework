@@ -59,6 +59,7 @@ func TestRegisterProfile_OAuth2(t *testing.T) {
 			nil,                         // saml_idp_sso_url
 			nil,                         // saml_idp_x509_cert
 			nil,                         // saml_sp_entity_id
+			sqlmock.AnyArg(),            // client_secret_fingerprint
 		).
 		WillReturnRows(rows)
 
@@ -122,6 +123,7 @@ func TestRegisterProfile_StaticKey(t *testing.T) {
 			nil,                     // saml_idp_sso_url
 			nil,                     // saml_idp_x509_cert
 			nil,                     // saml_sp_entity_id
+			sqlmock.AnyArg(),        // client_secret_fingerprint
 		).
 		WillReturnRows(rows)
 
@@ -206,11 +208,12 @@ func TestGetProfile_NullValues(t *testing.T) {
 	providerID := uuid.New()
 	rows := sqlmock.NewRows([]string{
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
-		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category", "last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref",
+		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category", "last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref", "client_secret_fingerprint",
 	}).AddRow(
 		providerID.String(), "null-provider", nil, nil, nil, nil, nil,
 		false, []byte("{}"), "api_key", "", "", "", nil, "", "", nil, "unknown", nil, nil, nil, nil, nil,
 		nil, // client_secret_ref
+		nil, // client_secret_fingerprint
 	)
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles WHERE id = \$1`).
@@ -247,19 +250,21 @@ func TestGetAllProfiles_Success(t *testing.T) {
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
 		"enable_discovery", "scopes", "auth_type", "auth_header",
 		"api_base_url", "user_info_endpoint", "params", "description", "category",
-		"last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref",
+		"last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref", "client_secret_fingerprint",
 	}).AddRow(
 		id1.String(), "google", ptr("cid"), ptr("csec"), ptr("https://auth"), ptr("https://token"), nil,
 		true, []byte("{email,profile}"), "oauth2", "",
 		"https://api.google.com", "/userinfo", nil, "Google OAuth", "Identity",
 		now, "healthy", nil, nil, nil, nil, nil,
 		nil, // client_secret_ref
+		nil, // client_secret_fingerprint
 	).AddRow(
 		id2.String(), "stripe", nil, nil, nil, nil, nil,
 		false, []byte("{}"), "api_key", "Authorization",
 		"https://api.stripe.com", "/v1/account", nil, "Stripe API", "Payments",
 		now, "unhealthy", &msg, nil, nil, nil, nil,
 		nil, // client_secret_ref
+		nil, // client_secret_fingerprint
 	)
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles`).WillReturnRows(rows)
@@ -297,7 +302,7 @@ func TestGetAllProfiles_Empty(t *testing.T) {
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
 		"enable_discovery", "scopes", "auth_type", "auth_header",
 		"api_base_url", "user_info_endpoint", "params", "description", "category",
-		"last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref",
+		"last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref", "client_secret_fingerprint",
 	})
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles`).WillReturnRows(rows)
@@ -500,6 +505,7 @@ func TestPatchProfile_SAMLRejectsMissingMetadata(t *testing.T) {
 		providerID.String(), "oauth-provider", ptr("cid"), ptr("secret"), ptr("https://auth.example.com"), ptr("https://token.example.com"), nil,
 		false, []byte("{}"), "oauth2", "", "", "", nil, "", "", nil, "unknown", nil, nil, nil, nil, nil,
 		nil, // client_secret_ref
+		nil, // client_secret_fingerprint
 	)
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles WHERE id = \$1`).
@@ -525,6 +531,7 @@ func TestPatchProfile_SAMLAcceptsCompleteMetadata(t *testing.T) {
 		providerID.String(), "placeholder-provider", nil, nil, nil, nil, nil,
 		false, []byte("{}"), "api_key", "", "", "", nil, "", "", nil, "unknown", nil, nil, nil, nil, nil,
 		nil, // client_secret_ref
+		nil, // client_secret_fingerprint
 	)
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles WHERE id = \$1`).
@@ -556,7 +563,7 @@ func TestPatchProfile_SAMLAcceptsCompleteMetadata(t *testing.T) {
 func providerProfileColumns() []string {
 	return []string{
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
-		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category", "last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref",
+		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category", "last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref", "client_secret_fingerprint",
 	}
 }
 func TestRegisterProfile_SAML(t *testing.T) {
@@ -594,6 +601,7 @@ func TestRegisterProfile_SAML(t *testing.T) {
 			"https://idp.example.com/sso",
 			cert,
 			"https://broker.example.com/saml/sp",
+			sqlmock.AnyArg(), // client_secret_fingerprint
 		).
 		WillReturnRows(rows)
 

@@ -142,6 +142,8 @@ nexus-cli apply -file nexus-providers.yaml
 
 ## Drift detection
 
+Secrets are compared by fingerprint: the Broker returns `client_secret_fingerprint` (truncated SHA-256) rather than the secret, and `plan` hashes the manifest value to compare. Rows without a fingerprint (registered before 0.6.4, not yet used or rotated) are not compared.
+
 `nexus-cli` computes drift by comparing each field in the manifest against the live Broker response. Fields with semantic equivalence (empty array vs null) are not flagged as drift. Secret fields (`client_id`, `client_secret`) are always included in the update payload when any drift is detected on the provider — they cannot be compared because the Broker does not return secret values in GET responses.
 
 ## Exit codes

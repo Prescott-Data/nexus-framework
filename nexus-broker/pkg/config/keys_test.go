@@ -81,15 +81,20 @@ func TestKeyFingerprint(t *testing.T) {
 		raw[i] = byte(i)
 	}
 	fp := KeyFingerprint(raw)
-	encoded := base64.StdEncoding.EncodeToString(raw)
-
-	if !strings.HasPrefix(encoded, strings.TrimSuffix(fp, "...")) {
-		t.Fatalf("fingerprint %q should be prefix of full encoding %q", fp, encoded)
+	if len(fp) != 12 {
+		t.Fatalf("fingerprint should be 12 hex chars, got %q", fp)
 	}
-	if !strings.HasSuffix(fp, "...") {
-		t.Fatalf("fingerprint should end with ellipsis, got: %q", fp)
+	// Never a prefix of the key material itself, in any encoding.
+	if strings.Contains(base64.StdEncoding.EncodeToString(raw), fp) {
+		t.Fatalf("fingerprint %q must not be a slice of the encoded key", fp)
 	}
-	if len(fp) != 11 { // 8 chars + "..."
-		t.Fatalf("fingerprint should be 11 chars (8 + ...), got %d: %q", len(fp), fp)
+	other := make([]byte, 32)
+	copy(other, raw)
+	other[31] ^= 1
+	if KeyFingerprint(other) == fp {
+		t.Fatal("a one-bit change must change the fingerprint")
+	}
+	if KeyFingerprint(raw) != fp {
+		t.Fatal("fingerprint must be deterministic")
 	}
 }

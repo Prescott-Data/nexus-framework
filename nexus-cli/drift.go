@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 )
@@ -31,11 +33,22 @@ func computeDrift(desired Provider, live map[string]interface{}) (bool, map[stri
 
 		liveVal, exists := live[k]
 
-		// The Broker never returns client_secret, so it cannot be compared.
-		// Treating the redaction as drift would re-send, and with an external
-		// secret backend re-version, every OAuth provider's secret on every
-		// apply. Rotate a secret deliberately with a PATCH, not by re-applying.
-		if k == "client_secret" && !exists {
+		// The Broker never returns client_secret. It returns a fingerprint of
+		// it (0.6.4+), so a changed secret is detected by comparing
+		// fingerprints without the secret ever being read back. A row with no
+		// fingerprint yet (written before 0.6.4 and not resolved since) cannot
+		// be compared and is left alone; re-sending would re-version every
+		// such provider's secret on every apply.
+		if k == "client_secret" {
+			desired, _ := v.(string)
+			liveFP, hasFP := live["client_secret_fingerprint"].(string)
+			if !hasFP || liveFP == "" {
+				continue
+			}
+			if secretFingerprint(desired) != liveFP {
+				updates[k] = v
+				drifted = true
+			}
 			continue
 		}
 
@@ -61,4 +74,11 @@ func computeDrift(desired Provider, live map[string]interface{}) (bool, map[stri
 	}
 
 	return drifted, updates, nil
+}
+
+// secretFingerprint matches the Broker's provider.SecretFingerprint: the
+// first 16 hex characters of the SHA-256 of the secret.
+func secretFingerprint(secret string) string {
+	sum := sha256.Sum256([]byte(secret))
+	return hex.EncodeToString(sum[:])[:16]
 }

@@ -42,7 +42,7 @@ var profileColumns = []string{
 	"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url",
 	"user_info_endpoint", "params", "description", "category", "last_health_check_at",
 	"health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url",
-	"saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref",
+	"saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref", "client_secret_fingerprint",
 }
 
 // profileRow is a provider_profiles row whose client_secret column is NULL,
@@ -51,7 +51,7 @@ var profileColumns = []string{
 func profileRow(authType string, ref interface{}) *sqlmock.Rows {
 	return sqlmock.NewRows(profileColumns).AddRow(
 		testProviderID, "acme", "client-id", nil, "https://acme/auth", "https://acme/token", nil,
-		false, "{}", authType, "", "", "", nil, "", "", nil, "unknown", nil, nil, nil, nil, nil, ref,
+		false, "{}", authType, "", "", "", nil, "", "", nil, "unknown", nil, nil, nil, nil, nil, ref, nil,
 	)
 }
 
@@ -82,8 +82,9 @@ func TestRegisterProfile_ExternalBackend_RowHoldsNullAndRef(t *testing.T) {
 			"acme", "client-id", nil, // client_secret must be NULL in the row
 			"https://acme/auth", "https://acme/token", nil, false, pq.Array([]string{}),
 			"oauth2", "", "", "", sqlmock.AnyArg(), "", "", nil, nil, nil, nil,
-			sqlmock.AnyArg(), // generated id
-			sqlmock.AnyArg(), // version reference
+			SecretFingerprint(testSecret), // fingerprint, returned by the API
+			sqlmock.AnyArg(),              // generated id
+			sqlmock.AnyArg(),              // version reference
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProviderID))
 	mock.ExpectCommit()
@@ -218,6 +219,8 @@ func TestResolveClientSecret_LegacyRowRotatedMeanwhileUsesTheRotationsPair(t *te
 		WithArgs(id).WillReturnRows(sqlmock.NewRows([]string{"client_secret_ref"}).AddRow(ref2))
 	mock.ExpectQuery(`FROM provider_profiles WHERE id = \$1`).WillReturnRows(profileRow("oauth2", ref2))
 	mock.ExpectCommit()
+	mock.ExpectExec(`UPDATE provider_profiles SET client_secret_fingerprint = \$1 WHERE id = \$2 AND client_secret_fingerprint IS NULL`).
+		WithArgs(SecretFingerprint("new"), id).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	p := &Profile{ID: id, AuthType: "oauth2", Name: "stale"}
 	require.NoError(t, store.ResolveClientSecret(ctx, p))
@@ -297,8 +300,8 @@ func TestPatchProfile_ExternalBackend_RotatesAtomicallyThenRetires(t *testing.T)
 
 	expectLock(mock)
 	// Column NULL, reference set, both in the one statement.
-	mock.ExpectExec(`UPDATE provider_profiles SET client_secret = \$1, client_secret_ref = \$2, updated_at = NOW\(\) WHERE id = \$3`).
-		WithArgs(nil, providers.MemoryRef(testProviderID, 2), id).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE provider_profiles SET client_secret = \$1, client_secret_fingerprint = \$2, client_secret_ref = \$3, updated_at = NOW\(\) WHERE id = \$4`).
+		WithArgs(nil, SecretFingerprint("rotated"), providers.MemoryRef(testProviderID, 2), id).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	require.NoError(t, store.PatchProfile(id, map[string]interface{}{"client_secret": "rotated"}))
@@ -315,8 +318,8 @@ func TestPatchProfile_ExternalBackend_UnknownProviderDoesNotOrphanSecret(t *test
 	id := uuid.MustParse(testProviderID)
 
 	expectLock(mock)
-	mock.ExpectExec(`UPDATE provider_profiles SET client_secret = \$1, client_secret_ref = \$2, updated_at = NOW\(\) WHERE id = \$3`).
-		WithArgs(nil, sqlmock.AnyArg(), id).WillReturnResult(sqlmock.NewResult(0, 0)) // no active row
+	mock.ExpectExec(`UPDATE provider_profiles SET client_secret = \$1, client_secret_fingerprint = \$2, client_secret_ref = \$3, updated_at = NOW\(\) WHERE id = \$4`).
+		WithArgs(nil, sqlmock.AnyArg(), sqlmock.AnyArg(), id).WillReturnResult(sqlmock.NewResult(0, 0)) // no active row
 	mock.ExpectRollback()
 
 	err := store.PatchProfile(id, map[string]interface{}{"client_secret": "rotated"})
@@ -334,8 +337,8 @@ func TestUpdateProfile_ExternalBackend_RotatesAtomicallyThenRetires(t *testing.T
 
 	expectLock(mock)
 	// $3 = rotating, $21 = the new reference, in the same statement as the metadata.
-	mock.ExpectExec(`client_secret = CASE WHEN \$3::boolean THEN NULL ELSE client_secret END, client_secret_ref = CASE WHEN \$3::boolean THEN \$21 ELSE client_secret_ref END`).
-		WithArgs("acme", "client-id", true, nil, nil, nil, false, pq.Array([]string(nil)), "oauth2", "", "", "", nil, "", "", nil, nil, nil, nil, id, providers.MemoryRef(testProviderID, 2)).
+	mock.ExpectExec(`client_secret = CASE WHEN \$3::boolean THEN NULL ELSE client_secret END, client_secret_ref = CASE WHEN \$3::boolean THEN \$22 ELSE client_secret_ref END`).
+		WithArgs("acme", "client-id", true, nil, nil, nil, false, pq.Array([]string(nil)), "oauth2", "", "", "", nil, "", "", nil, nil, nil, nil, id, SecretFingerprint(secret), providers.MemoryRef(testProviderID, 2)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -351,8 +354,8 @@ func TestUpdateProfile_ExternalBackend_OmittedSecretPreservesColumnAndRef(t *tes
 	id := uuid.MustParse(testProviderID)
 
 	// No secret in the PUT: $3 = false, ref NULL; the CASE keeps both columns.
-	mock.ExpectExec(`client_secret_ref = CASE WHEN \$3::boolean THEN \$21 ELSE client_secret_ref END`).
-		WithArgs("acme", "client-id", false, nil, nil, nil, false, pq.Array([]string(nil)), "oauth2", "", "", "", nil, "", "", nil, nil, nil, nil, id, nil).
+	mock.ExpectExec(`client_secret_ref = CASE WHEN \$3::boolean THEN \$22 ELSE client_secret_ref END`).
+		WithArgs("acme", "client-id", false, nil, nil, nil, false, pq.Array([]string(nil)), "oauth2", "", "", "", nil, "", "", nil, nil, nil, nil, id, nil, nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	cid := "client-id"
@@ -417,7 +420,7 @@ func TestInternalBackend_IsUnchanged(t *testing.T) {
 	mock.ExpectQuery(`SELECT id FROM provider_profiles WHERE name = \$1`).WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO provider_profiles`).
 		WithArgs("acme", "client-id", testSecret, "https://acme/auth", "https://acme/token", nil, false, pq.Array([]string{}),
-			"oauth2", "", "", "", sqlmock.AnyArg(), "", "", nil, nil, nil, nil).
+			"oauth2", "", "", "", sqlmock.AnyArg(), "", "", nil, nil, nil, nil, SecretFingerprint(testSecret)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProviderID))
 
 	_, err = store.RegisterProfile(`{"name":"acme","auth_type":"oauth2","client_id":"client-id","client_secret":"` + testSecret + `","auth_url":"https://acme/auth","token_url":"https://acme/token"}`)
@@ -439,6 +442,8 @@ func TestResolveClientSecret_RetiredReferenceReloadsTheRow(t *testing.T) {
 	mock.ExpectQuery(`SELECT client_secret_ref FROM provider_profiles WHERE id = \$1 AND deleted_at IS NULL`).
 		WithArgs(uuid.MustParse(testProviderID)).WillReturnRows(sqlmock.NewRows([]string{"client_secret_ref"}).AddRow(ref2))
 	mock.ExpectQuery(`FROM provider_profiles WHERE id = \$1`).WillReturnRows(profileRow("oauth2", ref2))
+	mock.ExpectExec(`UPDATE provider_profiles SET client_secret_fingerprint = \$1 WHERE id = \$2 AND client_secret_fingerprint IS NULL`).
+		WithArgs(SecretFingerprint("new"), uuid.MustParse(testProviderID)).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	p := &Profile{ID: uuid.MustParse(testProviderID), AuthType: "oauth2", ClientSecretRef: &ref1}
 	require.NoError(t, store.ResolveClientSecret(ctx, p))
@@ -460,7 +465,7 @@ func TestUpdateProfile_ExternalBackend_FailedUpdateDiscardsTheWrittenVersion(t *
 	secret := "rejected"
 
 	expectLock(mock)
-	mock.ExpectExec(`client_secret_ref = CASE WHEN \$3::boolean THEN \$21 ELSE client_secret_ref END`).
+	mock.ExpectExec(`client_secret_ref = CASE WHEN \$3::boolean THEN \$22 ELSE client_secret_ref END`).
 		WillReturnError(errors.New("deadlock detected"))
 	mock.ExpectRollback()
 
@@ -481,7 +486,7 @@ func TestUpdateProfile_ExternalBackend_AmbiguousCommitKeepsTheWrittenVersion(t *
 	secret := "maybe"
 
 	expectLock(mock)
-	mock.ExpectExec(`client_secret_ref = CASE WHEN \$3::boolean THEN \$21 ELSE client_secret_ref END`).
+	mock.ExpectExec(`client_secret_ref = CASE WHEN \$3::boolean THEN \$22 ELSE client_secret_ref END`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit().WillReturnError(errors.New("connection reset during commit"))
 

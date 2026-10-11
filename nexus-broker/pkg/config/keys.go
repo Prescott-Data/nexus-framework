@@ -1,7 +1,9 @@
 package config
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 )
 
@@ -42,9 +44,8 @@ func ValidateKey(envName, value string) ([]byte, error) {
 // KeyFingerprint returns the first 8 characters of the base64-encoded key,
 // safe to log for diagnostics without exposing the full secret.
 func KeyFingerprint(key []byte) string {
-	encoded := base64.StdEncoding.EncodeToString(key)
-	if len(encoded) >= 8 {
-		return encoded[:8] + "..."
-	}
-	return encoded
+	// A hash prefix, not a prefix of the key: the old form put 6 bytes of
+	// the key itself in the startup log.
+	sum := sha256.Sum256(key)
+	return hex.EncodeToString(sum[:])[:12]
 }

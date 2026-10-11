@@ -12,6 +12,26 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## 0.6.4 <span class="changelog-date">2026-10-13</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.4" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Added**
+
+- **Provider responses carry `client_secret_fingerprint`.** A truncated SHA-256 of the stored client secret, written on registration and rotation and backfilled the first time the Broker uses a secret it has no fingerprint for (migration `21_add_provider_secret_fingerprint.sql`). The secret itself is still never returned. `nexus-cli plan` compares the manifest value's fingerprint against it, so a rotated secret in a manifest is detected and sent while an unchanged one is left alone; the CLI previously could not see secret changes at all once it stopped re-sending them on every apply.
+
+**Fixed**
+
+- **The startup log no longer prints a slice of the encryption key.** `ENCRYPTION_KEY` and `STATE_KEY` fingerprints were the first 8 base64 characters of the key, 6 bytes of key material; they are now a hash prefix.
+
+</div>
+
+---
+
+<div class="changelog-release" markdown>
+
 ## 0.6.3 <span class="changelog-date">2026-10-13</span>
 
 <div class="changelog-meta" markdown>
