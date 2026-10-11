@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,12 +57,13 @@ func (s *Store) secretCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), secretBackendTimeout)
 }
 
-// resolveSecret fills p.ClientSecret from the external backend when the row
-// holds NULL. A missing secret does not fail the read, so a provider whose
-// secret was removed out of band can still be listed, inspected and
-// re-registered; it is marked ClientSecretMissing so that execution paths and
-// the health probe fail clearly instead of sending an empty secret.
-func (s *Store) resolveSecret(p *Profile) error {
+// ResolveClientSecret fills p.ClientSecret from the external backend. Reads
+// return metadata only; the paths that send the secret to the provider
+// (OAuth exchange, refresh, revocation, the health probe) call this, so a
+// metadata lookup never depends on the backend. A missing secret does not
+// fail the call: the provider is marked ClientSecretMissing so those paths
+// refuse instead of sending an empty secret.
+func (s *Store) ResolveClientSecret(ctx context.Context, p *Profile) error {
 	if p.ClientSecret != nil {
 		return nil
 	}
@@ -78,9 +78,33 @@ func (s *Store) resolveSecret(p *Profile) error {
 		p.ClientSecretMissing = true
 		return nil
 	}
-	ctx, cancel := s.secretCtx()
+	ctx, cancel := context.WithTimeout(ctx, secretBackendTimeout)
 	defer cancel()
-	v, err := s.secrets.Get(ctx, p.ID.String())
+	var v string
+	var err error
+	if p.ClientSecretRef != nil && *p.ClientSecretRef != "" {
+		v, err = s.secrets.GetRef(ctx, *p.ClientSecretRef)
+		if errors.Is(err, providers.ErrNotFound) {
+			// The version was retired under us: a rotation committed between
+			// the row read and this resolve. Re-read the row's reference once
+			// and use the pair the rotation left, metadata included.
+			var current *string
+			if qErr := s.db.QueryRow(`SELECT client_secret_ref FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`, p.ID).Scan(&current); qErr == nil && current != nil && *current != *p.ClientSecretRef {
+				if fresh, fErr := s.GetProfile(p.ID); fErr == nil {
+					fresh.ClientSecret, fresh.ClientSecretMissing = nil, false
+					*p = *fresh
+					v, err = s.secrets.GetRef(ctx, *p.ClientSecretRef)
+				}
+			}
+		}
+	} else {
+		// Row written before references existed. Backfill its reference once,
+		// under the same per-provider lock a rotation takes, so this cannot
+		// interleave with one: after the lock the row is re-read (a rotation
+		// may just have given it a reference), otherwise the backend's current
+		// version becomes the row's reference from now on.
+		v, err = s.backfillSecretRef(ctx, p)
+	}
 	if errors.Is(err, providers.ErrNotFound) {
 		p.ClientSecretMissing = true
 		return nil
@@ -114,16 +138,100 @@ func (s *Store) withProviderLock(id uuid.UUID, fn func(tx *sqlx.Tx) error) error
 		return err
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit: %w", err)
+		return &commitError{err: err}
 	}
 	return nil
 }
 
-func (s *Store) putSecret(id uuid.UUID, value string) error {
+// commitError marks a commit whose outcome is unknown: the row may or may
+// not have been written. Callers must not undo backend writes on it.
+type commitError struct{ err error }
+
+func (e *commitError) Error() string { return "failed to commit: " + e.err.Error() }
+func (e *commitError) Unwrap() error { return e.err }
+
+// backfillSecretRef gives a pre-0.6.2 row its version reference. It runs
+// under the provider lock so a rotation in flight either finished before
+// (and the re-read row already carries a reference) or starts after (and
+// finds the reference this wrote). Returns the resolved value.
+func (s *Store) backfillSecretRef(ctx context.Context, p *Profile) (string, error) {
+	var value string
+	err := s.withProviderLock(p.ID, func(tx *sqlx.Tx) error {
+		var current *string
+		if err := tx.QueryRow(`SELECT client_secret_ref FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`, p.ID).Scan(&current); err != nil {
+			return fmt.Errorf("failed to re-read provider %s: %w", p.ID, err)
+		}
+		if current != nil && *current != "" {
+			// A rotation got there first; use its pair.
+			fresh, err := s.GetProfile(p.ID)
+			if err != nil {
+				return err
+			}
+			fresh.ClientSecret, fresh.ClientSecretMissing = nil, false
+			*p = *fresh
+			v, err := s.secrets.GetRef(ctx, *current)
+			value = v
+			return err
+		}
+		v, ref, err := s.secrets.Current(ctx, p.ID.String())
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE provider_profiles SET client_secret_ref = $1 WHERE id = $2 AND client_secret_ref IS NULL`, ref, p.ID); err != nil {
+			return fmt.Errorf("failed to backfill client_secret_ref for provider %s: %w", p.ID, err)
+		}
+		p.ClientSecretRef = &ref
+		value = v
+		return nil
+	})
+	return value, err
+}
+
+// discardSecretRef removes the version a failed rotation wrote, so that a
+// row without a reference (written before 0.6.2) cannot start reading it
+// as the current version. Only on definite failures; an unknown commit
+// outcome keeps it.
+func (s *Store) discardSecretRef(ref string) error {
 	ctx, cancel := s.secretCtx()
 	defer cancel()
-	if err := s.secrets.Set(ctx, id.String(), value); err != nil {
-		return fmt.Errorf("%w: write client_secret for provider %s: %w", ErrSecretBackend, id, err)
+	if err := s.secrets.DiscardRef(ctx, ref); err != nil {
+		return fmt.Errorf("%w: discard version %s: %w", ErrSecretBackend, ref, err)
+	}
+	return nil
+}
+
+// undoRotation discards the just-written version after a definite failure
+// of the row update. ensureRowMatched has already removed the whole secret
+// when the row was gone, and an ambiguous commit keeps everything.
+func (s *Store) undoRotation(err error, ref string) error {
+	var ce *commitError
+	if ref == "" || errors.As(err, &ce) || errors.Is(err, ErrProviderNotFound) {
+		return err
+	}
+	if dErr := s.discardSecretRef(ref); dErr != nil {
+		return fmt.Errorf("%w (and the written version could not be discarded: %w)", err, dErr)
+	}
+	return err
+}
+
+func (s *Store) putSecret(id uuid.UUID, value string) (string, error) {
+	ctx, cancel := s.secretCtx()
+	defer cancel()
+	ref, err := s.secrets.Set(ctx, id.String(), value)
+	if err != nil {
+		return "", fmt.Errorf("%w: write client_secret for provider %s: %w", ErrSecretBackend, id, err)
+	}
+	return ref, nil
+}
+
+// retireSecret destroys versions older than keepRef once the row referencing
+// keepRef is committed. A failure here is reported but the rotation has
+// already happened; the next rotation retires again.
+func (s *Store) retireSecret(id uuid.UUID, keepRef string) error {
+	ctx, cancel := s.secretCtx()
+	defer cancel()
+	if err := s.secrets.Retire(ctx, id.String(), keepRef); err != nil {
+		return fmt.Errorf("%w: retire earlier versions for provider %s: %w", ErrSecretBackend, id, err)
 	}
 	return nil
 }
@@ -163,6 +271,11 @@ type Profile struct {
 	LastHealthCheckAt *time.Time       `json:"last_health_check_at,omitempty" db:"last_health_check_at"`
 	HealthStatus      string           `json:"health_status" db:"health_status"`
 	HealthMessage     *string          `json:"health_message,omitempty" db:"health_message"`
+
+	// ClientSecretRef names the exact backend secret version this row uses
+	// (SECRET_BACKEND != internal). Written atomically with the row, so a
+	// reader never pairs one rotation's metadata with another's secret.
+	ClientSecretRef *string `json:"-" db:"client_secret_ref"`
 
 	// ClientSecretMissing is set when an external secret backend is active,
 	// the row holds no client_secret, and the backend has no secret for this
@@ -332,11 +445,22 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	// until the backend write succeeds, so no reader ever sees a row whose
 	// secret does not exist yet, and a crash in between leaves no row behind.
 	id := uuid.New()
-	query = strings.Replace(query, "(name, client_id, client_secret,", "(id, name, client_id, client_secret,", 1)
-	query = strings.Replace(query, "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)", "VALUES ($20,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)", 1)
+	query = strings.Replace(query, "(name, client_id, client_secret,", "(id, client_secret_ref, name, client_id, client_secret,", 1)
+	query = strings.Replace(query, "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)", "VALUES ($20,$21,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)", 1)
+
+	// The secret is written first so its version reference can go into the
+	// row; the row is still invisible until commit, and a failure before
+	// commit removes the secret again.
+	ref, err := s.putSecret(id, *p.ClientSecret)
+	if err != nil {
+		return nil, err
+	}
 
 	tx, err := s.db.Beginx()
 	if err != nil {
+		if dropErr := s.dropSecret(id); dropErr != nil {
+			return nil, fmt.Errorf("database: failed to begin transaction: %w (cleanup also failed: %w)", err, dropErr)
+		}
 		return nil, fmt.Errorf("database: failed to begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
@@ -347,18 +471,13 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		p.EnableDiscovery, scopes, p.AuthType, p.AuthHeader,
 		p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category,
 		p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID,
-		id,
+		id, ref,
 	).Scan(&inserted)
 	if err != nil {
-		return nil, fmt.Errorf("database: failed to create provider profile: %w", err)
-	}
-
-	if err := s.putSecret(id, *p.ClientSecret); err != nil {
-		// The row was never committed; only the secret may exist part way.
 		if dropErr := s.dropSecret(id); dropErr != nil {
-			return nil, fmt.Errorf("%w (cleanup also failed: %w)", err, dropErr)
+			return nil, fmt.Errorf("database: failed to create provider profile: %w (cleanup also failed: %w)", err, dropErr)
 		}
-		return nil, err
+		return nil, fmt.Errorf("database: failed to create provider profile: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -371,21 +490,19 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	}
 
 	p.ID = inserted
+	p.ClientSecretRef = &ref
 	return &p, nil
 }
 
 // GetProfile retrieves a provider profile by ID
 func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 	var p Profile
-	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params, COALESCE(description, ''), COALESCE(category, ''), last_health_check_at, COALESCE(health_status, 'unknown'), health_message, saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
+	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params, COALESCE(description, ''), COALESCE(category, ''), last_health_check_at, COALESCE(health_status, 'unknown'), health_message, saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id, client_secret_ref FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
 
 	row := s.db.QueryRow(query, id)
-	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category, &p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage, &p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID)
+	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category, &p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage, &p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID, &p.ClientSecretRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider profile: %w", err)
-	}
-	if err := s.resolveSecret(&p); err != nil {
-		return nil, err
 	}
 
 	return &p, nil
@@ -403,7 +520,7 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 		       COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params,
 		       COALESCE(description, ''), COALESCE(category, ''), last_health_check_at,
 		       COALESCE(health_status, 'unknown'), health_message,
-	       saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id
+	       saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id, client_secret_ref
 		FROM provider_profiles
 		WHERE LOWER(name) = $1 AND deleted_at IS NULL
 	`
@@ -422,7 +539,7 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 			&p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType,
 			&p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category,
 			&p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage,
-			&p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID,
+			&p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID, &p.ClientSecretRef,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan provider profile: %w", err)
@@ -442,9 +559,6 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 			"multiple providers found with name '%s' (found %d) - database integrity issue, please contact administrator",
 			name, len(profiles),
 		)
-	}
-	if err := s.resolveSecret(&profiles[0]); err != nil {
-		return nil, err
 	}
 	return &profiles[0], nil
 }
@@ -501,9 +615,11 @@ func (s *Store) UpdateProfile(p *Profile) error {
 	// client_secret keeps whatever is stored, in the backend or, for a row
 	// written before the switch, still in the column. Clearing a secret is
 	// done by deleting the provider, not by PUT.
-	query = strings.Replace(query, "client_secret = $3,", "client_secret = CASE WHEN $3::boolean THEN NULL ELSE client_secret END,", 1)
+	// $3 is "rotating"; $21 is the new version reference (NULL when not rotating).
+	query = strings.Replace(query, "client_secret = $3,", "client_secret = CASE WHEN $3::boolean THEN NULL ELSE client_secret END, client_secret_ref = CASE WHEN $3::boolean THEN $21 ELSE client_secret_ref END,", 1)
+	argsRef := func(rotating bool, ref interface{}) []interface{} { return append(args(rotating), ref) }
 	if p.ClientSecret == nil {
-		if _, err := s.db.Exec(query, args(false)...); err != nil {
+		if _, err := s.db.Exec(query, argsRef(false, nil)...); err != nil {
 			return fmt.Errorf("failed to update provider profile: %w", err)
 		}
 		return nil
@@ -515,16 +631,23 @@ func (s *Store) UpdateProfile(p *Profile) error {
 	// A rotation writes the backend and the row under one per-provider lock,
 	// so two concurrent updates cannot leave one request's metadata paired
 	// with the other's secret.
-	return s.withProviderLock(p.ID, func(tx *sqlx.Tx) error {
-		if err := s.putSecret(p.ID, *p.ClientSecret); err != nil {
+	var ref string
+	err := s.withProviderLock(p.ID, func(tx *sqlx.Tx) error {
+		var err error
+		if ref, err = s.putSecret(p.ID, *p.ClientSecret); err != nil {
 			return err
 		}
-		result, err := tx.Exec(query, args(true)...)
+		result, err := tx.Exec(query, argsRef(true, ref)...)
 		if err != nil {
 			return fmt.Errorf("failed to update provider profile: %w", err)
 		}
 		return s.ensureRowMatched(result, p.ID)
 	})
+	if err != nil {
+		return s.undoRotation(err, ref)
+	}
+	// The row now references the new version; earlier ones can go.
+	return s.retireSecret(p.ID, ref)
 }
 
 // ensureRowMatched guards the write paths that put a secret in the backend
@@ -648,7 +771,11 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 	}
 	query += "updated_at = NOW()"
 
-	query += fmt.Sprintf(" WHERE id = $%d AND deleted_at IS NULL", i)
+	refArg, whereArg := i, i
+	if secretWritten {
+		whereArg++ // the version reference takes $i; see below
+	}
+	query += fmt.Sprintf(" WHERE id = $%d AND deleted_at IS NULL", whereArg)
 	args = append(args, id)
 
 	if !secretWritten {
@@ -658,17 +785,28 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 		return nil
 	}
 
-	// Backend write and row update under one per-provider lock; see UpdateProfile.
-	return s.withProviderLock(id, func(tx *sqlx.Tx) error {
-		if err := s.putSecret(id, newSecret); err != nil {
+	// Backend write and row update under one per-provider lock; see
+	// UpdateProfile. The version reference is written in the same statement
+	// as the rest of the patch.
+	query = strings.Replace(query, "updated_at = NOW()", fmt.Sprintf("client_secret_ref = $%d, updated_at = NOW()", refArg), 1)
+	var ref string
+	err := s.withProviderLock(id, func(tx *sqlx.Tx) error {
+		var err error
+		if ref, err = s.putSecret(id, newSecret); err != nil {
 			return err
 		}
-		result, err := tx.Exec(query, args...)
+		// args ends with the id (the WHERE); the ref goes before it.
+		full := append(append([]interface{}{}, args[:len(args)-1]...), ref, args[len(args)-1])
+		result, err := tx.Exec(query, full...)
 		if err != nil {
 			return fmt.Errorf("failed to patch provider profile: %w", err)
 		}
 		return s.ensureRowMatched(result, id)
 	})
+	if err != nil {
+		return s.undoRotation(err, ref)
+	}
+	return s.retireSecret(id, ref)
 }
 
 // DeleteProfile soft-deletes a provider profile by ID
@@ -751,7 +889,7 @@ func (s *Store) GetAllProfiles() ([]Profile, error) {
 		       COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params,
 		       COALESCE(description, ''), COALESCE(category, ''), last_health_check_at,
 		       COALESCE(health_status, 'unknown'), health_message,
-	       saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id
+	       saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id, client_secret_ref
 		FROM provider_profiles
 		WHERE deleted_at IS NULL
 	`
@@ -770,7 +908,7 @@ func (s *Store) GetAllProfiles() ([]Profile, error) {
 			&p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType,
 			&p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category,
 			&p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage,
-			&p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID,
+			&p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID, &p.ClientSecretRef,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan provider profile: %w", err)
@@ -782,42 +920,7 @@ func (s *Store) GetAllProfiles() ([]Profile, error) {
 		return nil, fmt.Errorf("error iterating all profiles: %w", err)
 	}
 
-	if err := s.resolveSecrets(profiles); err != nil {
-		return nil, err
-	}
-
 	return profiles, nil
-}
-
-// resolveSecretsConcurrency bounds parallel backend reads in GetAllProfiles,
-// so one slow backend cannot turn a pass over N providers into N timeouts
-// in series. It matches the health worker's own concurrency limit.
-const resolveSecretsConcurrency = 10
-
-func (s *Store) resolveSecrets(profiles []Profile) error {
-	if !s.externalSecrets() {
-		for i := range profiles {
-			if err := s.resolveSecret(&profiles[i]); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	sem := make(chan struct{}, resolveSecretsConcurrency)
-	errs := make([]error, len(profiles))
-	var wg sync.WaitGroup
-	for i := range profiles {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(i int) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			errs[i] = s.resolveSecret(&profiles[i])
-		}(i)
-	}
-	wg.Wait()
-	return errors.Join(errs...)
 }
 
 // UpdateHealthStatus updates the health fields for a given provider profile

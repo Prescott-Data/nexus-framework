@@ -79,13 +79,13 @@ func TestSeparationOfConcerns(t *testing.T) {
 	for _, rule := range rules {
 		t.Run(rule.Package, func(t *testing.T) {
 			targetDir := filepath.Join(basePath, rule.Package)
-			
+
 			// Walk the target directory
 			err := filepath.Walk(targetDir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					return err
 				}
-				
+
 				// Only analyze Go files, skip tests
 				if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 					return nil
@@ -99,10 +99,10 @@ func TestSeparationOfConcerns(t *testing.T) {
 
 				for _, imp := range node.Imports {
 					importPath := strings.Trim(imp.Path.Value, `"`)
-					
+
 					for _, forbidden := range rule.ShouldNot {
 						if strings.Contains(importPath, forbidden) {
-							t.Errorf("\nViolation in %s\nRule: %s\nForbidden Import Found: %s", 
+							t.Errorf("\nViolation in %s\nRule: %s\nForbidden Import Found: %s",
 								path, rule.Description, importPath)
 						}
 					}

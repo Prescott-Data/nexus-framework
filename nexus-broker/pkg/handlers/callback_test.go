@@ -69,7 +69,7 @@ func TestGetToken_Success(t *testing.T) {
 	mockSvc.On("GetToken", mock.Anything, connID).Return(expectedToken, "TestProvider", nil)
 
 	req, _ := http.NewRequest("GET", "/connections/"+connID.String()+"/token", nil)
-	
+
 	// Add chi route context
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("connectionID", connID.String())

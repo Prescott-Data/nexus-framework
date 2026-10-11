@@ -231,6 +231,14 @@ func (s *connectionService) revokeUpstream(ctx context.Context, providerID uuid.
 	if err != nil {
 		return false, "provider profile could not be loaded"
 	}
+	// Resolve before reading any other field; see ExchangeCodeForTokens.
+	if err := s.providerStore.ResolveClientSecret(ctx, p); err != nil {
+		return false, "provider secret backend unavailable; the credential was destroyed locally only"
+	}
+	clientSecret, err := p.RequireClientSecret()
+	if err != nil {
+		return false, "provider client secret is missing from the secret backend; the credential was destroyed locally only"
+	}
 
 	endpoint := s.resolveRevocationEndpoint(ctx, p.Params, p.Issuer, p.AuthURL, p.TokenURL)
 	if endpoint == "" {
@@ -240,10 +248,6 @@ func (s *connectionService) revokeUpstream(ctx context.Context, providerID uuid.
 	clientID := ""
 	if p.ClientID != nil {
 		clientID = *p.ClientID
-	}
-	clientSecret, err := p.RequireClientSecret()
-	if err != nil {
-		return false, "provider client secret is missing from the secret backend; the credential was destroyed locally only"
 	}
 
 	// RFC 7009 §2.1: revoking a refresh token SHOULD also invalidate the access

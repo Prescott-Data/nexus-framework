@@ -33,10 +33,26 @@ var ErrNotFound = errors.New("provider secret not found")
 type Backend interface {
 	// Kind reports which implementation this is, for logs and startup checks.
 	Kind() Kind
-	// Get returns the secret for key, or ErrNotFound.
-	Get(ctx context.Context, key string) (string, error)
-	// Set creates or replaces the secret for key.
-	Set(ctx context.Context, key, value string) error
+	// Current returns the newest readable version of key and its reference,
+	// or ErrNotFound. Used once per row written before version references
+	// existed, to backfill its reference.
+	Current(ctx context.Context, key string) (value, ref string, err error)
+	// GetRef returns the exact version named by ref, as returned by Set, or
+	// ErrNotFound when that version no longer exists.
+	GetRef(ctx context.Context, ref string) (string, error)
+	// Set adds a new version of the secret for key, creating the secret if
+	// needed, and returns an immutable reference to that version. Earlier
+	// versions stay readable until Retire, so a row that still points at one
+	// keeps working while a rotation is in flight.
+	Set(ctx context.Context, key, value string) (ref string, err error)
+	// Retire destroys every version of key older than keepRef. Called after
+	// the row referencing keepRef is committed.
+	Retire(ctx context.Context, key, keepRef string) error
+	// DiscardRef destroys the single version named by ref, leaving every
+	// other version alone. Used when the row update that would have
+	// referenced it definitely failed, so the value never becomes current.
+	// Discarding a missing or already destroyed version is not an error.
+	DiscardRef(ctx context.Context, ref string) error
 	// Delete removes the secret for key. Deleting a missing key is not an error.
 	Delete(ctx context.Context, key string) error
 	// Ping verifies the backend is reachable and the caller is authorised.

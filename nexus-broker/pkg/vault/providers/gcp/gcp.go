@@ -1,8 +1,9 @@
 // Package gcp stores provider client secrets in Google Cloud Secret Manager.
 //
 // One secret per provider, named "<prefix>-<provider uuid>", with automatic
-// replication. Set adds a version and destroys the previous enabled versions
-// so that only the current secret is billed and readable. The broker's
+// replication. Set adds a version and returns its resource name, which the
+// provider row stores; Retire then destroys the earlier versions so that only
+// the referenced secret is billed and readable. The broker's
 // service account needs secretmanager.secrets.create on the project and
 // Secret Manager admin on secrets under the prefix; see
 // deploy/terraform/gcp/secret-backend in the repository root.
@@ -111,20 +112,49 @@ func isNotFound(err error) bool {
 	return status.Code(err) == codes.NotFound
 }
 
-func (b *Backend) Get(ctx context.Context, key string) (string, error) {
-	resp, err := b.client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
-		Name: b.secretName(key) + "/versions/latest",
-	})
+// Current reads the highest enabled version of key and returns it with its
+// reference. Not the "latest" alias, which names the highest version number
+// even after that version was destroyed (for example by DiscardRef after a
+// failed rotation), and would then fail instead of falling back.
+func (b *Backend) Current(ctx context.Context, key string) (string, string, error) {
+	versions, err := b.client.ListEnabledVersions(ctx, b.secretName(key))
 	if isNotFound(err) {
-		return "", providers.ErrNotFound
+		return "", "", providers.ErrNotFound
 	}
 	if err != nil {
-		return "", fmt.Errorf("gcp secret backend: access %s: %w", b.secretID(key), err)
+		return "", "", fmt.Errorf("gcp secret backend: list versions of %s: %w", b.secretID(key), err)
 	}
-	return string(resp.GetPayload().GetData()), nil
+	newest := ""
+	for _, v := range versions {
+		if newest == "" || versionOlder(newest, v.GetName()) {
+			newest = v.GetName()
+		}
+	}
+	if newest == "" {
+		return "", "", providers.ErrNotFound
+	}
+	v, err := b.GetRef(ctx, newest)
+	if err != nil {
+		return "", "", err
+	}
+	return v, newest, nil
 }
 
-func (b *Backend) Set(ctx context.Context, key, value string) error {
+// GetRef reads the exact version named by ref (a version resource name).
+func (b *Backend) GetRef(ctx context.Context, ref string) (string, error) {
+	resp, err := b.client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{Name: ref})
+	switch status.Code(err) {
+	case codes.OK:
+		return string(resp.GetPayload().GetData()), nil
+	case codes.NotFound, codes.FailedPrecondition:
+		// Missing, or destroyed by a retirement; either way not readable.
+		return "", providers.ErrNotFound
+	default:
+		return "", fmt.Errorf("gcp secret backend: access %s: %w", ref, err)
+	}
+}
+
+func (b *Backend) Set(ctx context.Context, key, value string) (string, error) {
 	name := b.secretName(key)
 
 	// Create the container on first write. A race with another writer is
@@ -142,7 +172,7 @@ func (b *Backend) Set(ctx context.Context, key, value string) error {
 		},
 	})
 	if err != nil && status.Code(err) != codes.AlreadyExists {
-		return fmt.Errorf("gcp secret backend: create %s: %w", b.secretID(key), err)
+		return "", fmt.Errorf("gcp secret backend: create %s: %w", b.secretID(key), err)
 	}
 
 	added, err := b.client.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{
@@ -150,8 +180,17 @@ func (b *Backend) Set(ctx context.Context, key, value string) error {
 		Payload: &secretmanagerpb.SecretPayload{Data: []byte(value)},
 	})
 	if err != nil {
-		return fmt.Errorf("gcp secret backend: add version to %s: %w", b.secretID(key), err)
+		return "", fmt.Errorf("gcp secret backend: add version to %s: %w", b.secretID(key), err)
 	}
+	return added.GetName(), nil
+}
+
+// Retire destroys every enabled version of key older than keepRef, so only
+// the version the row references stays readable and billed. Called after
+// that row has committed; a reader holding the previous reference has by
+// then already been superseded.
+func (b *Backend) Retire(ctx context.Context, key, keepRef string) error {
+	name := b.secretName(key)
 
 	// Retire earlier versions so only the current value is readable and
 	// billed. The new version is already live at this point; a failure here
@@ -162,10 +201,9 @@ func (b *Backend) Set(ctx context.Context, key, value string) error {
 		retireErrs = append(retireErrs, fmt.Errorf("list versions: %w", err))
 	}
 	for _, v := range versions {
-		// Retire only versions older than the one just added. A concurrent
-		// writer may have added a newer one; destroying it would lose that
-		// caller's value.
-		if !versionOlder(v.GetName(), added.GetName()) {
+		// Only versions older than the kept one. A concurrent writer may have
+		// added a newer one; destroying it would lose that caller's value.
+		if !versionOlder(v.GetName(), keepRef) {
 			continue
 		}
 		_, err = b.client.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{Name: v.GetName()})
@@ -178,9 +216,20 @@ func (b *Backend) Set(ctx context.Context, key, value string) error {
 		}
 	}
 	if len(retireErrs) > 0 {
-		return fmt.Errorf("gcp secret backend: %s: new version is live but earlier versions were not retired: %w", b.secretID(key), errors.Join(retireErrs...))
+		return fmt.Errorf("gcp secret backend: %s: earlier versions were not retired: %w", b.secretID(key), errors.Join(retireErrs...))
 	}
 	return nil
+}
+
+// DiscardRef destroys exactly the version named by ref.
+func (b *Backend) DiscardRef(ctx context.Context, ref string) error {
+	_, err := b.client.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{Name: ref})
+	switch status.Code(err) {
+	case codes.OK, codes.NotFound, codes.FailedPrecondition:
+		return nil
+	default:
+		return fmt.Errorf("gcp secret backend: discard %s: %w", ref, err)
+	}
 }
 
 func (b *Backend) Delete(ctx context.Context, key string) error {
@@ -219,15 +268,22 @@ func (b *Backend) Ping(ctx context.Context) (err error) {
 		}
 	}()
 
-	// Written twice so the second Set has to retire the first version,
-	// which exercises DestroySecretVersion as a real rotation would.
-	if err := b.Set(ctx, key, "startup-probe-1"); err != nil {
+	// Written twice and retired, which exercises DestroySecretVersion as a
+	// real rotation would, then read by reference as a real exchange would.
+	if _, err := b.Set(ctx, key, "startup-probe-1"); err != nil {
 		return fmt.Errorf("gcp secret backend: project %s, prefix %s: %w", b.projectID, b.prefix, err)
 	}
-	if err := b.Set(ctx, key, "startup-probe-2"); err != nil {
+	ref, err := b.Set(ctx, key, "startup-probe-2")
+	if err != nil {
 		return fmt.Errorf("gcp secret backend: project %s, prefix %s: %w", b.projectID, b.prefix, err)
 	}
-	if _, err := b.Get(ctx, key); err != nil {
+	if err := b.Retire(ctx, key, ref); err != nil {
+		return fmt.Errorf("gcp secret backend: project %s, prefix %s: %w", b.projectID, b.prefix, err)
+	}
+	if _, err := b.GetRef(ctx, ref); err != nil {
+		return fmt.Errorf("gcp secret backend: project %s, prefix %s: %w", b.projectID, b.prefix, err)
+	}
+	if _, _, err := b.Current(ctx, key); err != nil {
 		return fmt.Errorf("gcp secret backend: project %s, prefix %s: %w", b.projectID, b.prefix, err)
 	}
 	if err := b.Delete(ctx, key); err != nil {

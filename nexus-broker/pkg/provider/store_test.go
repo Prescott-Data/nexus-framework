@@ -206,10 +206,11 @@ func TestGetProfile_NullValues(t *testing.T) {
 	providerID := uuid.New()
 	rows := sqlmock.NewRows([]string{
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
-		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category", "last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id",
+		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category", "last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref",
 	}).AddRow(
 		providerID.String(), "null-provider", nil, nil, nil, nil, nil,
 		false, []byte("{}"), "api_key", "", "", "", nil, "", "", nil, "unknown", nil, nil, nil, nil, nil,
+		nil, // client_secret_ref
 	)
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles WHERE id = \$1`).
@@ -246,17 +247,19 @@ func TestGetAllProfiles_Success(t *testing.T) {
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
 		"enable_discovery", "scopes", "auth_type", "auth_header",
 		"api_base_url", "user_info_endpoint", "params", "description", "category",
-		"last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id",
+		"last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref",
 	}).AddRow(
 		id1.String(), "google", ptr("cid"), ptr("csec"), ptr("https://auth"), ptr("https://token"), nil,
 		true, []byte("{email,profile}"), "oauth2", "",
 		"https://api.google.com", "/userinfo", nil, "Google OAuth", "Identity",
 		now, "healthy", nil, nil, nil, nil, nil,
+		nil, // client_secret_ref
 	).AddRow(
 		id2.String(), "stripe", nil, nil, nil, nil, nil,
 		false, []byte("{}"), "api_key", "Authorization",
 		"https://api.stripe.com", "/v1/account", nil, "Stripe API", "Payments",
 		now, "unhealthy", &msg, nil, nil, nil, nil,
+		nil, // client_secret_ref
 	)
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles`).WillReturnRows(rows)
@@ -294,7 +297,7 @@ func TestGetAllProfiles_Empty(t *testing.T) {
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
 		"enable_discovery", "scopes", "auth_type", "auth_header",
 		"api_base_url", "user_info_endpoint", "params", "description", "category",
-		"last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id",
+		"last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref",
 	})
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles`).WillReturnRows(rows)
@@ -496,6 +499,7 @@ func TestPatchProfile_SAMLRejectsMissingMetadata(t *testing.T) {
 	rows := sqlmock.NewRows(providerProfileColumns()).AddRow(
 		providerID.String(), "oauth-provider", ptr("cid"), ptr("secret"), ptr("https://auth.example.com"), ptr("https://token.example.com"), nil,
 		false, []byte("{}"), "oauth2", "", "", "", nil, "", "", nil, "unknown", nil, nil, nil, nil, nil,
+		nil, // client_secret_ref
 	)
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles WHERE id = \$1`).
@@ -520,6 +524,7 @@ func TestPatchProfile_SAMLAcceptsCompleteMetadata(t *testing.T) {
 	rows := sqlmock.NewRows(providerProfileColumns()).AddRow(
 		providerID.String(), "placeholder-provider", nil, nil, nil, nil, nil,
 		false, []byte("{}"), "api_key", "", "", "", nil, "", "", nil, "unknown", nil, nil, nil, nil, nil,
+		nil, // client_secret_ref
 	)
 
 	mock.ExpectQuery(`SELECT .* FROM provider_profiles WHERE id = \$1`).
@@ -551,7 +556,7 @@ func TestPatchProfile_SAMLAcceptsCompleteMetadata(t *testing.T) {
 func providerProfileColumns() []string {
 	return []string{
 		"id", "name", "client_id", "client_secret", "auth_url", "token_url", "issuer",
-		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category", "last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id",
+		"enable_discovery", "scopes", "auth_type", "auth_header", "api_base_url", "user_info_endpoint", "params", "description", "category", "last_health_check_at", "health_status", "health_message", "saml_idp_entity_id", "saml_idp_sso_url", "saml_idp_x509_cert", "saml_sp_entity_id", "client_secret_ref",
 	}
 }
 func TestRegisterProfile_SAML(t *testing.T) {

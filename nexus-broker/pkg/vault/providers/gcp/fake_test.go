@@ -13,8 +13,8 @@ import (
 
 // fakeClient is an in-memory Secret Manager with the semantics the backend
 // relies on: one secret holds numbered versions, "latest" resolves to the
-// highest enabled version, destroyed versions cannot be accessed, and the
-// gRPC codes match the real service. Tests inject failures per method and
+// highest version number whatever its state (as in Secret Manager), destroyed
+// versions cannot be accessed, and the gRPC codes match the real service. Tests inject failures per method and
 // read back the call log.
 type fakeClient struct {
 	mu      sync.Mutex
@@ -28,6 +28,10 @@ type fakeClient struct {
 	// before the listing is built; tests use it to simulate a concurrent
 	// writer adding a version between a Set's AddSecretVersion and its list.
 	onList func()
+	// onDestroy runs inside DestroySecretVersion before the state check, with
+	// the target version name; tests use it to simulate a concurrent
+	// rotation destroying that very version first.
+	onDestroy func(name string)
 }
 
 type fakeSecret struct {
@@ -94,14 +98,11 @@ func (f *fakeClient) AccessSecretVersion(_ context.Context, req *secretmanagerpb
 		return nil, status.Error(codes.NotFound, "secret not found")
 	}
 	if n == -1 {
-		for i := s.next - 1; i >= 1; i-- {
-			if v := s.versions[i]; v != nil && v.enabled {
-				n = i
-				break
-			}
-		}
-		if n == -1 {
-			return nil, status.Error(codes.NotFound, "no enabled version")
+		// Secret Manager's "latest" alias is the highest version number,
+		// whatever its state; a destroyed newest version makes it fail.
+		n = s.next - 1
+		if n < 1 {
+			return nil, status.Error(codes.NotFound, "no versions")
 		}
 	}
 	v := s.versions[n]
@@ -169,6 +170,9 @@ func (f *fakeClient) DestroySecretVersion(_ context.Context, req *secretmanagerp
 	if err := f.take("DestroySecretVersion"); err != nil {
 		return nil, err
 	}
+	if f.onDestroy != nil {
+		f.onDestroy(req.GetName())
+	}
 	secret, n, ok := splitVersion(req.GetName())
 	s := f.secrets[secret]
 	if !ok || s == nil || s.versions[n] == nil {
@@ -220,4 +224,13 @@ func (f *fakeClient) addVersionLocked(secretName, data string) {
 	n := s.next
 	s.next++
 	s.versions[n] = &fakeVersion{data: []byte(data), enabled: true}
+}
+
+// destroyLocked marks a version destroyed without taking the lock; for use
+// from onDestroy, which runs with the lock held.
+func (f *fakeClient) destroyLocked(name string) {
+	secret, n, ok := splitVersion(name)
+	if s := f.secrets[secret]; ok && s != nil && s.versions[n] != nil {
+		s.versions[n].enabled = false
+	}
 }

@@ -97,6 +97,11 @@ func (w *HealthWorker) checkProvider(ctx context.Context, p Profile) (string, st
 	// exactly like the healthy "dummy code rejected" response below. Checked
 	// first so that it is never masked by a discovery failure or a missing
 	// token URL.
+	if w.store != nil {
+		if err := w.store.ResolveClientSecret(ctx, &p); err != nil {
+			return "unknown", fmt.Sprintf("secret backend unavailable: %v", err)
+		}
+	}
 	if p.ClientSecretMissing {
 		return "unhealthy", "client_secret is missing from the secret backend; set a new one with PATCH client_secret, or delete the provider and register it again"
 	}

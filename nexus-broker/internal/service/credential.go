@@ -15,7 +15,6 @@ import (
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/domain"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/repository"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/auth"
-	"github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/provider"
 	tokenvault "github.com/Prescott-Data/nexus-framework/nexus-broker/pkg/vault/tokens"
 	"github.com/google/uuid"
 )
@@ -171,10 +170,15 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 	case "oauth2", "":
 		p, err := s.providerStore.GetProfile(conn.ProviderID)
 		if err != nil {
-			if errors.Is(err, provider.ErrSecretBackend) {
-				return nil, ErrBadGatewayWithErr(err, "secret_backend_unavailable", "Provider secret backend unavailable")
-			}
 			return nil, ErrNotFoundWithErr(err, "provider_not_found", "Provider not found")
+		}
+		// Resolve before reading any other field; see ExchangeCodeForTokens.
+		if err := s.providerStore.ResolveClientSecret(ctx, p); err != nil {
+			return nil, ErrBadGatewayWithErr(err, "secret_backend_unavailable", "Provider secret backend unavailable")
+		}
+		clientSecret, err := p.RequireClientSecret()
+		if err != nil {
+			return nil, ErrInternalWithErr(err, "provider_secret_missing", "Provider client secret is missing from the secret backend")
 		}
 
 		token, err := s.tokenRepo.Get(ctx, connectionID)
@@ -204,10 +208,6 @@ func (s *connectionService) Refresh(ctx context.Context, connectionID uuid.UUID)
 		clientID := ""
 		if p.ClientID != nil {
 			clientID = *p.ClientID
-		}
-		clientSecret, err := p.RequireClientSecret()
-		if err != nil {
-			return nil, ErrInternalWithErr(err, "provider_secret_missing", "Provider client secret is missing from the secret backend")
 		}
 
 		useJSONBody := false
