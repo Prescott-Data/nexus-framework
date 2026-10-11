@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -79,23 +78,17 @@ func TestSet_RetiresOnlyOlderVersions(t *testing.T) {
 		t.Fatalf("enabled versions after three writes = %v, want [3]", got)
 	}
 
-	// A concurrent writer adds version 5 between our AddSecretVersion (4)
-	// and our listing: it must survive our retirement pass.
+	// A concurrent writer adds a version between our AddSecretVersion and
+	// our listing. Driven through the real Set so the versionOlder guard in
+	// the retirement loop is what keeps it alive.
 	name := b.secretName(testKey)
-	f.mu.Lock()
-	f.secrets[name].versions[4] = &fakeVersion{data: []byte("ours"), enabled: true}
-	f.secrets[name].versions[5] = &fakeVersion{data: []byte("theirs"), enabled: true}
-	f.secrets[name].next = 6
-	f.mu.Unlock()
-	// Simulate our Set having produced version 4 by retiring relative to it.
-	versions, _ := f.ListEnabledVersions(ctx, name)
-	for _, v := range versions {
-		if versionOlder(v.GetName(), name+"/versions/4") {
-			_, _ = f.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{Name: v.GetName()})
-		}
+	f.onList = func() { f.addVersionLocked(name, "theirs") } // becomes version 5, after our 4
+	if err := b.Set(ctx, testKey, "v4"); err != nil {
+		t.Fatal(err)
 	}
+	f.onList = nil
 	if got := f.enabledVersions(name); len(got) != 2 || got[0] != 4 || got[1] != 5 {
-		t.Fatalf("enabled = %v, want [4 5]: the newer concurrent version must not be destroyed", got)
+		t.Fatalf("enabled = %v, want [4 5]: our version and the newer concurrent one survive, older ones are retired", got)
 	}
 }
 
@@ -192,12 +185,19 @@ func TestPing_FailsFastAndCleansUpOnMissingPermission(t *testing.T) {
 
 func TestPing_ReportsCleanupFailure(t *testing.T) {
 	b, f := newTestBackend()
-	// The probe itself succeeds up to its own Delete, which fails; the
-	// deferred cleanup then also fails. Both must be reported, naming the id.
-	f.failNext("DeleteSecret", status.Error(codes.PermissionDenied, "no secrets.delete"))
+	// Every delete fails: the probe's own Delete and the deferred cleanup.
+	// Both are reported, and the cleanup line names the probe secret so an
+	// operator can find the leftover.
+	f.failAlways("DeleteSecret", status.Error(codes.PermissionDenied, "no secrets.delete"))
 	err := b.Ping(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "no secrets.delete") {
 		t.Fatalf("want the delete error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "was not cleaned up") || !strings.Contains(err.Error(), testPrefix+"-") {
+		t.Fatalf("want the cleanup failure naming the probe secret, got %v", err)
+	}
+	if len(f.secrets) != 1 {
+		t.Fatalf("the leftover must still exist for the operator to find, have %d", len(f.secrets))
 	}
 }
 

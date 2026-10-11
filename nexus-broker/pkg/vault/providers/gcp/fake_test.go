@@ -20,8 +20,14 @@ type fakeClient struct {
 	mu      sync.Mutex
 	secrets map[string]*fakeSecret // keyed by full secret name
 	fail    map[string]error       // method name -> error to return once
+	failAll map[string]error       // method name -> error to return every time
 	calls   []string
 	closed  bool
+
+	// onList runs inside ListEnabledVersions, after the call is recorded and
+	// before the listing is built; tests use it to simulate a concurrent
+	// writer adding a version between a Set's AddSecretVersion and its list.
+	onList func()
 }
 
 type fakeSecret struct {
@@ -35,15 +41,19 @@ type fakeVersion struct {
 }
 
 func newFakeClient() *fakeClient {
-	return &fakeClient{secrets: map[string]*fakeSecret{}, fail: map[string]error{}}
+	return &fakeClient{secrets: map[string]*fakeSecret{}, fail: map[string]error{}, failAll: map[string]error{}}
 }
 
-func (f *fakeClient) failNext(method string, err error) { f.fail[method] = err }
+func (f *fakeClient) failNext(method string, err error)   { f.fail[method] = err }
+func (f *fakeClient) failAlways(method string, err error) { f.failAll[method] = err }
 
 func (f *fakeClient) take(method string) error {
 	f.calls = append(f.calls, method)
 	if err, ok := f.fail[method]; ok {
 		delete(f.fail, method)
+		return err
+	}
+	if err, ok := f.failAll[method]; ok {
 		return err
 	}
 	return nil
@@ -137,6 +147,9 @@ func (f *fakeClient) ListEnabledVersions(_ context.Context, secretName string) (
 	if err := f.take("ListEnabledVersions"); err != nil {
 		return nil, err
 	}
+	if f.onList != nil {
+		f.onList()
+	}
 	s := f.secrets[secretName]
 	if s == nil {
 		return nil, status.Error(codes.NotFound, "secret not found")
@@ -198,4 +211,13 @@ func (f *fakeClient) enabledVersions(secretName string) []int64 {
 		}
 	}
 	return out
+}
+
+// addVersionLocked appends an enabled version without taking the lock; for
+// use from onList, which runs with the lock held.
+func (f *fakeClient) addVersionLocked(secretName, data string) {
+	s := f.secrets[secretName]
+	n := s.next
+	s.next++
+	s.versions[n] = &fakeVersion{data: []byte(data), enabled: true}
 }
