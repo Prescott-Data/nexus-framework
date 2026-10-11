@@ -21,6 +21,7 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 **Fixed**
 
 - **`nexus-cli` expands placeholders in manifest values only.** It expanded `${VAR}` across the raw file before parsing, so a `$` in a YAML comment was reported as an unset variable and aborted `plan`. The manifest is now parsed first and placeholders are resolved inside string values, nested `params` included; comments and keys are untouched. All unset placeholders are listed by name. First test file for the CLI.
+- **`nexus-cli apply -auto-approve`** skips the interactive confirmation for scripted applies from a trusted environment; the guide still advises against apply-on-merge.
 
 </div>
 

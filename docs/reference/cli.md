@@ -37,6 +37,7 @@ nexus-cli plan [flags]
 |---|---|---|
 | `-file` | `nexus-providers.yaml` | Path to the providers manifest file |
 | `-prune` | `false` | Include deletion of providers not in the manifest |
+| `-auto-approve` | Skip the interactive confirmation. For scripted applies from a trusted environment, not for apply-on-merge pipelines. |
 
 **Output:**
 

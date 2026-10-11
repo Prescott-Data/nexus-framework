@@ -145,7 +145,7 @@ Pass `--prune` to also delete orphaned providers. Do not use `--prune` until you
 
 Run `nexus-cli plan` as an informational check on pull requests so reviewers can see what would change before merging. Apply manually from a trusted environment when you are ready to change the live state.
 
-Automatic apply on merge is not recommended. Provider configuration is live operational data that affects all agents in the workspace. A plan review step before apply prevents accidental provider deletions or misconfigurations from reaching production silently.
+Automatic apply on merge is not recommended. `apply -auto-approve` exists for scripted applies from a trusted environment, such as a seed script run by an operator; it is not an invitation to apply from a merge hook. Provider configuration is live operational data that affects all agents in the workspace. A plan review step before apply prevents accidental provider deletions or misconfigurations from reaching production silently.
 
 ```yaml
 # Example GitHub Actions snippet

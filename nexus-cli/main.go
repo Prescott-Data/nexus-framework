@@ -74,6 +74,7 @@ func runCommand(isPlanOnly bool) {
 	cmdFlags := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
 	fileFlag := cmdFlags.String("file", "nexus-providers.yaml", "Path to the providers manifest file")
 	pruneFlag := cmdFlags.Bool("prune", false, "Delete providers not in the manifest")
+	autoApprove := cmdFlags.Bool("auto-approve", false, "Skip the interactive confirmation (for scripted applies from a trusted environment; not for apply-on-merge pipelines)")
 
 	if err := cmdFlags.Parse(os.Args[2:]); err != nil {
 		log.Fatalf("Failed to parse flags: %v", err)
@@ -273,17 +274,21 @@ func runCommand(isPlanOnly bool) {
 		return
 	}
 
-	fmt.Print("\nDo you want to perform these actions?\n  Nexus will perform the actions described above.\n  Only 'yes' will be accepted to approve.\n\n  Enter a value: ")
+	if !*autoApprove {
+		fmt.Print("\nDo you want to perform these actions?\n  Nexus will perform the actions described above.\n  Only 'yes' will be accepted to approve.\n\n  Enter a value: ")
 
-	reader := bufio.NewReader(os.Stdin)
-	confirmation, err := reader.ReadString('\n')
-	if err != nil {
-		log.Fatalf("Failed to read input: %v", err)
-	}
+		reader := bufio.NewReader(os.Stdin)
+		confirmation, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatalf("Failed to read input: %v", err)
+		}
 
-	if strings.TrimSpace(confirmation) != "yes" {
-		fmt.Println("\nApply cancelled.")
-		return
+		if strings.TrimSpace(confirmation) != "yes" {
+			fmt.Println("\nApply cancelled.")
+			return
+		}
+	} else {
+		fmt.Println("\n-auto-approve set; applying without confirmation.")
 	}
 
 	fmt.Println("\n--- Applying Changes ---")
