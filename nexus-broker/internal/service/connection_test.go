@@ -126,6 +126,17 @@ func (m *MockProfileStorer) RegisterProfile(jsonStr string) (*provider.Profile, 
 	return nil, args.Error(1)
 }
 
+// ResolveClientSecret is a no-op unless a test sets an expectation; the
+// profiles these tests build carry their secret inline.
+func (m *MockProfileStorer) ResolveClientSecret(ctx context.Context, p *provider.Profile) error {
+	for _, c := range m.ExpectedCalls {
+		if c.Method == "ResolveClientSecret" {
+			return m.Called(ctx, p).Error(0)
+		}
+	}
+	return nil
+}
+
 func (m *MockProfileStorer) GetProfile(id uuid.UUID) (*provider.Profile, error) {
 	args := m.Called(id)
 	if args.Get(0) != nil {

@@ -241,6 +241,9 @@ func (s *connectionService) revokeUpstream(ctx context.Context, providerID uuid.
 	if p.ClientID != nil {
 		clientID = *p.ClientID
 	}
+	if err := s.providerStore.ResolveClientSecret(ctx, p); err != nil {
+		return false, "provider secret backend unavailable; the credential was destroyed locally only"
+	}
 	clientSecret, err := p.RequireClientSecret()
 	if err != nil {
 		return false, "provider client secret is missing from the secret backend; the credential was destroyed locally only"

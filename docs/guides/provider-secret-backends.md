@@ -29,9 +29,10 @@ The Broker authenticates to Secret Manager with Application Default Credentials:
 - `PATCH /providers/{id}` with `client_secret` rotates the secret in the backend. Earlier versions are destroyed, so only the current value is readable and billed.
 - `PUT /providers/{id}` that omits `client_secret` leaves the stored secret unchanged. Clearing a secret is done by deleting the provider.
 - `DELETE /providers/...` deletes the secret from the backend as well as soft-deleting the row.
-- The OAuth exchange, token refresh, revocation and the provider health probe read the secret from the backend when they need it. It is never returned by the API.
 - If the backend has no secret for a provider (removed out of band), the provider still lists and can be inspected, but the exchange and refresh fail with `provider_secret_missing`, revocation destroys the credential locally only, and the health probe reports the provider `unhealthy` with the reason. An empty secret is never sent to the provider. To recover, set a new secret in place with `PATCH /providers/{id}` and a `client_secret`, or delete the provider and register it again; registering under the same name while the provider exists is rejected as a duplicate.
 - Secrets are keyed by provider ID, so renaming a provider never orphans its secret.
+- Every write returns an immutable version reference, stored on the row (`client_secret_ref`) in the same statement as the rest of the provider. A read uses that exact version, so an OAuth exchange that runs during a rotation sees either the old metadata with the old secret or the new with the new, never a mix. Earlier versions are retired only after the row has committed. Rows written before 0.6.2 have no reference and read the backend's current version until their next rotation.
+- Reads are metadata-only. The secret is resolved from the backend only on the paths that send it to the provider (exchange, refresh, revocation, the health probe), so listing or inspecting providers never depends on the backend.
 
 Existing rows that still carry a column value keep working after you switch backends: the Broker reads the column when it is set and the backend only when it is NULL. New and updated providers go to the backend. Nothing moves automatically.
 

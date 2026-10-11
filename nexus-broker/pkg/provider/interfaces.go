@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"github.com/google/uuid"
 )
 
@@ -25,4 +26,7 @@ type ProfileStorer interface {
 	GetAllProfiles() ([]Profile, error)
 	GetAllHealthStatuses() ([]ProviderHealthSummary, error)
 	GetMetadata() (map[string]map[string]interface{}, error)
+	// ResolveClientSecret loads the client secret for an execution path.
+	// Reads return metadata only.
+	ResolveClientSecret(ctx context.Context, p *Profile) error
 }

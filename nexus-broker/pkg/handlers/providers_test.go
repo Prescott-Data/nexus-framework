@@ -92,6 +92,11 @@ func (m *MockStore) GetAllHealthStatuses() ([]provider.ProviderHealthSummary, er
 	return args.Get(0).([]provider.ProviderHealthSummary), args.Error(1)
 }
 
+func (m *MockStore) ResolveClientSecret(ctx context.Context, p *provider.Profile) error {
+	args := m.Called(ctx, p)
+	return args.Error(0)
+}
+
 func (m *MockStore) GetMetadata() (map[string]map[string]interface{}, error) {
 	args := m.Called()
 	if args.Get(0) == nil {

@@ -38,11 +38,22 @@ func TestBackend_RoundTrip(t *testing.T) {
 	if _, err := b.Get(ctx, key); !errors.Is(err, providers.ErrNotFound) {
 		t.Fatalf("Get before Set: want ErrNotFound, got %v", err)
 	}
-	if err := b.Set(ctx, key, "first"); err != nil {
+	ref1, err := b.Set(ctx, key, "first")
+	if err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	if err := b.Set(ctx, key, "second"); err != nil {
+	ref2, err := b.Set(ctx, key, "second")
+	if err != nil {
 		t.Fatalf("Set (rotate): %v", err)
+	}
+	if v, err := b.GetRef(ctx, ref1); err != nil || v != "first" {
+		t.Fatalf("GetRef(ref1) before retire = %q, %v; want first", v, err)
+	}
+	if err := b.Retire(ctx, key, ref2); err != nil {
+		t.Fatalf("Retire: %v", err)
+	}
+	if _, err := b.GetRef(ctx, ref1); !errors.Is(err, providers.ErrNotFound) {
+		t.Fatalf("GetRef(ref1) after retire: want ErrNotFound, got %v", err)
 	}
 	got, err := b.Get(ctx, key)
 	if err != nil || got != "second" {

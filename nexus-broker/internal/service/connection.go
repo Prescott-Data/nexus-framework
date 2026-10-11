@@ -338,6 +338,10 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	if p.ClientID != nil {
 		clientID = *p.ClientID
 	}
+	if err := s.providerStore.ResolveClientSecret(ctx, p); err != nil {
+		s.connRepo.UpdateStatus(ctx, connID, "failed")
+		return "", false, ErrBadGatewayWithErr(err, "secret_backend_unavailable", "Provider secret backend unavailable")
+	}
 	clientSecret, err := p.RequireClientSecret()
 	if err != nil {
 		s.connRepo.UpdateStatus(ctx, connID, "failed")

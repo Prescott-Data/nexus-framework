@@ -32,8 +32,12 @@ func TestGet_NotFound(t *testing.T) {
 
 func TestSet_CreatesSecretThenAddsVersion(t *testing.T) {
 	b, f := newTestBackend()
-	if err := b.Set(context.Background(), testKey, "v1"); err != nil {
+	ref, err := b.Set(context.Background(), testKey, "v1")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !strings.HasSuffix(ref, "/versions/1") {
+		t.Fatalf("ref = %q, want a version resource name", ref)
 	}
 	if f.count("CreateSecret") != 1 || f.count("AddSecretVersion") != 1 {
 		t.Fatalf("calls: %v", f.calls)
@@ -50,12 +54,12 @@ func TestSet_CreatesSecretThenAddsVersion(t *testing.T) {
 
 func TestSet_AlreadyExistsIsNotAnError(t *testing.T) {
 	b, f := newTestBackend()
-	if err := b.Set(context.Background(), testKey, "v1"); err != nil {
+	if _, err := b.Set(context.Background(), testKey, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	// Second Set: CreateSecret answers AlreadyExists (a concurrent writer or
 	// a previous run); the version must still be added.
-	if err := b.Set(context.Background(), testKey, "v2"); err != nil {
+	if _, err := b.Set(context.Background(), testKey, "v2"); err != nil {
 		t.Fatal(err)
 	}
 	if f.count("CreateSecret") != 2 {
@@ -66,61 +70,79 @@ func TestSet_AlreadyExistsIsNotAnError(t *testing.T) {
 	}
 }
 
-func TestSet_RetiresOnlyOlderVersions(t *testing.T) {
+func TestRetire_KeepsReferencedAndNewerVersions(t *testing.T) {
 	b, f := newTestBackend()
 	ctx := context.Background()
+	var refs []string
 	for _, v := range []string{"v1", "v2", "v3"} {
-		if err := b.Set(ctx, testKey, v); err != nil {
+		ref, err := b.Set(ctx, testKey, v)
+		if err != nil {
 			t.Fatal(err)
 		}
+		refs = append(refs, ref)
 	}
-	if got := f.enabledVersions(b.secretName(testKey)); len(got) != 1 || got[0] != 3 {
-		t.Fatalf("enabled versions after three writes = %v, want [3]", got)
+	name := b.secretName(testKey)
+	if got := f.enabledVersions(name); len(got) != 3 {
+		t.Fatalf("Set must not retire on its own; enabled = %v", got)
+	}
+	// Every version is still readable by reference until Retire.
+	if v, err := b.GetRef(ctx, refs[0]); err != nil || v != "v1" {
+		t.Fatalf("GetRef(v1) before retire = %q, %v", v, err)
 	}
 
-	// A concurrent writer adds a version between our AddSecretVersion and
-	// our listing. Driven through the real Set so the versionOlder guard in
-	// the retirement loop is what keeps it alive.
-	name := b.secretName(testKey)
-	f.onList = func() { f.addVersionLocked(name, "theirs") } // becomes version 5, after our 4
-	if err := b.Set(ctx, testKey, "v4"); err != nil {
+	// A concurrent writer adds version 4 between our Set (3) and our Retire,
+	// injected from inside the listing so the real Retire path is what keeps
+	// it alive.
+	f.onList = func() { f.addVersionLocked(name, "theirs") }
+	if err := b.Retire(ctx, testKey, refs[2]); err != nil {
 		t.Fatal(err)
 	}
 	f.onList = nil
-	if got := f.enabledVersions(name); len(got) != 2 || got[0] != 4 || got[1] != 5 {
-		t.Fatalf("enabled = %v, want [4 5]: our version and the newer concurrent one survive, older ones are retired", got)
+	if got := f.enabledVersions(name); len(got) != 2 || got[0] != 3 || got[1] != 4 {
+		t.Fatalf("enabled = %v, want [3 4]: the kept and the newer concurrent version survive", got)
+	}
+	if _, err := b.GetRef(ctx, refs[0]); !errors.Is(err, providers.ErrNotFound) {
+		t.Fatalf("a retired version must read as ErrNotFound, got %v", err)
 	}
 }
 
-func TestSet_DestroyRaceIsIdempotent(t *testing.T) {
+func TestRetire_DestroyRaceIsIdempotent(t *testing.T) {
 	b, f := newTestBackend()
 	ctx := context.Background()
-	if err := b.Set(ctx, testKey, "v1"); err != nil {
+	if _, err := b.Set(ctx, testKey, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := b.Set(ctx, testKey, "v2")
+	if err != nil {
 		t.Fatal(err)
 	}
 	// Another rotation destroyed version 1 just before ours tries to.
 	f.failNext("DestroySecretVersion", status.Error(codes.FailedPrecondition, "already destroyed"))
-	if err := b.Set(ctx, testKey, "v2"); err != nil {
+	if err := b.Retire(ctx, testKey, ref); err != nil {
 		t.Fatalf("FailedPrecondition on destroy must count as success, got %v", err)
 	}
 	f.failNext("DestroySecretVersion", status.Error(codes.NotFound, "gone"))
-	if err := b.Set(ctx, testKey, "v3"); err != nil {
+	if err := b.Retire(ctx, testKey, ref); err != nil {
 		t.Fatalf("NotFound on destroy must count as success, got %v", err)
 	}
 }
 
-func TestSet_ListFailureIsReportedButValueIsLive(t *testing.T) {
+func TestRetire_ListFailureIsReportedButValueIsLive(t *testing.T) {
 	b, f := newTestBackend()
 	ctx := context.Background()
-	if err := b.Set(ctx, testKey, "v1"); err != nil {
+	if _, err := b.Set(ctx, testKey, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := b.Set(ctx, testKey, "v2")
+	if err != nil {
 		t.Fatal(err)
 	}
 	f.failNext("ListEnabledVersions", status.Error(codes.Unavailable, "backend hiccup"))
-	err := b.Set(ctx, testKey, "v2")
+	err = b.Retire(ctx, testKey, ref)
 	if err == nil || !strings.Contains(err.Error(), "earlier versions were not retired") {
 		t.Fatalf("want a retirement error, got %v", err)
 	}
-	if got, _ := b.Get(ctx, testKey); got != "v2" {
+	if got, _ := b.GetRef(ctx, ref); got != "v2" {
 		t.Fatalf("the new version must be live even when retirement failed, got %q", got)
 	}
 	if got := f.enabledVersions(b.secretName(testKey)); len(got) != 2 {
@@ -131,8 +153,8 @@ func TestSet_ListFailureIsReportedButValueIsLive(t *testing.T) {
 func TestSet_AddVersionFailureIsAnError(t *testing.T) {
 	b, f := newTestBackend()
 	f.failNext("AddSecretVersion", status.Error(codes.PermissionDenied, "no versions.add"))
-	err := b.Set(context.Background(), testKey, "v1")
-	if err == nil || status.Code(errors.Unwrap(errors.Unwrap(err))) != codes.PermissionDenied && !strings.Contains(err.Error(), "no versions.add") {
+	_, err := b.Set(context.Background(), testKey, "v1")
+	if err == nil || !strings.Contains(err.Error(), "no versions.add") {
 		t.Fatalf("want the permission error surfaced, got %v", err)
 	}
 }
@@ -143,7 +165,7 @@ func TestDelete_MissingIsFine(t *testing.T) {
 	if err := b.Delete(ctx, testKey); err != nil {
 		t.Fatalf("deleting a missing secret must succeed, got %v", err)
 	}
-	if err := b.Set(ctx, testKey, "v1"); err != nil {
+	if _, err := b.Set(ctx, testKey, "v1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.Delete(ctx, testKey); err != nil {
@@ -165,8 +187,8 @@ func TestPing_LeavesNothingBehind(t *testing.T) {
 	if n := len(f.secrets); n != 0 {
 		t.Fatalf("probe secret left behind: %d secret(s)", n)
 	}
-	// Two writes, so a rotation (DestroySecretVersion) was exercised.
-	if f.count("AddSecretVersion") != 2 || f.count("DestroySecretVersion") != 1 || f.count("DeleteSecret") < 1 {
+	// Two writes, a retirement (DestroySecretVersion), a read by reference.
+	if f.count("AddSecretVersion") != 2 || f.count("DestroySecretVersion") != 1 || f.count("AccessSecretVersion") < 2 || f.count("DeleteSecret") < 1 {
 		t.Fatalf("probe calls: %v", f.calls)
 	}
 }
