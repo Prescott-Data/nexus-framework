@@ -467,8 +467,11 @@ func loadManifest(data []byte, lookup func(string) (string, bool)) (Manifest, []
 			}
 			return val
 		})
-		if n.Style == 0 || n.Style == yaml.TaggedStyle {
-			n.Tag = "" // plain scalar: let the decoder infer bool/int/string again
+		if n.Style == 0 {
+			// Untagged plain scalar: let the decoder infer bool/int/string
+			// again. An explicit tag (!!str, TaggedStyle) or any quoting is
+			// the author's choice and is kept.
+			n.Tag = ""
 		}
 	}
 	var walk func(n *yaml.Node)

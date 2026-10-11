@@ -19,6 +19,7 @@ providers:
       skip_scope_on_exchange: ${SKIP}
       retries: ${RETRIES}
       label: "${SKIP}"
+      tagged: !!str ${SKIP}
       validation:
         path: "/user?key=${API_PATH_KEY}"
       nested: [{inner: "${INNER}"}]
@@ -49,6 +50,9 @@ func TestLoadManifest_ExpandsValuesKeepsTypesSkipsComments(t *testing.T) {
 	}
 	if v, ok := p.Params["label"].(string); !ok || v != "true" {
 		t.Fatalf("label = %#v, want string \"true\"", p.Params["label"])
+	}
+	if v, ok := p.Params["tagged"].(string); !ok || v != "true" {
+		t.Fatalf("tagged = %#v, want the explicit !!str to be kept", p.Params["tagged"])
 	}
 	path := p.Params["validation"].(map[string]interface{})["path"]
 	inner := p.Params["nested"].([]interface{})[0].(map[string]interface{})["inner"]
