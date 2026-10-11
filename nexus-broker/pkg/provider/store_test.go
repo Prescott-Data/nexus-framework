@@ -661,3 +661,34 @@ func testSAMLProviderCertificatePEM(t *testing.T) string {
 	}
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }
+
+// With the internal backend the fingerprint moves with the secret: a PUT or
+// PATCH that blanks client_secret clears client_secret_fingerprint in the
+// same statement, so a later GET never advertises a secret that is gone.
+func TestFingerprint_MovesWithSecret_InternalBackend(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+	store := NewStore(sqlx.NewDb(db, "sqlmock"))
+	id := uuid.New()
+
+	// PATCH with a new secret: fingerprint is the hash of the new value.
+	mock.ExpectExec(`UPDATE provider_profiles SET client_secret = \$1, client_secret_fingerprint = \$2, updated_at = NOW\(\) WHERE id = \$3 AND deleted_at IS NULL`).
+		WithArgs("new-secret", SecretFingerprint("new-secret"), id).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	assert.NoError(t, store.PatchProfile(id, map[string]interface{}{"client_secret": "new-secret"}))
+
+	// PATCH blanking the secret: fingerprint is cleared with it.
+	mock.ExpectExec(`UPDATE provider_profiles SET client_secret = \$1, client_secret_fingerprint = \$2, updated_at = NOW\(\) WHERE id = \$3 AND deleted_at IS NULL`).
+		WithArgs("", nil, id).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	assert.NoError(t, store.PatchProfile(id, map[string]interface{}{"client_secret": ""}))
+
+	// PUT without a secret: both columns are written NULL, no COALESCE.
+	mock.ExpectExec(`UPDATE provider_profiles\s+SET\s+name = \$1,\s+client_id = \$2,\s+client_secret = \$3,.*client_secret_fingerprint = \$21,\s+updated_at = NOW\(\)\s+WHERE id = \$20 AND deleted_at IS NULL`).
+		WithArgs("p", nil, nil, nil, nil, nil, false, pq.Array([]string(nil)), "oauth2", "", "", "", nil, "", "", nil, nil, nil, nil, id, nil).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	assert.NoError(t, store.UpdateProfile(&Profile{ID: id, Name: "p", AuthType: "oauth2"}))
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

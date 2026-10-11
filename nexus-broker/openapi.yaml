@@ -41,6 +41,13 @@ components:
           type: string
         client_secret:
           type: string
+          writeOnly: true
+          description: Never returned; see client_secret_fingerprint.
+        client_secret_fingerprint:
+          type: string
+          readOnly: true
+          pattern: '^[0-9a-f]{16}$'
+          description: First 16 hex characters of the SHA-256 of the stored client secret. Absent on rows registered before 0.6.4 until their next rotation or first use.
         auth_url:
           type: string
         token_url:

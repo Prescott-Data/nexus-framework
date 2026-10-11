@@ -627,7 +627,7 @@ func (s *Store) UpdateProfile(p *Profile) error {
 			saml_idp_sso_url = $17,
 			saml_idp_x509_cert = $18,
 			saml_sp_entity_id = $19,
-			client_secret_fingerprint = COALESCE($21, client_secret_fingerprint),
+			client_secret_fingerprint = $21,
 			updated_at = NOW()
 		WHERE id = $20 AND deleted_at IS NULL`
 
@@ -636,7 +636,10 @@ func (s *Store) UpdateProfile(p *Profile) error {
 		fp := SecretFingerprint(*p.ClientSecret)
 		fingerprint = &fp
 	}
-	// $21 is the fingerprint of a provided secret, or NULL to keep the stored one.
+	// $21 is the fingerprint of a provided secret, or NULL. With the internal
+	// backend it is written together with client_secret, so a PUT that omits
+	// or blanks the secret clears both; with an external backend an omitted
+	// secret keeps the stored one, and the fingerprint with it (COALESCE below).
 	args := func(secretArg interface{}) []interface{} {
 		return []interface{}{p.Name, p.ClientID, secretArg, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID, p.ID, fingerprint}
 	}
@@ -655,6 +658,7 @@ func (s *Store) UpdateProfile(p *Profile) error {
 	// done by deleting the provider, not by PUT.
 	// $3 is "rotating"; $22 is the new version reference (NULL when not rotating).
 	query = strings.Replace(query, "client_secret = $3,", "client_secret = CASE WHEN $3::boolean THEN NULL ELSE client_secret END, client_secret_ref = CASE WHEN $3::boolean THEN $22 ELSE client_secret_ref END,", 1)
+	query = strings.Replace(query, "client_secret_fingerprint = $21,", "client_secret_fingerprint = COALESCE($21, client_secret_fingerprint),", 1)
 	argsRef := func(rotating bool, ref interface{}) []interface{} { return append(args(rotating), ref) }
 	if p.ClientSecret == nil {
 		if _, err := s.db.Exec(query, argsRef(false, nil)...); err != nil {
@@ -720,6 +724,7 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 	i := 1
 	secretWritten := false
 	newSecret := ""
+	secretPatched := false
 	patchFingerprint := ""
 
 	for key, value := range updates {
@@ -732,6 +737,7 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 			column = "client_id"
 		case "client_secret":
 			column = "client_secret"
+			secretPatched = true
 			if secret, ok := value.(string); ok && strings.TrimSpace(secret) != "" {
 				patchFingerprint = SecretFingerprint(secret)
 			}
@@ -807,12 +813,20 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 		i++
 	}
 
-	if patchFingerprint != "" {
+	// The fingerprint always moves with the secret: a new value gets its
+	// hash, a blanked one (internal backend only; external rejects it above)
+	// clears the fingerprint too, so a GET never describes a secret that is
+	// no longer stored.
+	if secretPatched {
+		var fp interface{}
+		if patchFingerprint != "" {
+			fp = patchFingerprint
+		}
 		if i > 1 {
 			query += ", "
 		}
 		query += fmt.Sprintf("client_secret_fingerprint = $%d", i)
-		args = append(args, patchFingerprint)
+		args = append(args, fp)
 		i++
 	}
 
