@@ -10,7 +10,7 @@ The Broker is the only service in a Nexus deployment that holds durable credenti
 
 | Table | Purpose |
 |---|---|
-| `provider_profiles` | OAuth2 and static provider configuration — client ID, auth/token URLs, scopes, auth strategy. The client secret lives here with the default `internal` backend; with `SECRET_BACKEND=gcp-secret-manager` the row holds only a reference to the Secret Manager version and the secret itself never enters Postgres (see [Provider Secret Backends](../guides/provider-secret-backends.md)) |
+| `provider_profiles` | OAuth2 and static provider configuration — client ID, auth/token URLs, scopes, auth strategy. The client secret lives here with the default `internal` backend. With `SECRET_BACKEND=gcp-secret-manager`, providers registered or rotated while the backend is active hold only a reference to the Secret Manager version and their secret never enters Postgres; rows written before the switch keep their column value until they are rotated (see [Provider Secret Backends](../guides/provider-secret-backends.md)) |
 | `connections` | One row per authorization grant — workspace ID, provider ID, status, PKCE verifier, scopes, return URL |
 | `tokens` | Encrypted credential material — one row per connection, enforced by `ON CONFLICT (connection_id) DO UPDATE` |
 | `audit_events` | Append-only event log — consent created, token issued, refresh succeeded or failed, connection cleaned up |

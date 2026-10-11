@@ -10,8 +10,8 @@ Nexus is built on one rule: agents never hold durable secrets. An access token e
 
 | Service | What it holds |
 |---|---|
-| Broker | Refresh tokens and captured credentials, AES-GCM encrypted at rest. Provider client secrets: in the `provider_profiles` row with the default `internal` backend (not encrypted by the Broker; rely on database encryption and backups handling), or in an external secret backend such as GCP Secret Manager with `SECRET_BACKEND` set, in which case they never enter Postgres. See [Provider Secret Backends](../guides/provider-secret-backends.md). |
-| Gateway | No credential state. Proxies requests; holds only its own keys: `BROKER_API_KEY` to call the Broker and `GATEWAY_API_KEYS` that callers must present. |
+| Broker | Refresh tokens and captured credentials, AES-GCM encrypted at rest. Provider client secrets: in the `provider_profiles` row with the default `internal` backend (not encrypted by the Broker; rely on database encryption and backup handling), or, with `SECRET_BACKEND=gcp-secret-manager`, in Secret Manager for every provider registered or rotated after the switch; rows from before it keep their column value until rotated. See [Provider Secret Backends](../guides/provider-secret-backends.md). |
+| Gateway | No credential state. Proxies requests; holds `BROKER_API_KEY` to call the Broker and, when `GATEWAY_REQUIRE_API_KEY=true` (off by default), the caller keys from `GATEWAY_API_KEYS` or the configured key files. |
 | Bridge | Short-lived access token in memory, for the duration of one connection. Discarded on close. |
 
 If a Bridge process is compromised, the attacker gets an access token valid for at most the remaining token lifetime. They cannot get the refresh token.
