@@ -31,8 +31,8 @@ func TestMemoryRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	m := NewMemory()
 
-	if _, err := m.Get(ctx, "missing"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("Get on empty backend: want ErrNotFound, got %v", err)
+	if _, _, err := m.Current(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Current on empty backend: want ErrNotFound, got %v", err)
 	}
 	ref1, err := m.Set(ctx, "k", "v1")
 	if err != nil {
@@ -42,9 +42,9 @@ func TestMemoryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := m.Get(ctx, "k")
-	if err != nil || got != "v2" {
-		t.Fatalf("Get after two Sets = %q, %v; want v2", got, err)
+	got, gotRef, err := m.Current(ctx, "k")
+	if err != nil || got != "v2" || gotRef != ref2 {
+		t.Fatalf("Current after two Sets = %q, %q, %v; want v2 %q", got, gotRef, err, ref2)
 	}
 	// Both versions readable by reference until Retire; then only the kept one.
 	if v, err := m.GetRef(ctx, ref1); err != nil || v != "v1" {
@@ -67,7 +67,7 @@ func TestMemoryRoundTrip(t *testing.T) {
 	if err := m.DiscardRef(ctx, ref3); err != nil {
 		t.Fatal(err)
 	}
-	if v, err := m.Get(ctx, "k"); err != nil || v != "v2" {
+	if v, _, err := m.Current(ctx, "k"); err != nil || v != "v2" {
 		t.Fatalf("after DiscardRef(ref3) current = %q, %v; want v2", v, err)
 	}
 	if err := m.DiscardRef(ctx, "mem:k:99"); err != nil {

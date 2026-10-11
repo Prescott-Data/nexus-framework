@@ -112,17 +112,17 @@ func isNotFound(err error) bool {
 	return status.Code(err) == codes.NotFound
 }
 
-// Get reads the current secret for key: the highest enabled version. Not
-// the "latest" alias, which names the highest version number even after
-// that version was destroyed (for example by DiscardRef after a failed
-// rotation), and would then fail instead of falling back to the prior one.
-func (b *Backend) Get(ctx context.Context, key string) (string, error) {
+// Current reads the highest enabled version of key and returns it with its
+// reference. Not the "latest" alias, which names the highest version number
+// even after that version was destroyed (for example by DiscardRef after a
+// failed rotation), and would then fail instead of falling back.
+func (b *Backend) Current(ctx context.Context, key string) (string, string, error) {
 	versions, err := b.client.ListEnabledVersions(ctx, b.secretName(key))
 	if isNotFound(err) {
-		return "", providers.ErrNotFound
+		return "", "", providers.ErrNotFound
 	}
 	if err != nil {
-		return "", fmt.Errorf("gcp secret backend: list versions of %s: %w", b.secretID(key), err)
+		return "", "", fmt.Errorf("gcp secret backend: list versions of %s: %w", b.secretID(key), err)
 	}
 	newest := ""
 	for _, v := range versions {
@@ -131,9 +131,13 @@ func (b *Backend) Get(ctx context.Context, key string) (string, error) {
 		}
 	}
 	if newest == "" {
-		return "", providers.ErrNotFound
+		return "", "", providers.ErrNotFound
 	}
-	return b.GetRef(ctx, newest)
+	v, err := b.GetRef(ctx, newest)
+	if err != nil {
+		return "", "", err
+	}
+	return v, newest, nil
 }
 
 // GetRef reads the exact version named by ref (a version resource name).
@@ -279,7 +283,7 @@ func (b *Backend) Ping(ctx context.Context) (err error) {
 	if _, err := b.GetRef(ctx, ref); err != nil {
 		return fmt.Errorf("gcp secret backend: project %s, prefix %s: %w", b.projectID, b.prefix, err)
 	}
-	if _, err := b.Get(ctx, key); err != nil {
+	if _, _, err := b.Current(ctx, key); err != nil {
 		return fmt.Errorf("gcp secret backend: project %s, prefix %s: %w", b.projectID, b.prefix, err)
 	}
 	if err := b.Delete(ctx, key); err != nil {

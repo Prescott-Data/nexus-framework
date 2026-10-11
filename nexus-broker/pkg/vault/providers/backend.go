@@ -33,9 +33,10 @@ var ErrNotFound = errors.New("provider secret not found")
 type Backend interface {
 	// Kind reports which implementation this is, for logs and startup checks.
 	Kind() Kind
-	// Get returns the current secret for key, or ErrNotFound. Used for rows
-	// written before version references existed.
-	Get(ctx context.Context, key string) (string, error)
+	// Current returns the newest readable version of key and its reference,
+	// or ErrNotFound. Used once per row written before version references
+	// existed, to backfill its reference.
+	Current(ctx context.Context, key string) (value, ref string, err error)
 	// GetRef returns the exact version named by ref, as returned by Set, or
 	// ErrNotFound when that version no longer exists.
 	GetRef(ctx context.Context, ref string) (string, error)

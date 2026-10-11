@@ -98,8 +98,12 @@ func (s *Store) ResolveClientSecret(ctx context.Context, p *Profile) error {
 			}
 		}
 	} else {
-		// Row written before references existed: the backend's current version.
-		v, err = s.secrets.Get(ctx, p.ID.String())
+		// Row written before references existed. Backfill its reference once,
+		// under the same per-provider lock a rotation takes, so this cannot
+		// interleave with one: after the lock the row is re-read (a rotation
+		// may just have given it a reference), otherwise the backend's current
+		// version becomes the row's reference from now on.
+		v, err = s.backfillSecretRef(ctx, p)
 	}
 	if errors.Is(err, providers.ErrNotFound) {
 		p.ClientSecretMissing = true
@@ -145,6 +149,43 @@ type commitError struct{ err error }
 
 func (e *commitError) Error() string { return "failed to commit: " + e.err.Error() }
 func (e *commitError) Unwrap() error { return e.err }
+
+// backfillSecretRef gives a pre-0.6.2 row its version reference. It runs
+// under the provider lock so a rotation in flight either finished before
+// (and the re-read row already carries a reference) or starts after (and
+// finds the reference this wrote). Returns the resolved value.
+func (s *Store) backfillSecretRef(ctx context.Context, p *Profile) (string, error) {
+	var value string
+	err := s.withProviderLock(p.ID, func(tx *sqlx.Tx) error {
+		var current *string
+		if err := tx.QueryRow(`SELECT client_secret_ref FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`, p.ID).Scan(&current); err != nil {
+			return fmt.Errorf("failed to re-read provider %s: %w", p.ID, err)
+		}
+		if current != nil && *current != "" {
+			// A rotation got there first; use its pair.
+			fresh, err := s.GetProfile(p.ID)
+			if err != nil {
+				return err
+			}
+			fresh.ClientSecret, fresh.ClientSecretMissing = nil, false
+			*p = *fresh
+			v, err := s.secrets.GetRef(ctx, *current)
+			value = v
+			return err
+		}
+		v, ref, err := s.secrets.Current(ctx, p.ID.String())
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE provider_profiles SET client_secret_ref = $1 WHERE id = $2 AND client_secret_ref IS NULL`, ref, p.ID); err != nil {
+			return fmt.Errorf("failed to backfill client_secret_ref for provider %s: %w", p.ID, err)
+		}
+		p.ClientSecretRef = &ref
+		value = v
+		return nil
+	})
+	return value, err
+}
 
 // discardSecretRef removes the version a failed rotation wrote, so that a
 // row without a reference (written before 0.6.2) cannot start reading it

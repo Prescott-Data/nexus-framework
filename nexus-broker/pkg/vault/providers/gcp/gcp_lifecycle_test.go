@@ -25,9 +25,9 @@ func newTestBackend() (*Backend, *fakeClient) {
 	return newWithClient(f, testProject, testPrefix), f
 }
 
-func TestGet_NotFound(t *testing.T) {
+func TestCurrent_NotFound(t *testing.T) {
 	b, _ := newTestBackend()
-	if _, err := b.Get(context.Background(), testKey); !errors.Is(err, providers.ErrNotFound) {
+	if _, _, err := b.Current(context.Background(), testKey); !errors.Is(err, providers.ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
@@ -44,9 +44,9 @@ func TestSet_CreatesSecretThenAddsVersion(t *testing.T) {
 	if f.count("CreateSecret") != 1 || f.count("AddSecretVersion") != 1 {
 		t.Fatalf("calls: %v", f.calls)
 	}
-	got, err := b.Get(context.Background(), testKey)
+	got, _, err := b.Current(context.Background(), testKey)
 	if err != nil || got != "v1" {
-		t.Fatalf("Get = %q, %v", got, err)
+		t.Fatalf("Current = %q, %v", got, err)
 	}
 	name := b.secretName(testKey)
 	if !strings.HasSuffix(name, "/secrets/"+testPrefix+"-"+testKey) {
@@ -67,7 +67,7 @@ func TestSet_AlreadyExistsIsNotAnError(t *testing.T) {
 	if f.count("CreateSecret") != 2 {
 		t.Fatalf("CreateSecret calls = %d", f.count("CreateSecret"))
 	}
-	if got, _ := b.Get(context.Background(), testKey); got != "v2" {
+	if got, _, _ := b.Current(context.Background(), testKey); got != "v2" {
 		t.Fatalf("Get = %q, want v2", got)
 	}
 }
@@ -207,8 +207,8 @@ func TestDelete_MissingIsFine(t *testing.T) {
 	if err := b.Delete(ctx, testKey); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Get(ctx, testKey); !errors.Is(err, providers.ErrNotFound) {
-		t.Fatalf("after Delete, Get must be ErrNotFound, got %v", err)
+	if _, _, err := b.Current(ctx, testKey); !errors.Is(err, providers.ErrNotFound) {
+		t.Fatalf("after Delete, Current must be ErrNotFound, got %v", err)
 	}
 	if f.count("DeleteSecret") != 2 {
 		t.Fatalf("DeleteSecret calls = %d", f.count("DeleteSecret"))
@@ -293,7 +293,7 @@ func TestDiscardRef_DestroysOnlyThatVersion(t *testing.T) {
 	}
 }
 
-func TestGet_AfterDiscardingNewestFallsBackToPriorEnabled(t *testing.T) {
+func TestCurrent_AfterDiscardingNewestFallsBackToPriorEnabled(t *testing.T) {
 	// A failed rotation on a row without a reference: the discarded newest
 	// version must not break the legacy read, which "latest" would.
 	b, f := newTestBackend()
@@ -308,14 +308,14 @@ func TestGet_AfterDiscardingNewestFallsBackToPriorEnabled(t *testing.T) {
 	if _, err := f.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{Name: b.secretName(testKey) + "/versions/latest"}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("the fake must model the alias pointing at the destroyed version, got %v", err)
 	}
-	got, err := b.Get(ctx, testKey)
+	got, _, err := b.Current(ctx, testKey)
 	if err != nil || got != "v1" {
-		t.Fatalf("Get = %q, %v; want the prior enabled version v1", got, err)
+		t.Fatalf("Current = %q, %v; want the prior enabled version v1", got, err)
 	}
 	if err := b.DiscardRef(ctx, b.secretName(testKey)+"/versions/1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Get(ctx, testKey); !errors.Is(err, providers.ErrNotFound) {
+	if _, _, err := b.Current(ctx, testKey); !errors.Is(err, providers.ErrNotFound) {
 		t.Fatalf("no enabled version left: want ErrNotFound, got %v", err)
 	}
 }

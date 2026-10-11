@@ -35,8 +35,8 @@ func TestBackend_RoundTrip(t *testing.T) {
 	key := uuid.NewString()
 	t.Cleanup(func() { _ = b.Delete(context.Background(), key) })
 
-	if _, err := b.Get(ctx, key); !errors.Is(err, providers.ErrNotFound) {
-		t.Fatalf("Get before Set: want ErrNotFound, got %v", err)
+	if _, _, err := b.Current(ctx, key); !errors.Is(err, providers.ErrNotFound) {
+		t.Fatalf("Current before Set: want ErrNotFound, got %v", err)
 	}
 	ref1, err := b.Set(ctx, key, "first")
 	if err != nil {
@@ -55,9 +55,9 @@ func TestBackend_RoundTrip(t *testing.T) {
 	if _, err := b.GetRef(ctx, ref1); !errors.Is(err, providers.ErrNotFound) {
 		t.Fatalf("GetRef(ref1) after retire: want ErrNotFound, got %v", err)
 	}
-	got, err := b.Get(ctx, key)
+	got, _, err := b.Current(ctx, key)
 	if err != nil || got != "second" {
-		t.Fatalf("Get after rotate = %q, %v; want second", got, err)
+		t.Fatalf("Current after rotate = %q, %v; want second", got, err)
 	}
 	if err := b.Delete(ctx, key); err != nil {
 		t.Fatalf("Delete: %v", err)
@@ -65,7 +65,7 @@ func TestBackend_RoundTrip(t *testing.T) {
 	if err := b.Delete(ctx, key); err != nil {
 		t.Fatalf("Delete of missing secret must succeed, got %v", err)
 	}
-	if _, err := b.Get(ctx, key); !errors.Is(err, providers.ErrNotFound) {
-		t.Fatalf("Get after Delete: want ErrNotFound, got %v", err)
+	if _, _, err := b.Current(ctx, key); !errors.Is(err, providers.ErrNotFound) {
+		t.Fatalf("Current after Delete: want ErrNotFound, got %v", err)
 	}
 }

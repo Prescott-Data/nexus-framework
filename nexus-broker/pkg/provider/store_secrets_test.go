@@ -179,24 +179,63 @@ func TestResolveClientSecret_ByReference(t *testing.T) {
 	assert.Equal(t, "new", *p.ClientSecret)
 }
 
-func TestResolveClientSecret_LegacyRowReadsCurrentVersion(t *testing.T) {
+func TestResolveClientSecret_LegacyRowBackfillsReferenceUnderLock(t *testing.T) {
 	backend := providers.NewMemory()
 	ctx := context.Background()
 	_, _ = backend.Set(ctx, testProviderID, "old")
-	_, _ = backend.Set(ctx, testProviderID, "new")
-	store, _ := newStoreWithBackend(t, backend)
+	ref2, _ := backend.Set(ctx, testProviderID, "new")
+	store, mock := newStoreWithBackend(t, backend)
+	id := uuid.MustParse(testProviderID)
 
-	p := &Profile{ID: uuid.MustParse(testProviderID), AuthType: "oauth2"} // no ref: written before 0.6.2
+	// Lock, re-read (still no reference), backfill the current version's reference.
+	expectLock(mock)
+	mock.ExpectQuery(`SELECT client_secret_ref FROM provider_profiles WHERE id = \$1 AND deleted_at IS NULL`).
+		WithArgs(id).WillReturnRows(sqlmock.NewRows([]string{"client_secret_ref"}).AddRow(nil))
+	mock.ExpectExec(`UPDATE provider_profiles SET client_secret_ref = \$1 WHERE id = \$2 AND client_secret_ref IS NULL`).
+		WithArgs(ref2, id).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	p := &Profile{ID: id, AuthType: "oauth2"} // no ref: written before 0.6.2
 	require.NoError(t, store.ResolveClientSecret(ctx, p))
+	assert.NoError(t, mock.ExpectationsWereMet())
 	assert.Equal(t, "new", *p.ClientSecret)
+	require.NotNil(t, p.ClientSecretRef)
+	assert.Equal(t, ref2, *p.ClientSecretRef, "the row now carries the reference it will read by from here on")
+}
+
+func TestResolveClientSecret_LegacyRowRotatedMeanwhileUsesTheRotationsPair(t *testing.T) {
+	backend := providers.NewMemory()
+	ctx := context.Background()
+	_, _ = backend.Set(ctx, testProviderID, "old")
+	ref2, _ := backend.Set(ctx, testProviderID, "new")
+	store, mock := newStoreWithBackend(t, backend)
+	id := uuid.MustParse(testProviderID)
+
+	// By the time the lock is held a rotation has written a reference: the
+	// re-read row, metadata included, is what gets used; no backfill.
+	expectLock(mock)
+	mock.ExpectQuery(`SELECT client_secret_ref FROM provider_profiles WHERE id = \$1 AND deleted_at IS NULL`).
+		WithArgs(id).WillReturnRows(sqlmock.NewRows([]string{"client_secret_ref"}).AddRow(ref2))
+	mock.ExpectQuery(`FROM provider_profiles WHERE id = \$1`).WillReturnRows(profileRow("oauth2", ref2))
+	mock.ExpectCommit()
+
+	p := &Profile{ID: id, AuthType: "oauth2", Name: "stale"}
+	require.NoError(t, store.ResolveClientSecret(ctx, p))
+	assert.NoError(t, mock.ExpectationsWereMet())
+	assert.Equal(t, "new", *p.ClientSecret)
+	assert.Equal(t, "acme", p.Name, "metadata comes from the re-read row")
+	assert.Equal(t, ref2, *p.ClientSecretRef)
 }
 
 func TestResolveClientSecret_MissingRetiredBlankAndNonOAuth(t *testing.T) {
 	backend := providers.NewMemory()
 	ctx := context.Background()
-	store, _ := newStoreWithBackend(t, backend)
+	store, mock := newStoreWithBackend(t, backend)
 
-	p := &Profile{ID: uuid.MustParse(testProviderID), AuthType: "oauth2"}
+	missingRef := providers.MemoryRef(testProviderID, 99)
+	p := &Profile{ID: uuid.MustParse(testProviderID), AuthType: "oauth2", ClientSecretRef: &missingRef}
+	mock.ExpectQuery(`SELECT client_secret_ref FROM provider_profiles`).
+		WillReturnRows(sqlmock.NewRows([]string{"client_secret_ref"}).AddRow(missingRef)) // unchanged: truly gone
 	require.NoError(t, store.ResolveClientSecret(ctx, p), "a missing secret must not fail the call")
 	assert.True(t, p.ClientSecretMissing)
 	_, err := p.RequireClientSecret()
@@ -206,8 +245,10 @@ func TestResolveClientSecret_MissingRetiredBlankAndNonOAuth(t *testing.T) {
 	ref2, _ := backend.Set(ctx, testProviderID, "v2")
 	require.NoError(t, backend.Retire(ctx, testProviderID, ref2))
 	p = &Profile{ID: uuid.MustParse(testProviderID), AuthType: "oauth2", ClientSecretRef: &ref1}
+	mock.ExpectQuery(`SELECT client_secret_ref FROM provider_profiles`).
+		WillReturnRows(sqlmock.NewRows([]string{"client_secret_ref"}).AddRow(ref1)) // row still says ref1: retired out of band
 	require.NoError(t, store.ResolveClientSecret(ctx, p))
-	assert.True(t, p.ClientSecretMissing, "a retired reference fails closed")
+	assert.True(t, p.ClientSecretMissing, "a retired reference the row still points at fails closed")
 
 	refBlank, _ := backend.Set(ctx, testProviderID, "   ")
 	p = &Profile{ID: uuid.MustParse(testProviderID), AuthType: "oauth2", ClientSecretRef: &refBlank}
@@ -426,7 +467,7 @@ func TestUpdateProfile_ExternalBackend_FailedUpdateDiscardsTheWrittenVersion(t *
 	cid := "client-id"
 	err := store.UpdateProfile(&Profile{ID: id, Name: "acme", AuthType: "oauth2", ClientID: &cid, ClientSecret: &secret})
 	require.Error(t, err)
-	got, gErr := backend.Get(context.Background(), testProviderID)
+	got, _, gErr := backend.Current(context.Background(), testProviderID)
 	require.NoError(t, gErr)
 	assert.Equal(t, "old", got, "the current version must still be the old one")
 	assert.Equal(t, 1, backend.LiveVersions(testProviderID))

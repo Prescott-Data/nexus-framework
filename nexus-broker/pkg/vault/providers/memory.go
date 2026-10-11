@@ -55,16 +55,16 @@ func parseMemoryRef(ref string) (key string, n int, ok bool) {
 	return k, num, true
 }
 
-func (m *Memory) Get(_ context.Context, key string) (string, error) {
+func (m *Memory) Current(_ context.Context, key string) (string, string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	vs := m.versions[key]
 	for i := len(vs) - 1; i >= 0; i-- {
 		if !vs[i].retired {
-			return vs[i].value, nil
+			return vs[i].value, MemoryRef(key, i+1), nil
 		}
 	}
-	return "", ErrNotFound
+	return "", "", ErrNotFound
 }
 
 func (m *Memory) GetRef(_ context.Context, ref string) (string, error) {
