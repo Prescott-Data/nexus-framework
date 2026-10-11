@@ -26,8 +26,11 @@ import (
 // credential_schema is carried but not asserted. Coupling the two repos with
 // a shared golden artifact is a separate piece of work.
 //
-// Each fixture below was the verbatim output of buildStaticParams() for the
-// corresponding provider in nexus-cli/nexus-providers-static.yaml.
+// Fixture provenance: the trello, slack, jenkins, infobip fixtures were the verbatim
+// output of buildStaticParams() for those entries in
+// nexus-cli/nexus-providers-static.yaml. The twilio fixture and the
+// empty-prefix case are modelled on the same form logic for shapes the
+// manifest does not contain; they are not reproducible from it.
 // =============================================================================
 
 func feParams(t *testing.T, raw string) *json.RawMessage {
