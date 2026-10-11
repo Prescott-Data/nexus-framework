@@ -65,6 +65,7 @@ func (s *Store) secretCtx() (context.Context, context.CancelFunc) {
 // refuse instead of sending an empty secret.
 func (s *Store) ResolveClientSecret(ctx context.Context, p *Profile) error {
 	if p.ClientSecret != nil {
+		s.backfillFingerprint(p, "client_secret", *p.ClientSecret) // internal backend: the column value
 		return nil
 	}
 	if p.AuthType != "" && p.AuthType != "oauth2" {
@@ -118,7 +119,32 @@ func (s *Store) ResolveClientSecret(ctx context.Context, p *Profile) error {
 		return nil
 	}
 	p.ClientSecret = &v
+	if p.ClientSecretRef != nil {
+		s.backfillFingerprint(p, "client_secret_ref", *p.ClientSecretRef)
+	}
 	return nil
+}
+
+// backfillFingerprint records the fingerprint of a resolved secret for rows
+// written before the column existed, so nexus-cli can compare them. Best
+// effort: a failure here must not break the execution path that resolved.
+// The update only lands while the row still holds what was resolved (the
+// column value, or the backend version reference), so a PUT or PATCH that
+// cleared or rotated the secret in between cannot have its fingerprint
+// overwritten by the stale one; the in-memory profile is only updated when
+// the row was.
+func (s *Store) backfillFingerprint(p *Profile, guardColumn string, guardValue interface{}) {
+	if p.ClientSecret == nil || (p.ClientSecretFingerprint != nil && *p.ClientSecretFingerprint != "") {
+		return
+	}
+	fp := SecretFingerprint(*p.ClientSecret)
+	res, err := s.db.Exec(`UPDATE provider_profiles SET client_secret_fingerprint = $1 WHERE id = $2 AND client_secret_fingerprint IS NULL AND `+guardColumn+` = $3`, fp, p.ID, guardValue)
+	if err != nil {
+		return
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 1 {
+		p.ClientSecretFingerprint = &fp
+	}
 }
 
 // withProviderLock runs fn inside a transaction that holds a Postgres
@@ -277,6 +303,12 @@ type Profile struct {
 	// reader never pairs one rotation's metadata with another's secret.
 	ClientSecretRef *string `json:"-" db:"client_secret_ref"`
 
+	// ClientSecretFingerprint is SecretFingerprint(client_secret), returned
+	// by the API (unlike the secret) so nexus-cli can detect a changed
+	// secret. NULL for rows from before 0.6.4 until their next rotation or
+	// first resolve.
+	ClientSecretFingerprint *string `json:"client_secret_fingerprint,omitempty" db:"client_secret_fingerprint"`
+
 	// ClientSecretMissing is set when an external secret backend is active,
 	// the row holds no client_secret, and the backend has no secret for this
 	// provider either. Metadata reads still succeed; OAuth exchange, refresh,
@@ -419,10 +451,16 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	}
 
 	// Insert into DB
+	var fingerprint *string
+	if p.ClientSecret != nil && *p.ClientSecret != "" {
+		fp := SecretFingerprint(*p.ClientSecret)
+		fingerprint = &fp
+	}
+
 	query := `
 		INSERT INTO provider_profiles
-		(name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, api_base_url, user_info_endpoint, params, description, category, saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+		(name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, auth_header, api_base_url, user_info_endpoint, params, description, category, saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id, client_secret_fingerprint)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 		RETURNING id`
 
 	if !s.externalSecrets() || p.ClientSecret == nil {
@@ -432,11 +470,13 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 			p.EnableDiscovery, scopes, p.AuthType, p.AuthHeader,
 			p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category,
 			p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID,
+			fingerprint,
 		).Scan(&id)
 		if err != nil {
 			return nil, fmt.Errorf("database: failed to create provider profile: %w", err)
 		}
 		p.ID = id
+		p.ClientSecretFingerprint = fingerprint
 		return &p, nil
 	}
 
@@ -446,7 +486,7 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 	// secret does not exist yet, and a crash in between leaves no row behind.
 	id := uuid.New()
 	query = strings.Replace(query, "(name, client_id, client_secret,", "(id, client_secret_ref, name, client_id, client_secret,", 1)
-	query = strings.Replace(query, "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)", "VALUES ($20,$21,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)", 1)
+	query = strings.Replace(query, "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)", "VALUES ($21,$22,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)", 1)
 
 	// The secret is written first so its version reference can go into the
 	// row; the row is still invisible until commit, and a failure before
@@ -471,6 +511,7 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 		p.EnableDiscovery, scopes, p.AuthType, p.AuthHeader,
 		p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category,
 		p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID,
+		fingerprint,
 		id, ref,
 	).Scan(&inserted)
 	if err != nil {
@@ -491,16 +532,17 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 
 	p.ID = inserted
 	p.ClientSecretRef = &ref
+	p.ClientSecretFingerprint = fingerprint
 	return &p, nil
 }
 
 // GetProfile retrieves a provider profile by ID
 func (s *Store) GetProfile(id uuid.UUID) (*Profile, error) {
 	var p Profile
-	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params, COALESCE(description, ''), COALESCE(category, ''), last_health_check_at, COALESCE(health_status, 'unknown'), health_message, saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id, client_secret_ref FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
+	query := `SELECT id, name, client_id, client_secret, auth_url, token_url, issuer, enable_discovery, scopes, auth_type, COALESCE(auth_header, ''), COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params, COALESCE(description, ''), COALESCE(category, ''), last_health_check_at, COALESCE(health_status, 'unknown'), health_message, saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id, client_secret_ref, client_secret_fingerprint FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`
 
 	row := s.db.QueryRow(query, id)
-	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category, &p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage, &p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID, &p.ClientSecretRef)
+	err := row.Scan(&p.ID, &p.Name, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType, &p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category, &p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage, &p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID, &p.ClientSecretRef, &p.ClientSecretFingerprint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider profile: %w", err)
 	}
@@ -520,7 +562,7 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 		       COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params,
 		       COALESCE(description, ''), COALESCE(category, ''), last_health_check_at,
 		       COALESCE(health_status, 'unknown'), health_message,
-	       saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id, client_secret_ref
+	       saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id, client_secret_ref, client_secret_fingerprint
 		FROM provider_profiles
 		WHERE LOWER(name) = $1 AND deleted_at IS NULL
 	`
@@ -539,7 +581,7 @@ func (s *Store) GetProfileByName(name string) (*Profile, error) {
 			&p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType,
 			&p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category,
 			&p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage,
-			&p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID, &p.ClientSecretRef,
+			&p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID, &p.ClientSecretRef, &p.ClientSecretFingerprint,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan provider profile: %w", err)
@@ -596,11 +638,21 @@ func (s *Store) UpdateProfile(p *Profile) error {
 			saml_idp_sso_url = $17,
 			saml_idp_x509_cert = $18,
 			saml_sp_entity_id = $19,
+			client_secret_fingerprint = $21,
 			updated_at = NOW()
 		WHERE id = $20 AND deleted_at IS NULL`
 
+	var fingerprint *string
+	if p.ClientSecret != nil && strings.TrimSpace(*p.ClientSecret) != "" {
+		fp := SecretFingerprint(*p.ClientSecret)
+		fingerprint = &fp
+	}
+	// $21 is the fingerprint of a provided secret, or NULL. With the internal
+	// backend it is written together with client_secret, so a PUT that omits
+	// or blanks the secret clears both; with an external backend an omitted
+	// secret keeps the stored one, and the fingerprint with it (COALESCE below).
 	args := func(secretArg interface{}) []interface{} {
-		return []interface{}{p.Name, p.ClientID, secretArg, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID, p.ID}
+		return []interface{}{p.Name, p.ClientID, secretArg, p.AuthURL, p.TokenURL, p.Issuer, p.EnableDiscovery, pq.Array(p.Scopes), p.AuthType, p.AuthHeader, p.APIBaseURL, p.UserInfoEndpoint, p.Params, p.Description, p.Category, p.SAMLIdpEntityID, p.SAMLIdpSSOURL, p.SAMLIdpX509Cert, p.SAMLSPEntityID, p.ID, fingerprint}
 	}
 
 	if !s.externalSecrets() {
@@ -615,8 +667,9 @@ func (s *Store) UpdateProfile(p *Profile) error {
 	// client_secret keeps whatever is stored, in the backend or, for a row
 	// written before the switch, still in the column. Clearing a secret is
 	// done by deleting the provider, not by PUT.
-	// $3 is "rotating"; $21 is the new version reference (NULL when not rotating).
-	query = strings.Replace(query, "client_secret = $3,", "client_secret = CASE WHEN $3::boolean THEN NULL ELSE client_secret END, client_secret_ref = CASE WHEN $3::boolean THEN $21 ELSE client_secret_ref END,", 1)
+	// $3 is "rotating"; $22 is the new version reference (NULL when not rotating).
+	query = strings.Replace(query, "client_secret = $3,", "client_secret = CASE WHEN $3::boolean THEN NULL ELSE client_secret END, client_secret_ref = CASE WHEN $3::boolean THEN $22 ELSE client_secret_ref END,", 1)
+	query = strings.Replace(query, "client_secret_fingerprint = $21,", "client_secret_fingerprint = COALESCE($21, client_secret_fingerprint),", 1)
 	argsRef := func(rotating bool, ref interface{}) []interface{} { return append(args(rotating), ref) }
 	if p.ClientSecret == nil {
 		if _, err := s.db.Exec(query, argsRef(false, nil)...); err != nil {
@@ -682,6 +735,8 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 	i := 1
 	secretWritten := false
 	newSecret := ""
+	secretPatched := false
+	patchFingerprint := ""
 
 	for key, value := range updates {
 		// Whitelist all allowed columns and map them to snake_case if coming from JSON
@@ -693,6 +748,10 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 			column = "client_id"
 		case "client_secret":
 			column = "client_secret"
+			secretPatched = true
+			if secret, ok := value.(string); ok && strings.TrimSpace(secret) != "" {
+				patchFingerprint = SecretFingerprint(secret)
+			}
 			if s.externalSecrets() {
 				secret, ok := value.(string)
 				if !ok {
@@ -762,6 +821,23 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 		}
 		query += fmt.Sprintf("%s = $%d", column, i)
 		args = append(args, value)
+		i++
+	}
+
+	// The fingerprint always moves with the secret: a new value gets its
+	// hash, a blanked one (internal backend only; external rejects it above)
+	// clears the fingerprint too, so a GET never describes a secret that is
+	// no longer stored.
+	if secretPatched {
+		var fp interface{}
+		if patchFingerprint != "" {
+			fp = patchFingerprint
+		}
+		if i > 1 {
+			query += ", "
+		}
+		query += fmt.Sprintf("client_secret_fingerprint = $%d", i)
+		args = append(args, fp)
 		i++
 	}
 
@@ -889,7 +965,7 @@ func (s *Store) GetAllProfiles() ([]Profile, error) {
 		       COALESCE(api_base_url, ''), COALESCE(user_info_endpoint, ''), params,
 		       COALESCE(description, ''), COALESCE(category, ''), last_health_check_at,
 		       COALESCE(health_status, 'unknown'), health_message,
-	       saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id, client_secret_ref
+	       saml_idp_entity_id, saml_idp_sso_url, saml_idp_x509_cert, saml_sp_entity_id, client_secret_ref, client_secret_fingerprint
 		FROM provider_profiles
 		WHERE deleted_at IS NULL
 	`
@@ -908,7 +984,7 @@ func (s *Store) GetAllProfiles() ([]Profile, error) {
 			&p.Issuer, &p.EnableDiscovery, pq.Array(&p.Scopes), &p.AuthType,
 			&p.AuthHeader, &p.APIBaseURL, &p.UserInfoEndpoint, &p.Params, &p.Description, &p.Category,
 			&p.LastHealthCheckAt, &p.HealthStatus, &p.HealthMessage,
-			&p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID, &p.ClientSecretRef,
+			&p.SAMLIdpEntityID, &p.SAMLIdpSSOURL, &p.SAMLIdpX509Cert, &p.SAMLSPEntityID, &p.ClientSecretRef, &p.ClientSecretFingerprint,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan provider profile: %w", err)

@@ -84,10 +84,23 @@ func TestComputeDrift_RedactedSecretIsNotDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	if drifted {
-		t.Fatalf("a secret the Broker does not return must not count as drift; updates = %v", updates)
+		t.Fatalf("a secret the Broker does not return, with no fingerprint, must not count as drift; updates = %v", updates)
 	}
 	live["client_id"] = "other"
 	if drifted, _, _ = computeDrift(desired, live); !drifted {
 		t.Fatal("a real difference must still be drift")
+	}
+	live["client_id"] = "id"
+
+	// With a fingerprint the secret is compared: same secret, no drift.
+	live["client_secret_fingerprint"] = secretFingerprint("sec")
+	if drifted, updates, _ = computeDrift(desired, live); drifted {
+		t.Fatalf("matching fingerprint must not be drift; updates = %v", updates)
+	}
+	// A rotated secret in the manifest is detected and sent, nothing else.
+	desired.ClientSecret = "sec-2"
+	drifted, updates, _ = computeDrift(desired, live)
+	if !drifted || updates["client_secret"] != "sec-2" || len(updates) != 1 {
+		t.Fatalf("changed secret must be the only update; drifted=%v updates=%v", drifted, updates)
 	}
 }
