@@ -62,6 +62,17 @@ func TestMemoryRoundTrip(t *testing.T) {
 	if m.LiveVersions("k") != 1 {
 		t.Fatalf("LiveVersions = %d, want 1", m.LiveVersions("k"))
 	}
+	// DiscardRef removes exactly one version and tolerates a missing one.
+	ref3, _ := m.Set(ctx, "k", "v3")
+	if err := m.DiscardRef(ctx, ref3); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := m.Get(ctx, "k"); err != nil || v != "v2" {
+		t.Fatalf("after DiscardRef(ref3) current = %q, %v; want v2", v, err)
+	}
+	if err := m.DiscardRef(ctx, "mem:k:99"); err != nil {
+		t.Fatalf("discarding a missing version must not error, got %v", err)
+	}
 	if err := m.Delete(ctx, "k"); err != nil {
 		t.Fatal(err)
 	}

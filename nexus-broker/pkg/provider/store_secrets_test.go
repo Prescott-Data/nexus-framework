@@ -383,3 +383,69 @@ func TestInternalBackend_IsUnchanged(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestResolveClientSecret_RetiredReferenceReloadsTheRow(t *testing.T) {
+	// A reader loaded the row just before a rotation committed and retired
+	// the version it references. Resolving must re-read the row and use the
+	// rotation's pair, not fail with a missing secret.
+	backend := providers.NewMemory()
+	ctx := context.Background()
+	ref1, _ := backend.Set(ctx, testProviderID, "old")
+	ref2, _ := backend.Set(ctx, testProviderID, "new")
+	require.NoError(t, backend.Retire(ctx, testProviderID, ref2))
+	store, mock := newStoreWithBackend(t, backend)
+
+	mock.ExpectQuery(`SELECT client_secret_ref FROM provider_profiles WHERE id = \$1 AND deleted_at IS NULL`).
+		WithArgs(uuid.MustParse(testProviderID)).WillReturnRows(sqlmock.NewRows([]string{"client_secret_ref"}).AddRow(ref2))
+	mock.ExpectQuery(`FROM provider_profiles WHERE id = \$1`).WillReturnRows(profileRow("oauth2", ref2))
+
+	p := &Profile{ID: uuid.MustParse(testProviderID), AuthType: "oauth2", ClientSecretRef: &ref1}
+	require.NoError(t, store.ResolveClientSecret(ctx, p))
+	assert.NoError(t, mock.ExpectationsWereMet())
+	require.NotNil(t, p.ClientSecret)
+	assert.Equal(t, "new", *p.ClientSecret)
+	assert.Equal(t, ref2, *p.ClientSecretRef, "the profile now carries the rotation's reference and metadata")
+	assert.False(t, p.ClientSecretMissing)
+}
+
+func TestUpdateProfile_ExternalBackend_FailedUpdateDiscardsTheWrittenVersion(t *testing.T) {
+	// The row update fails for sure (not an ambiguous commit): the version
+	// written for it must be discarded so a pre-0.6.2 row, which reads the
+	// backend's current version, cannot pick it up.
+	backend := providers.NewMemory()
+	store, mock := newStoreWithBackend(t, backend)
+	id := uuid.MustParse(testProviderID)
+	_, _ = backend.Set(context.Background(), testProviderID, "old")
+	secret := "rejected"
+
+	expectLock(mock)
+	mock.ExpectExec(`client_secret_ref = CASE WHEN \$3::boolean THEN \$21 ELSE client_secret_ref END`).
+		WillReturnError(errors.New("deadlock detected"))
+	mock.ExpectRollback()
+
+	cid := "client-id"
+	err := store.UpdateProfile(&Profile{ID: id, Name: "acme", AuthType: "oauth2", ClientID: &cid, ClientSecret: &secret})
+	require.Error(t, err)
+	got, gErr := backend.Get(context.Background(), testProviderID)
+	require.NoError(t, gErr)
+	assert.Equal(t, "old", got, "the current version must still be the old one")
+	assert.Equal(t, 1, backend.LiveVersions(testProviderID))
+}
+
+func TestUpdateProfile_ExternalBackend_AmbiguousCommitKeepsTheWrittenVersion(t *testing.T) {
+	backend := providers.NewMemory()
+	store, mock := newStoreWithBackend(t, backend)
+	id := uuid.MustParse(testProviderID)
+	_, _ = backend.Set(context.Background(), testProviderID, "old")
+	secret := "maybe"
+
+	expectLock(mock)
+	mock.ExpectExec(`client_secret_ref = CASE WHEN \$3::boolean THEN \$21 ELSE client_secret_ref END`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit().WillReturnError(errors.New("connection reset during commit"))
+
+	cid := "client-id"
+	err := store.UpdateProfile(&Profile{ID: id, Name: "acme", AuthType: "oauth2", ClientID: &cid, ClientSecret: &secret})
+	require.Error(t, err)
+	assert.Equal(t, 2, backend.LiveVersions(testProviderID), "an unknown commit outcome keeps the version the row may reference")
+}

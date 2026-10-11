@@ -47,6 +47,11 @@ type Backend interface {
 	// Retire destroys every version of key older than keepRef. Called after
 	// the row referencing keepRef is committed.
 	Retire(ctx context.Context, key, keepRef string) error
+	// DiscardRef destroys the single version named by ref, leaving every
+	// other version alone. Used when the row update that would have
+	// referenced it definitely failed, so the value never becomes current.
+	// Discarding a missing or already destroyed version is not an error.
+	DiscardRef(ctx context.Context, ref string) error
 	// Delete removes the secret for key. Deleting a missing key is not an error.
 	Delete(ctx context.Context, key string) error
 	// Ping verifies the backend is reachable and the caller is authorised.

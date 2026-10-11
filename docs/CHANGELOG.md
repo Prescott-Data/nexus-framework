@@ -20,9 +20,9 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 **Changed**
 
-- **Provider secret rotation is read-consistent.** With an external secret backend, every write now returns an immutable version reference that the provider row stores in `client_secret_ref`, written in the same statement as the metadata (migration `20_add_provider_secret_ref.sql`). Reads use that exact version, so an OAuth exchange during a `PUT`/`PATCH` rotation sees either the previous metadata with the previous secret or the new with the new, never one paired with the other. Earlier versions are retired only after the row commits. Rows written before this release have no reference and keep reading the backend's current version until their next rotation. (#114)
+- **Provider secret rotation is read-consistent.** With an external secret backend, every write now returns an immutable version reference that the provider row stores in `client_secret_ref`, written in the same statement as the metadata (migration `20_add_provider_secret_ref.sql`). Reads use that exact version, so an OAuth exchange during a `PUT`/`PATCH` rotation sees either the previous metadata with the previous secret or the new with the new, never one paired with the other. Earlier versions are retired only after the row commits; a reader that loaded the row just before that re-reads it once when its version is already retired. A rotation whose row update definitely fails discards the version it wrote. Rows written before this release have no reference and keep reading the backend's current version until their next rotation. (#114)
 - **Provider reads are metadata-only.** `GET /providers/{id}`, the consent spec and listings no longer touch the secret backend; the secret is resolved only on the paths that send it to the provider (exchange, refresh, revocation, health probe), through `ProfileStorer.ResolveClientSecret`. A backend outage therefore no longer breaks admin reads. (#114)
-- `providers.Backend` gains `GetRef` and `Retire`; `Set` returns the version reference. The in-memory backend keeps numbered versions so rotation is testable.
+- `providers.Backend` gains `GetRef`, `Retire` and `DiscardRef`; `Set` returns the version reference. The in-memory backend keeps numbered versions so rotation is testable.
 
 </div>
 

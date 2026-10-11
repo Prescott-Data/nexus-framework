@@ -229,3 +229,30 @@ func TestClose_ClosesClient(t *testing.T) {
 		t.Fatalf("Close: err=%v closed=%v", err, f.closed)
 	}
 }
+
+func TestDiscardRef_DestroysOnlyThatVersion(t *testing.T) {
+	b, f := newTestBackend()
+	ctx := context.Background()
+	ref1, _ := b.Set(ctx, testKey, "v1")
+	ref2, _ := b.Set(ctx, testKey, "v2")
+	if err := b.DiscardRef(ctx, ref2); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.enabledVersions(b.secretName(testKey)); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("enabled = %v, want [1]", got)
+	}
+	if v, err := b.GetRef(ctx, ref1); err != nil || v != "v1" {
+		t.Fatalf("GetRef(ref1) = %q, %v", v, err)
+	}
+	// Already destroyed, and never existed: both fine.
+	if err := b.DiscardRef(ctx, ref2); err != nil {
+		t.Fatalf("discard of a destroyed version: %v", err)
+	}
+	if err := b.DiscardRef(ctx, b.secretName(testKey)+"/versions/99"); err != nil {
+		t.Fatalf("discard of a missing version: %v", err)
+	}
+	f.failNext("DestroySecretVersion", status.Error(codes.PermissionDenied, "no versions.destroy"))
+	if err := b.DiscardRef(ctx, ref1); err == nil {
+		t.Fatal("a real failure must be reported")
+	}
+}

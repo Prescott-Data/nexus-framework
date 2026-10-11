@@ -104,6 +104,19 @@ func (m *Memory) Retire(_ context.Context, key, keepRef string) error {
 	return nil
 }
 
+func (m *Memory) DiscardRef(_ context.Context, ref string) error {
+	key, n, ok := parseMemoryRef(ref)
+	if !ok {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if vs := m.versions[key]; n >= 1 && n <= len(vs) {
+		vs[n-1].retired = true
+	}
+	return nil
+}
+
 func (m *Memory) Delete(_ context.Context, key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

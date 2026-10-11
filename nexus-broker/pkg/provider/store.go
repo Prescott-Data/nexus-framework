@@ -84,6 +84,19 @@ func (s *Store) ResolveClientSecret(ctx context.Context, p *Profile) error {
 	var err error
 	if p.ClientSecretRef != nil && *p.ClientSecretRef != "" {
 		v, err = s.secrets.GetRef(ctx, *p.ClientSecretRef)
+		if errors.Is(err, providers.ErrNotFound) {
+			// The version was retired under us: a rotation committed between
+			// the row read and this resolve. Re-read the row's reference once
+			// and use the pair the rotation left, metadata included.
+			var current *string
+			if qErr := s.db.QueryRow(`SELECT client_secret_ref FROM provider_profiles WHERE id = $1 AND deleted_at IS NULL`, p.ID).Scan(&current); qErr == nil && current != nil && *current != *p.ClientSecretRef {
+				if fresh, fErr := s.GetProfile(p.ID); fErr == nil {
+					fresh.ClientSecret, fresh.ClientSecretMissing = nil, false
+					*p = *fresh
+					v, err = s.secrets.GetRef(ctx, *p.ClientSecretRef)
+				}
+			}
+		}
 	} else {
 		// Row written before references existed: the backend's current version.
 		v, err = s.secrets.Get(ctx, p.ID.String())
@@ -121,9 +134,43 @@ func (s *Store) withProviderLock(id uuid.UUID, fn func(tx *sqlx.Tx) error) error
 		return err
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit: %w", err)
+		return &commitError{err: err}
 	}
 	return nil
+}
+
+// commitError marks a commit whose outcome is unknown: the row may or may
+// not have been written. Callers must not undo backend writes on it.
+type commitError struct{ err error }
+
+func (e *commitError) Error() string { return "failed to commit: " + e.err.Error() }
+func (e *commitError) Unwrap() error { return e.err }
+
+// discardSecretRef removes the version a failed rotation wrote, so that a
+// row without a reference (written before 0.6.2) cannot start reading it
+// as the current version. Only on definite failures; an unknown commit
+// outcome keeps it.
+func (s *Store) discardSecretRef(ref string) error {
+	ctx, cancel := s.secretCtx()
+	defer cancel()
+	if err := s.secrets.DiscardRef(ctx, ref); err != nil {
+		return fmt.Errorf("%w: discard version %s: %w", ErrSecretBackend, ref, err)
+	}
+	return nil
+}
+
+// undoRotation discards the just-written version after a definite failure
+// of the row update. ensureRowMatched has already removed the whole secret
+// when the row was gone, and an ambiguous commit keeps everything.
+func (s *Store) undoRotation(err error, ref string) error {
+	var ce *commitError
+	if ref == "" || errors.As(err, &ce) || errors.Is(err, ErrProviderNotFound) {
+		return err
+	}
+	if dErr := s.discardSecretRef(ref); dErr != nil {
+		return fmt.Errorf("%w (and the written version could not be discarded: %w)", err, dErr)
+	}
+	return err
 }
 
 func (s *Store) putSecret(id uuid.UUID, value string) (string, error) {
@@ -554,7 +601,7 @@ func (s *Store) UpdateProfile(p *Profile) error {
 		return s.ensureRowMatched(result, p.ID)
 	})
 	if err != nil {
-		return err
+		return s.undoRotation(err, ref)
 	}
 	// The row now references the new version; earlier ones can go.
 	return s.retireSecret(p.ID, ref)
@@ -714,7 +761,7 @@ func (s *Store) PatchProfile(id uuid.UUID, updates map[string]interface{}) error
 		return s.ensureRowMatched(result, id)
 	})
 	if err != nil {
-		return err
+		return s.undoRotation(err, ref)
 	}
 	return s.retireSecret(id, ref)
 }

@@ -206,6 +206,17 @@ func (b *Backend) Retire(ctx context.Context, key, keepRef string) error {
 	return nil
 }
 
+// DiscardRef destroys exactly the version named by ref.
+func (b *Backend) DiscardRef(ctx context.Context, ref string) error {
+	_, err := b.client.DestroySecretVersion(ctx, &secretmanagerpb.DestroySecretVersionRequest{Name: ref})
+	switch status.Code(err) {
+	case codes.OK, codes.NotFound, codes.FailedPrecondition:
+		return nil
+	default:
+		return fmt.Errorf("gcp secret backend: discard %s: %w", ref, err)
+	}
+}
+
 func (b *Backend) Delete(ctx context.Context, key string) error {
 	err := b.client.DeleteSecret(ctx, &secretmanagerpb.DeleteSecretRequest{Name: b.secretName(key)})
 	if err != nil && !isNotFound(err) {
