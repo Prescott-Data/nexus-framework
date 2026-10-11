@@ -37,7 +37,6 @@ nexus-cli plan [flags]
 |---|---|---|
 | `-file` | `nexus-providers.yaml` | Path to the providers manifest file |
 | `-prune` | `false` | Include deletion of providers not in the manifest |
-| `-auto-approve` | Skip the interactive confirmation. For scripted applies from a trusted environment, not for apply-on-merge pipelines. |
 
 **Output:**
 
@@ -67,6 +66,7 @@ nexus-cli apply [flags]
 |---|---|---|
 | `-file` | `nexus-providers.yaml` | Path to the providers manifest file |
 | `-prune` | `false` | Delete providers that exist in the Broker but not in the manifest |
+| `-auto-approve` | `false` | Skip the interactive confirmation. For scripted applies from a trusted environment, not for apply-on-merge pipelines. |
 
 `apply` runs `plan` internally first and prints the same diff before executing. Use `-prune` with care — it permanently deletes providers and orphans every active connection tied to them.
 
