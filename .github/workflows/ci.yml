@@ -53,6 +53,9 @@ jobs:
       - name: Go SDK — test
         working-directory: nexus-sdk
         run: go test ./... -count=1
+      - name: CLI — test
+        working-directory: nexus-cli
+        run: go test ./... -count=1
 
       - name: Gateway — test (incl. broker contract tests)
         working-directory: nexus-gateway

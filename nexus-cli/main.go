@@ -74,6 +74,7 @@ func runCommand(isPlanOnly bool) {
 	cmdFlags := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
 	fileFlag := cmdFlags.String("file", "nexus-providers.yaml", "Path to the providers manifest file")
 	pruneFlag := cmdFlags.Bool("prune", false, "Delete providers not in the manifest")
+	autoApprove := cmdFlags.Bool("auto-approve", false, "Skip the interactive confirmation (for scripted applies from a trusted environment; not for apply-on-merge pipelines)")
 
 	if err := cmdFlags.Parse(os.Args[2:]); err != nil {
 		log.Fatalf("Failed to parse flags: %v", err)
@@ -91,28 +92,15 @@ func runCommand(isPlanOnly bool) {
 		log.Fatalf("Failed to read manifest file %s: %v", *fileFlag, err)
 	}
 
-	// Expand environment variables
-	var missingVars []string
-	missingSet := make(map[string]bool)
-
-	expandedData := os.Expand(string(data), func(envVar string) string {
-		val, exists := os.LookupEnv(envVar)
-		if !exists {
-			if !missingSet[envVar] {
-				missingSet[envVar] = true
-				missingVars = append(missingVars, envVar)
-			}
-		}
-		return val
-	})
-
-	if len(missingVars) > 0 {
-		log.Fatalf("Failed to process manifest. The following environment variables are unset: %s", strings.Join(missingVars, ", "))
-	}
-
-	var manifest Manifest
-	if err := yaml.Unmarshal([]byte(expandedData), &manifest); err != nil {
+	// Parse first, then expand ${VAR} placeholders inside string values only.
+	// Expanding the raw file would also touch comments and keys, so a "$" in
+	// a comment would be reported as a missing variable.
+	manifest, missing, err := loadManifest(data, os.LookupEnv)
+	if err != nil {
 		log.Fatalf("Failed to parse YAML manifest: %v", err)
+	}
+	if len(missing) > 0 {
+		log.Fatalf("Failed to process manifest. The following environment variables are unset: %s", strings.Join(missing, ", "))
 	}
 
 	fmt.Printf("Read %d providers from %s\n", len(manifest.Providers), *fileFlag)
@@ -286,17 +274,21 @@ func runCommand(isPlanOnly bool) {
 		return
 	}
 
-	fmt.Print("\nDo you want to perform these actions?\n  Nexus will perform the actions described above.\n  Only 'yes' will be accepted to approve.\n\n  Enter a value: ")
+	if !*autoApprove {
+		fmt.Print("\nDo you want to perform these actions?\n  Nexus will perform the actions described above.\n  Only 'yes' will be accepted to approve.\n\n  Enter a value: ")
 
-	reader := bufio.NewReader(os.Stdin)
-	confirmation, err := reader.ReadString('\n')
-	if err != nil {
-		log.Fatalf("Failed to read input: %v", err)
-	}
+		reader := bufio.NewReader(os.Stdin)
+		confirmation, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatalf("Failed to read input: %v", err)
+		}
 
-	if strings.TrimSpace(confirmation) != "yes" {
-		fmt.Println("\nApply cancelled.")
-		return
+		if strings.TrimSpace(confirmation) != "yes" {
+			fmt.Println("\nApply cancelled.")
+			return
+		}
+	} else {
+		fmt.Println("\n-auto-approve set; applying without confirmation.")
 	}
 
 	fmt.Println("\n--- Applying Changes ---")
@@ -447,4 +439,62 @@ func formatVal(v interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+// loadManifest parses the manifest and expands ${VAR} (and $VAR) placeholders
+// in value scalars only, on the YAML node tree, before decoding. Keys and
+// comments are never touched. A plain (unquoted) scalar is re-typed after
+// expansion, so `skip_scope_on_exchange: ${SKIP}` with SKIP=true still
+// decodes to a boolean, as it did when the raw text was expanded; a quoted
+// scalar stays a string. Unresolved placeholders are returned by name in
+// document order.
+func loadManifest(data []byte, lookup func(string) (string, bool)) (Manifest, []string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return Manifest{}, nil, err
+	}
+	var missing []string
+	seen := map[string]bool{}
+	expand := func(n *yaml.Node) {
+		if n.Kind != yaml.ScalarNode || !strings.Contains(n.Value, "$") {
+			return
+		}
+		n.Value = os.Expand(n.Value, func(name string) string {
+			val, ok := lookup(name)
+			if !ok && !seen[name] {
+				seen[name] = true
+				missing = append(missing, name)
+			}
+			return val
+		})
+		if n.Style == 0 {
+			// Untagged plain scalar: let the decoder infer bool/int/string
+			// again. An explicit tag (!!str, TaggedStyle) or any quoting is
+			// the author's choice and is kept.
+			n.Tag = ""
+		}
+	}
+	var walk func(n *yaml.Node)
+	walk = func(n *yaml.Node) {
+		switch n.Kind {
+		case yaml.DocumentNode, yaml.SequenceNode:
+			for _, c := range n.Content {
+				walk(c)
+			}
+		case yaml.MappingNode:
+			for i := 1; i < len(n.Content); i += 2 { // values only; even indexes are keys
+				walk(n.Content[i])
+			}
+		case yaml.ScalarNode:
+			expand(n)
+		}
+	}
+	walk(&doc)
+	var m Manifest
+	if len(doc.Content) > 0 {
+		if err := doc.Decode(&m); err != nil {
+			return Manifest{}, missing, err
+		}
+	}
+	return m, missing, nil
 }

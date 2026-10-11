@@ -89,6 +89,8 @@ providers:
 
 ---
 
+`client_secret` is write-only: the Broker never returns it, so `plan` does not compare it and `apply` does not re-send it for an unchanged provider. Rotate a secret deliberately with `PATCH /providers/{id}` and a new `client_secret`; a manifest apply never re-sends it. Placeholders such as `${GITHUB_CLIENT_SECRET}` are expanded inside string values only, including nested `params`, after the YAML is parsed. Comments and keys are left alone, so a `$` in a comment is not a placeholder. Every unset placeholder is reported by name before anything is sent to the Broker.
+
 ## Commands
 
 ### plan
@@ -143,7 +145,7 @@ Pass `--prune` to also delete orphaned providers. Do not use `--prune` until you
 
 Run `nexus-cli plan` as an informational check on pull requests so reviewers can see what would change before merging. Apply manually from a trusted environment when you are ready to change the live state.
 
-Automatic apply on merge is not recommended. Provider configuration is live operational data that affects all agents in the workspace. A plan review step before apply prevents accidental provider deletions or misconfigurations from reaching production silently.
+Automatic apply on merge is not recommended. `apply -auto-approve` exists for scripted applies from a trusted environment, such as a seed script run by an operator; it is not an invitation to apply from a merge hook. Provider configuration is live operational data that affects all agents in the workspace. A plan review step before apply prevents accidental provider deletions or misconfigurations from reaching production silently.
 
 ```yaml
 # Example GitHub Actions snippet

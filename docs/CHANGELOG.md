@@ -12,6 +12,24 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## 0.6.3 <span class="changelog-date">2026-10-13</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.3" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Fixed**
+
+- **`nexus-cli` expands placeholders in manifest values only.** It expanded `${VAR}` across the raw file before parsing, so a `$` in a YAML comment was reported as an unset variable and aborted `plan`. The manifest is now parsed first and placeholders are resolved inside string values, nested `params` included; comments and keys are untouched. All unset placeholders are listed by name. First test file for the CLI.
+- **`nexus-cli` no longer rotates every OAuth secret on every apply.** The Broker never returns `client_secret`, and `plan` treated that as drift, so each `apply` re-sent (and with an external backend re-versioned) all secrets. A secret the Broker does not return is no longer compared.
+- **`nexus-cli apply -auto-approve`** skips the interactive confirmation for scripted applies from a trusted environment; the guide still advises against apply-on-merge.
+
+</div>
+
+---
+
+<div class="changelog-release" markdown>
+
 ## 0.6.2 <span class="changelog-date">2026-10-13</span>
 
 <div class="changelog-meta" markdown>

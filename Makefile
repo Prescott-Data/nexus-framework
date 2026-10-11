@@ -46,6 +46,7 @@ test:
 	(cd nexus-bridge && go test ./... -timeout=30s)
 	(cd nexus-sidecar && go test ./...)
 	(cd nexus-sdk && go test ./...)
+	(cd nexus-cli && go test ./...)
 	(cd nexus-sdk-python && python3 -m unittest discover -s tests -q)
 	(cd nexus-sdk-ts && npm run build)
 
