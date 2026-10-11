@@ -12,6 +12,22 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## 0.6.3 <span class="changelog-date">2026-10-13</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.3" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Fixed**
+
+- **`nexus-cli` expands placeholders in manifest values only.** It expanded `${VAR}` across the raw file before parsing, so a `$` in a YAML comment was reported as an unset variable and aborted `plan`. The manifest is now parsed first and placeholders are resolved inside string values, nested `params` included; comments and keys are untouched. All unset placeholders are listed by name. First test file for the CLI.
+
+</div>
+
+---
+
+<div class="changelog-release" markdown>
+
 ## 0.6.2 <span class="changelog-date">2026-10-13</span>
 
 <div class="changelog-meta" markdown>

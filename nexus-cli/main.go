@@ -91,28 +91,15 @@ func runCommand(isPlanOnly bool) {
 		log.Fatalf("Failed to read manifest file %s: %v", *fileFlag, err)
 	}
 
-	// Expand environment variables
-	var missingVars []string
-	missingSet := make(map[string]bool)
-
-	expandedData := os.Expand(string(data), func(envVar string) string {
-		val, exists := os.LookupEnv(envVar)
-		if !exists {
-			if !missingSet[envVar] {
-				missingSet[envVar] = true
-				missingVars = append(missingVars, envVar)
-			}
-		}
-		return val
-	})
-
-	if len(missingVars) > 0 {
-		log.Fatalf("Failed to process manifest. The following environment variables are unset: %s", strings.Join(missingVars, ", "))
-	}
-
+	// Parse first, then expand ${VAR} placeholders inside string values only.
+	// Expanding the raw file would also touch comments and keys, so a "$" in
+	// a comment would be reported as a missing variable.
 	var manifest Manifest
-	if err := yaml.Unmarshal([]byte(expandedData), &manifest); err != nil {
+	if err := yaml.Unmarshal(data, &manifest); err != nil {
 		log.Fatalf("Failed to parse YAML manifest: %v", err)
+	}
+	if missing := expandManifest(&manifest, os.LookupEnv); len(missing) > 0 {
+		log.Fatalf("Failed to process manifest. The following environment variables are unset: %s", strings.Join(missing, ", "))
 	}
 
 	fmt.Printf("Read %d providers from %s\n", len(manifest.Providers), *fileFlag)
@@ -447,4 +434,55 @@ func formatVal(v interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+// expandManifest replaces ${VAR} (and $VAR) placeholders in every string
+// value of the manifest, including nested params, using lookup. It returns
+// the names of placeholders that lookup could not resolve, in first-seen
+// order, so the caller can report all of them at once.
+func expandManifest(m *Manifest, lookup func(string) (string, bool)) []string {
+	var missing []string
+	seen := map[string]bool{}
+	expand := func(s string) string {
+		return os.Expand(s, func(name string) string {
+			val, ok := lookup(name)
+			if !ok && !seen[name] {
+				seen[name] = true
+				missing = append(missing, name)
+			}
+			return val
+		})
+	}
+	var walk func(v interface{}) interface{}
+	walk = func(v interface{}) interface{} {
+		switch t := v.(type) {
+		case string:
+			return expand(t)
+		case map[string]interface{}:
+			for k, e := range t {
+				t[k] = walk(e)
+			}
+			return t
+		case []interface{}:
+			for i, e := range t {
+				t[i] = walk(e)
+			}
+			return t
+		default:
+			return v
+		}
+	}
+	for i := range m.Providers {
+		p := &m.Providers[i]
+		for _, f := range []*string{&p.Name, &p.AuthType, &p.AuthHeader, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.APIBaseURL, &p.UserInfoEndpoint} {
+			*f = expand(*f)
+		}
+		for j := range p.Scopes {
+			p.Scopes[j] = expand(p.Scopes[j])
+		}
+		if p.Params != nil {
+			p.Params = walk(p.Params).(map[string]interface{})
+		}
+	}
+	return missing
 }

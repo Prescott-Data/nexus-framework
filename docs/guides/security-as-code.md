@@ -89,6 +89,8 @@ providers:
 
 ---
 
+Placeholders such as `${GITHUB_CLIENT_SECRET}` are expanded inside string values only, including nested `params`, after the YAML is parsed. Comments and keys are left alone, so a `$` in a comment is not a placeholder. Every unset placeholder is reported by name before anything is sent to the Broker.
+
 ## Commands
 
 ### plan
