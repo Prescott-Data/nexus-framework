@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -254,5 +256,32 @@ func TestDiscardRef_DestroysOnlyThatVersion(t *testing.T) {
 	f.failNext("DestroySecretVersion", status.Error(codes.PermissionDenied, "no versions.destroy"))
 	if err := b.DiscardRef(ctx, ref1); err == nil {
 		t.Fatal("a real failure must be reported")
+	}
+}
+
+func TestGet_AfterDiscardingNewestFallsBackToPriorEnabled(t *testing.T) {
+	// A failed rotation on a row without a reference: the discarded newest
+	// version must not break the legacy read, which "latest" would.
+	b, f := newTestBackend()
+	ctx := context.Background()
+	if _, err := b.Set(ctx, testKey, "v1"); err != nil {
+		t.Fatal(err)
+	}
+	ref2, _ := b.Set(ctx, testKey, "v2")
+	if err := b.DiscardRef(ctx, ref2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{Name: b.secretName(testKey) + "/versions/latest"}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("the fake must model the alias pointing at the destroyed version, got %v", err)
+	}
+	got, err := b.Get(ctx, testKey)
+	if err != nil || got != "v1" {
+		t.Fatalf("Get = %q, %v; want the prior enabled version v1", got, err)
+	}
+	if err := b.DiscardRef(ctx, b.secretName(testKey)+"/versions/1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Get(ctx, testKey); !errors.Is(err, providers.ErrNotFound) {
+		t.Fatalf("no enabled version left: want ErrNotFound, got %v", err)
 	}
 }

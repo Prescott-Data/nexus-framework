@@ -28,39 +28,39 @@ func NewDB(dsn string) (*DB, error) {
 
 // ProviderProfile represents an OAuth provider configuration
 type ProviderProfile struct {
-	ID              uuid.UUID        `db:"id" json:"id"`
-	Name            string           `db:"name" json:"name"`
-	AuthType        string           `db:"auth_type" json:"auth_type,omitempty"`
-	AuthHeader      string           `db:"auth_header" json:"auth_header,omitempty"`
-	ClientID        string           `db:"client_id" json:"client_id,omitempty"`
-	ClientSecret    string           `db:"client_secret" json:"client_secret,omitempty"`
-	AuthURL         string           `db:"auth_url" json:"auth_url,omitempty"`
-	TokenURL        string           `db:"token_url" json:"token_url,omitempty"`
-	Issuer          *string          `db:"issuer" json:"issuer,omitempty"`
-	EnableDiscovery bool             `db:"enable_discovery" json:"enable_discovery"`
-	Scopes          []string         `db:"scopes" json:"scopes"`
-	Params          *json.RawMessage `db:"params" json:"params,omitempty"`
-	CreatedAt       time.Time        `db:"created_at" json:"created_at"`
-	UpdatedAt       time.Time        `db:"updated_at" json:"updated_at"`
-	LastHealthCheckAt *time.Time     `db:"last_health_check_at" json:"last_health_check_at,omitempty"`
-	HealthStatus    string           `db:"health_status" json:"health_status"`
-	HealthMessage   *string          `db:"health_message" json:"health_message,omitempty"`
+	ID                uuid.UUID        `db:"id" json:"id"`
+	Name              string           `db:"name" json:"name"`
+	AuthType          string           `db:"auth_type" json:"auth_type,omitempty"`
+	AuthHeader        string           `db:"auth_header" json:"auth_header,omitempty"`
+	ClientID          string           `db:"client_id" json:"client_id,omitempty"`
+	ClientSecret      string           `db:"client_secret" json:"client_secret,omitempty"`
+	AuthURL           string           `db:"auth_url" json:"auth_url,omitempty"`
+	TokenURL          string           `db:"token_url" json:"token_url,omitempty"`
+	Issuer            *string          `db:"issuer" json:"issuer,omitempty"`
+	EnableDiscovery   bool             `db:"enable_discovery" json:"enable_discovery"`
+	Scopes            []string         `db:"scopes" json:"scopes"`
+	Params            *json.RawMessage `db:"params" json:"params,omitempty"`
+	CreatedAt         time.Time        `db:"created_at" json:"created_at"`
+	UpdatedAt         time.Time        `db:"updated_at" json:"updated_at"`
+	LastHealthCheckAt *time.Time       `db:"last_health_check_at" json:"last_health_check_at,omitempty"`
+	HealthStatus      string           `db:"health_status" json:"health_status"`
+	HealthMessage     *string          `db:"health_message" json:"health_message,omitempty"`
 }
 
 // Connection represents an OAuth connection flow
 type Connection struct {
-	ID           uuid.UUID `db:"id" json:"id"`
-	WorkspaceID  string    `db:"workspace_id" json:"workspace_id"`
-	ProviderID   uuid.UUID `db:"provider_id" json:"provider_id"`
-	Status       string    `db:"status" json:"status"`
-	CodeVerifier *string   `db:"code_verifier" json:"code_verifier,omitempty"`
-	Scopes       []string  `db:"scopes" json:"scopes"`
-	ReturnURL    string    `db:"return_url" json:"return_url"`
-	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
-	ExpiresAt    time.Time  `db:"expires_at" json:"expires_at"`
-	UpdatedAt    time.Time  `db:"updated_at" json:"updated_at"`
+	ID                uuid.UUID  `db:"id" json:"id"`
+	WorkspaceID       string     `db:"workspace_id" json:"workspace_id"`
+	ProviderID        uuid.UUID  `db:"provider_id" json:"provider_id"`
+	Status            string     `db:"status" json:"status"`
+	CodeVerifier      *string    `db:"code_verifier" json:"code_verifier,omitempty"`
+	Scopes            []string   `db:"scopes" json:"scopes"`
+	ReturnURL         string     `db:"return_url" json:"return_url"`
+	CreatedAt         time.Time  `db:"created_at" json:"created_at"`
+	ExpiresAt         time.Time  `db:"expires_at" json:"expires_at"`
+	UpdatedAt         time.Time  `db:"updated_at" json:"updated_at"`
 	LastHealthCheckAt *time.Time `db:"last_health_check_at" json:"last_health_check_at,omitempty"`
-	HealthStatus    string     `db:"health_status" json:"health_status"`
+	HealthStatus      string     `db:"health_status" json:"health_status"`
 }
 
 // Token represents encrypted OAuth tokens

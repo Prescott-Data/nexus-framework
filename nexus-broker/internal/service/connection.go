@@ -291,10 +291,19 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 
 	p, err := s.providerStore.GetProfile(conn.ProviderID)
 	if err != nil {
-		if errors.Is(err, provider.ErrSecretBackend) {
-			return "", false, ErrBadGatewayWithErr(err, "secret_backend_unavailable", "Provider secret backend unavailable")
-		}
 		return "", false, ErrInternalWithErr(err, "provider_not_found", "Provider not found")
+	}
+	// Resolve before reading any other field: if the referenced version was
+	// retired by a rotation in flight, the resolver reloads the whole row, and
+	// every parameter below must come from that same row.
+	if err := s.providerStore.ResolveClientSecret(ctx, p); err != nil {
+		s.connRepo.UpdateStatus(ctx, connID, "failed")
+		return "", false, ErrBadGatewayWithErr(err, "secret_backend_unavailable", "Provider secret backend unavailable")
+	}
+	clientSecret, err := p.RequireClientSecret()
+	if err != nil {
+		s.connRepo.UpdateStatus(ctx, connID, "failed")
+		return "", false, ErrInternalWithErr(err, "provider_secret_missing", "Provider client secret is missing from the secret backend")
 	}
 
 	redirectURI, _ := url.JoinPath(s.baseURL, s.redirectPath)
@@ -337,15 +346,6 @@ func (s *connectionService) ExchangeCodeForTokens(ctx context.Context, state, co
 	clientID := ""
 	if p.ClientID != nil {
 		clientID = *p.ClientID
-	}
-	if err := s.providerStore.ResolveClientSecret(ctx, p); err != nil {
-		s.connRepo.UpdateStatus(ctx, connID, "failed")
-		return "", false, ErrBadGatewayWithErr(err, "secret_backend_unavailable", "Provider secret backend unavailable")
-	}
-	clientSecret, err := p.RequireClientSecret()
-	if err != nil {
-		s.connRepo.UpdateStatus(ctx, connID, "failed")
-		return "", false, ErrInternalWithErr(err, "provider_secret_missing", "Provider client secret is missing from the secret backend")
 	}
 
 	tokens, err := s.executeExchange(ctx, useTokenURL, clientID, clientSecret, code, conn.CodeVerifier.String, redirectURI, conn.Scopes, p.AuthHeader, skipScopeOnExchange, useJSONBody)

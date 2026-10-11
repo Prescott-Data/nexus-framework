@@ -112,17 +112,28 @@ func isNotFound(err error) bool {
 	return status.Code(err) == codes.NotFound
 }
 
+// Get reads the current secret for key: the highest enabled version. Not
+// the "latest" alias, which names the highest version number even after
+// that version was destroyed (for example by DiscardRef after a failed
+// rotation), and would then fail instead of falling back to the prior one.
 func (b *Backend) Get(ctx context.Context, key string) (string, error) {
-	resp, err := b.client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
-		Name: b.secretName(key) + "/versions/latest",
-	})
+	versions, err := b.client.ListEnabledVersions(ctx, b.secretName(key))
 	if isNotFound(err) {
 		return "", providers.ErrNotFound
 	}
 	if err != nil {
-		return "", fmt.Errorf("gcp secret backend: access %s: %w", b.secretID(key), err)
+		return "", fmt.Errorf("gcp secret backend: list versions of %s: %w", b.secretID(key), err)
 	}
-	return string(resp.GetPayload().GetData()), nil
+	newest := ""
+	for _, v := range versions {
+		if newest == "" || versionOlder(newest, v.GetName()) {
+			newest = v.GetName()
+		}
+	}
+	if newest == "" {
+		return "", providers.ErrNotFound
+	}
+	return b.GetRef(ctx, newest)
 }
 
 // GetRef reads the exact version named by ref (a version resource name).

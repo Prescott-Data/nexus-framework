@@ -417,7 +417,9 @@ func (s *Store) RegisterProfile(profileJSON string) (*Profile, error) {
 
 	tx, err := s.db.Beginx()
 	if err != nil {
-		_ = s.dropSecret(id)
+		if dropErr := s.dropSecret(id); dropErr != nil {
+			return nil, fmt.Errorf("database: failed to begin transaction: %w (cleanup also failed: %w)", err, dropErr)
+		}
 		return nil, fmt.Errorf("database: failed to begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()

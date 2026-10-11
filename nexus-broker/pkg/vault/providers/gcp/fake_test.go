@@ -13,8 +13,8 @@ import (
 
 // fakeClient is an in-memory Secret Manager with the semantics the backend
 // relies on: one secret holds numbered versions, "latest" resolves to the
-// highest enabled version, destroyed versions cannot be accessed, and the
-// gRPC codes match the real service. Tests inject failures per method and
+// highest version number whatever its state (as in Secret Manager), destroyed
+// versions cannot be accessed, and the gRPC codes match the real service. Tests inject failures per method and
 // read back the call log.
 type fakeClient struct {
 	mu      sync.Mutex
@@ -94,14 +94,11 @@ func (f *fakeClient) AccessSecretVersion(_ context.Context, req *secretmanagerpb
 		return nil, status.Error(codes.NotFound, "secret not found")
 	}
 	if n == -1 {
-		for i := s.next - 1; i >= 1; i-- {
-			if v := s.versions[i]; v != nil && v.enabled {
-				n = i
-				break
-			}
-		}
-		if n == -1 {
-			return nil, status.Error(codes.NotFound, "no enabled version")
+		// Secret Manager's "latest" alias is the highest version number,
+		// whatever its state; a destroyed newest version makes it fail.
+		n = s.next - 1
+		if n < 1 {
+			return nil, status.Error(codes.NotFound, "no versions")
 		}
 	}
 	v := s.versions[n]
