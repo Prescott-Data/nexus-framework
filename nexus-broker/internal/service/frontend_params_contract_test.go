@@ -15,11 +15,18 @@ import (
 // The provider-registration UI (doc-intel-dashboard,
 // app/app-launcher/connected-apps/provider-info) serialises provider config into
 // params.auth_strategy / params.validation / params.credential_schema. These
-// tests pin the exact JSON that form emits and drive it through the real
-// validation path, so a change on either side that breaks the contract fails
-// here rather than silently mis-authenticating a provider in production.
+// tests drive the JSON that form emitted (as of July 2026) through the real
+// validation path and pin the broker's interpretation of it: the wire format
+// each shape produces. They catch a broker-side change that would start
+// reading one of these shapes differently.
 //
-// Each fixture below is the verbatim output of buildStaticParams() for the
+// What they do not do: they cannot see a change on the frontend side, since
+// the fixtures are copied here rather than generated from the dashboard, and
+// validateCredentials reads only auth_strategy and validation, so
+// credential_schema is carried but not asserted. Coupling the two repos with
+// a shared golden artifact is a separate piece of work.
+//
+// Each fixture below was the verbatim output of buildStaticParams() for the
 // corresponding provider in nexus-cli/nexus-providers-static.yaml.
 // =============================================================================
 
