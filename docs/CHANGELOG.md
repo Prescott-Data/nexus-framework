@@ -21,6 +21,7 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 **Fixed**
 
 - **`nexus-cli` expands placeholders in manifest values only.** It expanded `${VAR}` across the raw file before parsing, so a `$` in a YAML comment was reported as an unset variable and aborted `plan`. The manifest is now parsed first and placeholders are resolved inside string values, nested `params` included; comments and keys are untouched. All unset placeholders are listed by name. First test file for the CLI.
+- **`nexus-cli` no longer rotates every OAuth secret on every apply.** The Broker never returns `client_secret`, and `plan` treated that as drift, so each `apply` re-sent (and with an external backend re-versioned) all secrets. A secret the Broker does not return is no longer compared.
 - **`nexus-cli apply -auto-approve`** skips the interactive confirmation for scripted applies from a trusted environment; the guide still advises against apply-on-merge.
 
 </div>

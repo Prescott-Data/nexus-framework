@@ -31,6 +31,14 @@ func computeDrift(desired Provider, live map[string]interface{}) (bool, map[stri
 
 		liveVal, exists := live[k]
 
+		// The Broker never returns client_secret, so it cannot be compared.
+		// Treating the redaction as drift would re-send, and with an external
+		// secret backend re-version, every OAuth provider's secret on every
+		// apply. Rotate a secret deliberately with a PATCH, not by re-applying.
+		if k == "client_secret" && !exists {
+			continue
+		}
+
 		// To handle subtle type differences from JSON unmarshaling (e.g., float64 vs int),
 		// we marshal both values and compare their JSON string representations.
 		vb, _ := json.Marshal(v)

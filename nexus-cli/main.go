@@ -95,11 +95,11 @@ func runCommand(isPlanOnly bool) {
 	// Parse first, then expand ${VAR} placeholders inside string values only.
 	// Expanding the raw file would also touch comments and keys, so a "$" in
 	// a comment would be reported as a missing variable.
-	var manifest Manifest
-	if err := yaml.Unmarshal(data, &manifest); err != nil {
+	manifest, missing, err := loadManifest(data, os.LookupEnv)
+	if err != nil {
 		log.Fatalf("Failed to parse YAML manifest: %v", err)
 	}
-	if missing := expandManifest(&manifest, os.LookupEnv); len(missing) > 0 {
+	if len(missing) > 0 {
 		log.Fatalf("Failed to process manifest. The following environment variables are unset: %s", strings.Join(missing, ", "))
 	}
 
@@ -441,15 +441,25 @@ func formatVal(v interface{}) string {
 	}
 }
 
-// expandManifest replaces ${VAR} (and $VAR) placeholders in every string
-// value of the manifest, including nested params, using lookup. It returns
-// the names of placeholders that lookup could not resolve, in first-seen
-// order, so the caller can report all of them at once.
-func expandManifest(m *Manifest, lookup func(string) (string, bool)) []string {
+// loadManifest parses the manifest and expands ${VAR} (and $VAR) placeholders
+// in value scalars only, on the YAML node tree, before decoding. Keys and
+// comments are never touched. A plain (unquoted) scalar is re-typed after
+// expansion, so `skip_scope_on_exchange: ${SKIP}` with SKIP=true still
+// decodes to a boolean, as it did when the raw text was expanded; a quoted
+// scalar stays a string. Unresolved placeholders are returned by name in
+// document order.
+func loadManifest(data []byte, lookup func(string) (string, bool)) (Manifest, []string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return Manifest{}, nil, err
+	}
 	var missing []string
 	seen := map[string]bool{}
-	expand := func(s string) string {
-		return os.Expand(s, func(name string) string {
+	expand := func(n *yaml.Node) {
+		if n.Kind != yaml.ScalarNode || !strings.Contains(n.Value, "$") {
+			return
+		}
+		n.Value = os.Expand(n.Value, func(name string) string {
 			val, ok := lookup(name)
 			if !ok && !seen[name] {
 				seen[name] = true
@@ -457,37 +467,31 @@ func expandManifest(m *Manifest, lookup func(string) (string, bool)) []string {
 			}
 			return val
 		})
+		if n.Style == 0 || n.Style == yaml.TaggedStyle {
+			n.Tag = "" // plain scalar: let the decoder infer bool/int/string again
+		}
 	}
-	var walk func(v interface{}) interface{}
-	walk = func(v interface{}) interface{} {
-		switch t := v.(type) {
-		case string:
-			return expand(t)
-		case map[string]interface{}:
-			for k, e := range t {
-				t[k] = walk(e)
+	var walk func(n *yaml.Node)
+	walk = func(n *yaml.Node) {
+		switch n.Kind {
+		case yaml.DocumentNode, yaml.SequenceNode:
+			for _, c := range n.Content {
+				walk(c)
 			}
-			return t
-		case []interface{}:
-			for i, e := range t {
-				t[i] = walk(e)
+		case yaml.MappingNode:
+			for i := 1; i < len(n.Content); i += 2 { // values only; even indexes are keys
+				walk(n.Content[i])
 			}
-			return t
-		default:
-			return v
+		case yaml.ScalarNode:
+			expand(n)
 		}
 	}
-	for i := range m.Providers {
-		p := &m.Providers[i]
-		for _, f := range []*string{&p.Name, &p.AuthType, &p.AuthHeader, &p.ClientID, &p.ClientSecret, &p.AuthURL, &p.TokenURL, &p.Issuer, &p.APIBaseURL, &p.UserInfoEndpoint} {
-			*f = expand(*f)
-		}
-		for j := range p.Scopes {
-			p.Scopes[j] = expand(p.Scopes[j])
-		}
-		if p.Params != nil {
-			p.Params = walk(p.Params).(map[string]interface{})
+	walk(&doc)
+	var m Manifest
+	if len(doc.Content) > 0 {
+		if err := doc.Decode(&m); err != nil {
+			return Manifest{}, missing, err
 		}
 	}
-	return missing
+	return m, missing, nil
 }
