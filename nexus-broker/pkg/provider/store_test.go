@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -689,6 +690,23 @@ func TestFingerprint_MovesWithSecret_InternalBackend(t *testing.T) {
 		WithArgs("p", nil, nil, nil, nil, nil, false, pq.Array([]string(nil)), "oauth2", "", "", "", nil, "", "", nil, nil, nil, nil, id, nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	assert.NoError(t, store.UpdateProfile(&Profile{ID: id, Name: "p", AuthType: "oauth2"}))
+
+	// Backfill on resolve is guarded by the column still holding the
+	// resolved value; when a concurrent clear won (0 rows), the in-memory
+	// profile does not pick up the stale fingerprint either.
+	mock.ExpectExec(`UPDATE provider_profiles SET client_secret_fingerprint = \$1 WHERE id = \$2 AND client_secret_fingerprint IS NULL AND client_secret = \$3`).
+		WithArgs(SecretFingerprint("old"), id, "old").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	p := &Profile{ID: id, AuthType: "oauth2", ClientSecret: ptr("old")}
+	assert.NoError(t, store.ResolveClientSecret(context.Background(), p))
+	assert.Nil(t, p.ClientSecretFingerprint)
+
+	mock.ExpectExec(`UPDATE provider_profiles SET client_secret_fingerprint = \$1 WHERE id = \$2 AND client_secret_fingerprint IS NULL AND client_secret = \$3`).
+		WithArgs(SecretFingerprint("old"), id, "old").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	p = &Profile{ID: id, AuthType: "oauth2", ClientSecret: ptr("old")}
+	assert.NoError(t, store.ResolveClientSecret(context.Background(), p))
+	assert.Equal(t, SecretFingerprint("old"), *p.ClientSecretFingerprint)
 
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

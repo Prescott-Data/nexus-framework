@@ -65,7 +65,7 @@ func (s *Store) secretCtx() (context.Context, context.CancelFunc) {
 // refuse instead of sending an empty secret.
 func (s *Store) ResolveClientSecret(ctx context.Context, p *Profile) error {
 	if p.ClientSecret != nil {
-		s.backfillFingerprint(p) // internal backend: the column value
+		s.backfillFingerprint(p, "client_secret", *p.ClientSecret) // internal backend: the column value
 		return nil
 	}
 	if p.AuthType != "" && p.AuthType != "oauth2" {
@@ -119,19 +119,30 @@ func (s *Store) ResolveClientSecret(ctx context.Context, p *Profile) error {
 		return nil
 	}
 	p.ClientSecret = &v
-	s.backfillFingerprint(p)
+	if p.ClientSecretRef != nil {
+		s.backfillFingerprint(p, "client_secret_ref", *p.ClientSecretRef)
+	}
 	return nil
 }
 
 // backfillFingerprint records the fingerprint of a resolved secret for rows
 // written before the column existed, so nexus-cli can compare them. Best
 // effort: a failure here must not break the execution path that resolved.
-func (s *Store) backfillFingerprint(p *Profile) {
+// The update only lands while the row still holds what was resolved (the
+// column value, or the backend version reference), so a PUT or PATCH that
+// cleared or rotated the secret in between cannot have its fingerprint
+// overwritten by the stale one; the in-memory profile is only updated when
+// the row was.
+func (s *Store) backfillFingerprint(p *Profile, guardColumn string, guardValue interface{}) {
 	if p.ClientSecret == nil || (p.ClientSecretFingerprint != nil && *p.ClientSecretFingerprint != "") {
 		return
 	}
 	fp := SecretFingerprint(*p.ClientSecret)
-	if _, err := s.db.Exec(`UPDATE provider_profiles SET client_secret_fingerprint = $1 WHERE id = $2 AND client_secret_fingerprint IS NULL`, fp, p.ID); err == nil {
+	res, err := s.db.Exec(`UPDATE provider_profiles SET client_secret_fingerprint = $1 WHERE id = $2 AND client_secret_fingerprint IS NULL AND `+guardColumn+` = $3`, fp, p.ID, guardValue)
+	if err != nil {
+		return
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 1 {
 		p.ClientSecretFingerprint = &fp
 	}
 }

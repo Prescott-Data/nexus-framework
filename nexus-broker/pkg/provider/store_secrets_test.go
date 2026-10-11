@@ -219,8 +219,8 @@ func TestResolveClientSecret_LegacyRowRotatedMeanwhileUsesTheRotationsPair(t *te
 		WithArgs(id).WillReturnRows(sqlmock.NewRows([]string{"client_secret_ref"}).AddRow(ref2))
 	mock.ExpectQuery(`FROM provider_profiles WHERE id = \$1`).WillReturnRows(profileRow("oauth2", ref2))
 	mock.ExpectCommit()
-	mock.ExpectExec(`UPDATE provider_profiles SET client_secret_fingerprint = \$1 WHERE id = \$2 AND client_secret_fingerprint IS NULL`).
-		WithArgs(SecretFingerprint("new"), id).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE provider_profiles SET client_secret_fingerprint = \$1 WHERE id = \$2 AND client_secret_fingerprint IS NULL AND client_secret_ref = \$3`).
+		WithArgs(SecretFingerprint("new"), id, ref2).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	p := &Profile{ID: id, AuthType: "oauth2", Name: "stale"}
 	require.NoError(t, store.ResolveClientSecret(ctx, p))
@@ -442,8 +442,8 @@ func TestResolveClientSecret_RetiredReferenceReloadsTheRow(t *testing.T) {
 	mock.ExpectQuery(`SELECT client_secret_ref FROM provider_profiles WHERE id = \$1 AND deleted_at IS NULL`).
 		WithArgs(uuid.MustParse(testProviderID)).WillReturnRows(sqlmock.NewRows([]string{"client_secret_ref"}).AddRow(ref2))
 	mock.ExpectQuery(`FROM provider_profiles WHERE id = \$1`).WillReturnRows(profileRow("oauth2", ref2))
-	mock.ExpectExec(`UPDATE provider_profiles SET client_secret_fingerprint = \$1 WHERE id = \$2 AND client_secret_fingerprint IS NULL`).
-		WithArgs(SecretFingerprint("new"), uuid.MustParse(testProviderID)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE provider_profiles SET client_secret_fingerprint = \$1 WHERE id = \$2 AND client_secret_fingerprint IS NULL AND client_secret_ref = \$3`).
+		WithArgs(SecretFingerprint("new"), uuid.MustParse(testProviderID), ref2).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	p := &Profile{ID: uuid.MustParse(testProviderID), AuthType: "oauth2", ClientSecretRef: &ref1}
 	require.NoError(t, store.ResolveClientSecret(ctx, p))
