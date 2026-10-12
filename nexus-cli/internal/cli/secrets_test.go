@@ -126,8 +126,9 @@ func TestSopsSource_RejectsNestedAndUnknownExt(t *testing.T) {
 	if _, err := src.Resolve(context.Background(), []string{"A"}); err == nil || !strings.Contains(err.Error(), "unsupported SOPS file type") {
 		t.Fatalf("err = %v, want unsupported type", err)
 	}
-	src = &sopsSource{path: touch(t, "s.yaml"), decryptData: func([]byte, string) ([]byte, error) { return nil, errors.New("no key") }}
-	if _, err := src.Resolve(context.Background(), []string{"A"}); err == nil || !strings.Contains(err.Error(), "decrypt s.yaml: no key") {
+	noKey := touch(t, "s.yaml")
+	src = &sopsSource{path: noKey, decryptData: func([]byte, string) ([]byte, error) { return nil, errors.New("no key") }}
+	if _, err := src.Resolve(context.Background(), []string{"A"}); err == nil || !strings.Contains(err.Error(), "decrypt "+noKey+": no key") {
 		t.Fatalf("err = %v, want decrypt error", err)
 	}
 }
@@ -345,7 +346,8 @@ func TestEncryptedSources_PolicyAndNoEnvFallback(t *testing.T) {
 	// when the environment has it, and the message does not claim the
 	// environment was tried.
 	t.Setenv("ONLY_IN_ENV", "from-env")
-	src := &sopsSource{path: touch(t, "s.yaml"), decryptData: func([]byte, string) ([]byte, error) { return []byte("IN_SOPS: a\n"), nil }}
+	sopsPath := touch(t, "s.yaml")
+	src := &sopsSource{path: sopsPath, decryptData: func([]byte, string) ([]byte, error) { return []byte("IN_SOPS: a\n"), nil }}
 	lookup, err := lookupWith(context.Background(), src, []string{"IN_SOPS", "ONLY_IN_ENV"}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -356,7 +358,7 @@ func TestEncryptedSources_PolicyAndNoEnvFallback(t *testing.T) {
 	if _, ok := lookup("ONLY_IN_ENV"); ok {
 		t.Fatal("environment consulted although fallback is off")
 	}
-	if got := unresolvedMessage(src, []string{"ONLY_IN_ENV"}, false); strings.Contains(got, "then environment variable") || !strings.Contains(got, "looked for key ONLY_IN_ENV in s.yaml)") {
+	if got := unresolvedMessage(src, []string{"ONLY_IN_ENV"}, false); strings.Contains(got, "then environment variable") || !strings.Contains(got, "looked for key ONLY_IN_ENV in "+sopsPath+")") {
 		t.Fatalf("message:\n%s", got)
 	}
 }
