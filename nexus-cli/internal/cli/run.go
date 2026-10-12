@@ -19,11 +19,30 @@ import (
 // httpClient is shared across all requests with a conservative timeout.
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-// setAPIKey sets the X-API-Key header on a request, matching the Broker's ApiKeyMiddleware.
-func setAPIKey(req *http.Request, apiKey string) {
+// userAgent identifies CLI-driven changes in the Broker's audit log
+// (user_agent column), as distinct from manual API calls.
+func userAgent() string { return "nexus-cli/" + Version }
+
+// brokerRequest builds a request to the Broker with the headers every call
+// carries: the API key (matching the Broker's ApiKeyMiddleware), the CLI
+// User-Agent, and a JSON content type when there is a body.
+func brokerRequest(method, url string, body []byte, apiKey string) (*http.Request, error) {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, url, reader)
+	if err != nil {
+		return nil, err
+	}
 	if apiKey != "" {
 		req.Header.Set("X-API-Key", apiKey)
 	}
+	req.Header.Set("User-Agent", userAgent())
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return req, nil
 }
 
 // runApply is plan (isPlanOnly) and apply: read and resolve the manifest,
@@ -91,12 +110,11 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 	fmt.Fprintln(stdout, readSummary(l, mf.file))
 
 	// Fetch current live state
-	req, err := http.NewRequest("GET", brokerURL+"/providers", nil)
+	req, err := brokerRequest("GET", brokerURL+"/providers", nil, apiKey)
 	if err != nil {
 		fmt.Fprintf(stderr, "✗ Failed to create request: %v\n", err)
 		return 1
 	}
-	setAPIKey(req, apiKey)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -141,14 +159,13 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 			sem <- struct{}{}        // acquire
 			defer func() { <-sem }() // release
 
-			reqProfile, err := http.NewRequest("GET", brokerURL+"/providers/"+id, nil)
+			reqProfile, err := brokerRequest("GET", brokerURL+"/providers/"+id, nil, apiKey)
 			if err != nil {
 				mu.Lock()
 				fetchErr = fmt.Errorf("failed to create request for provider %s: %w", name, err)
 				mu.Unlock()
 				return
 			}
-			setAPIKey(reqProfile, apiKey)
 
 			respProfile, err := httpClient.Do(reqProfile)
 			if err != nil {
@@ -313,13 +330,11 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 			continue
 		}
 
-		req, err := http.NewRequest("POST", brokerURL+"/providers", bytes.NewBuffer(jsonData))
+		req, err := brokerRequest("POST", brokerURL+"/providers", jsonData, apiKey)
 		if err != nil {
 			fail(p.Name, "Failed to create request: %v", err)
 			continue
 		}
-		setAPIKey(req, apiKey)
-		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
@@ -354,13 +369,11 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 			continue
 		}
 
-		req, err := http.NewRequest("PATCH", brokerURL+"/providers/"+id, bytes.NewBuffer(jsonData))
+		req, err := brokerRequest("PATCH", brokerURL+"/providers/"+id, jsonData, apiKey)
 		if err != nil {
 			fail(name, "Failed to create request: %v", err)
 			continue
 		}
-		setAPIKey(req, apiKey)
-		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
@@ -382,12 +395,11 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 		name := toDeleteNames[i]
 		fmt.Fprintf(stdout, "Deleting %s... ", name)
 
-		req, err := http.NewRequest("DELETE", brokerURL+"/providers/"+id, nil)
+		req, err := brokerRequest("DELETE", brokerURL+"/providers/"+id, nil, apiKey)
 		if err != nil {
 			fail(name, "Failed to create request: %v", err)
 			continue
 		}
-		setAPIKey(req, apiKey)
 
 		resp, err := httpClient.Do(req)
 		if err != nil {

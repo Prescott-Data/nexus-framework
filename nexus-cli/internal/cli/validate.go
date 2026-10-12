@@ -2,9 +2,13 @@ package cli
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -91,6 +95,19 @@ func validateManifest(l loaded) []issue {
 					add(i, f.name+": missing required field for saml")
 				}
 			}
+			// Format rules the Broker applies when it builds the service
+			// provider (samlutil). A value that is still a placeholder is
+			// unknown here and is left to the Broker.
+			if v := p.SAMLIdpSSOURL; strings.TrimSpace(v) != "" && !isPlaceholder(v) {
+				if msg := checkHTTPURL("saml_idp_sso_url", v); msg != "" {
+					add(i, msg)
+				}
+			}
+			if v := p.SAMLIdpX509Cert; strings.TrimSpace(v) != "" && !isPlaceholder(v) {
+				if msg := checkCertificate(v); msg != "" {
+					add(i, msg)
+				}
+			}
 		case staticAuthTypes[at]:
 			// Only the name is required.
 		default:
@@ -100,15 +117,61 @@ func validateManifest(l loaded) []issue {
 	return issues
 }
 
+// isPlaceholder reports whether a value still contains an unexpanded
+// ${NAME}, as validate sees them.
+func isPlaceholder(v string) bool { return strings.Contains(v, "${") }
+
+// checkHTTPURL mirrors samlutil.parseHTTPSURL.
+func checkHTTPURL(name, raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Sprintf("%s is invalid: %v", name, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return name + " must use http or https"
+	}
+	if u.Host == "" {
+		return name + " must include a host"
+	}
+	return ""
+}
+
+// checkCertificate mirrors samlutil.NormalizeCertificate: a CERTIFICATE PEM
+// block or base64 DER, and it must parse as X.509.
+func checkCertificate(raw string) string {
+	cert := strings.TrimSpace(raw)
+	var der []byte
+	if block, _ := pem.Decode([]byte(cert)); block != nil {
+		if block.Type != "CERTIFICATE" {
+			return "saml_idp_x509_cert must contain a CERTIFICATE PEM block"
+		}
+		der = block.Bytes
+	} else {
+		compact := strings.NewReplacer("\r", "", "\n", "", "\t", "", " ", "").Replace(cert)
+		decoded, err := base64.StdEncoding.DecodeString(compact)
+		if err != nil {
+			return fmt.Sprintf("saml_idp_x509_cert must be PEM or base64 DER: %v", err)
+		}
+		der = decoded
+	}
+	if _, err := x509.ParseCertificate(der); err != nil {
+		return fmt.Sprintf("saml_idp_x509_cert is not a valid X.509 certificate: %v", err)
+	}
+	return ""
+}
+
 func runValidate(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	var mf manifestFlags
 	addManifestFlags(fs, &mf)
 	// For validate, -secrets is opt-in: without it the manifest is checked
 	// as written and placeholders are only listed, so the check runs in a
-	// pull request that has no access to secrets.
+	// pull request that has no access to secrets. $NEXUS_SECRETS does not
+	// apply here, so a validate in CI never decrypts or contacts anything
+	// unless the flag is given.
+	mf.secrets = ""
 	fs.Lookup("secrets").DefValue = ""
-	fs.Lookup("secrets").Usage = "Also resolve every ${PLACEHOLDER} from this source and fail on any that is missing: env, sops:<path> or gcp-secret-manager:<project>"
+	fs.Lookup("secrets").Usage = "Also resolve every ${PLACEHOLDER} from this source and fail on any that is missing: env, sops:<path> or gcp-secret-manager:<project> ($NEXUS_SECRETS is not used by validate)"
 	if ok, code := parseFlags(fs, args, stderr); !ok {
 		return code
 	}

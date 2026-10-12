@@ -55,8 +55,8 @@ func newSecretSource(spec, prefix string) (secretSource, error) {
 
 // lookupWith resolves the manifest's placeholders through src, then falls
 // back to the environment for anything src does not hold, and returns the
-// lookup the manifest is expanded with. The environment fallback lets one
-// value be overridden for a run without editing the source.
+// lookup the manifest is expanded with. The source wins when both have a
+// value; the environment only supplies what the source omits.
 func lookupWith(ctx context.Context, src secretSource, names []string) (lookupFunc, error) {
 	values, err := src.Resolve(ctx, names)
 	if err != nil {

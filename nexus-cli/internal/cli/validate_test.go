@@ -2,10 +2,41 @@ package cli
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+// selfSignedPEM is a throwaway certificate for the SAML format checks.
+func selfSignedPEM(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "idp"}, NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}
+
+func indent(s, prefix string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
+}
 
 func load(t *testing.T, doc string) loaded {
 	t.Helper()
@@ -102,12 +133,63 @@ providers:
   - name: okta-saml
     auth_type: saml
     saml_idp_entity_id: e
-    saml_idp_sso_url: https://sso
-    saml_idp_x509_cert: cert
+    saml_idp_sso_url: https://sso.example.com/saml
+    saml_idp_x509_cert: |
+`+indent(selfSignedPEM(t), "      ")+`
     saml_sp_entity_id: sp
+  - name: saml-with-placeholders
+    auth_type: saml
+    saml_idp_entity_id: ${E}
+    saml_idp_sso_url: ${SSO}
+    saml_idp_x509_cert: ${CERT}
+    saml_sp_entity_id: ${SP}
 `)
 	if issues := validateManifest(l); len(issues) != 0 {
 		t.Fatalf("unexpected issues: %v", issues)
+	}
+}
+
+func TestValidate_SAMLFormatRulesMirrorBroker(t *testing.T) {
+	l := load(t, `
+providers:
+  - name: bad-saml
+    auth_type: saml
+    saml_idp_entity_id: e
+    saml_idp_sso_url: sso.example.com/no-scheme
+    saml_idp_x509_cert: not-a-cert
+    saml_sp_entity_id: sp
+  - name: ftp-saml
+    auth_type: saml
+    saml_idp_entity_id: e
+    saml_idp_sso_url: ftp://sso.example.com
+    saml_idp_x509_cert: |
+      -----BEGIN PRIVATE KEY-----
+      AAAA
+      -----END PRIVATE KEY-----
+    saml_sp_entity_id: sp
+`)
+	got := messages(validateManifest(l))
+	want := []string{
+		"bad-saml: saml_idp_sso_url must use http or https",
+		"bad-saml: saml_idp_x509_cert must be PEM or base64 DER: illegal base64 data at input byte 3",
+		"ftp-saml: saml_idp_sso_url must use http or https",
+		"ftp-saml: saml_idp_x509_cert must contain a CERTIFICATE PEM block",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("issues:\n%s\n\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestRunValidate_IgnoresNexusSecretsEnv(t *testing.T) {
+	// $NEXUS_SECRETS must not make validate decrypt or contact anything.
+	dir := writeFiles(t, map[string]string{"github.yaml": githubFile})
+	t.Setenv("NEXUS_SECRETS", "sops:/nonexistent.enc.yaml")
+	var out, errOut bytes.Buffer
+	if code := run([]string{"validate", "-file", dir}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("exit = %d; out=%s err=%s", code, out.String(), errOut.String())
+	}
+	if !strings.Contains(out.String(), "not resolved; pass -secrets") {
+		t.Fatalf("output:\n%s", out.String())
 	}
 }
 

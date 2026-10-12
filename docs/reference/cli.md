@@ -33,7 +33,7 @@ Every command that reads a manifest takes these.
 | Flag | Default | Description |
 |---|---|---|
 | `-file` | `nexus-providers.yaml` | A manifest file, or a directory of one provider per `<name>.yaml` (see [Manifest format](#manifest-format)) |
-| `-secrets` | `$NEXUS_SECRETS`, else `env` | Where `${PLACEHOLDER}` values come from: `env`, `sops:<path>` or `gcp-secret-manager:<project>` (see [Secret sources](#secret-sources)) |
+| `-secrets` | `plan`, `apply`: `$NEXUS_SECRETS`, else `env`. `validate`: unset, so placeholders are only listed unless the flag is given | Where `${PLACEHOLDER}` values come from: `env`, `sops:<path>` or `gcp-secret-manager:<project>` (see [Secret sources](#secret-sources)) |
 | `-secret-prefix` | `$NEXUS_SECRET_PREFIX` | `gcp-secret-manager` only: prefix for derived secret ids |
 
 ## Commands
@@ -47,7 +47,7 @@ nexus validate -file providers/
 nexus validate -file providers/ -secrets gcp-secret-manager:my-project -secret-prefix oauth-
 ```
 
-Checked for every provider: `name` is present and matches `^[a-z0-9-]+$`; `auth_type` is `oauth2` (or empty), `saml`, or one of the static types `api_key`, `basic_auth`, `header`, `query_param`, `hmac_payload`, `aws_sigv4`; an `oauth2` provider has `client_id` and `client_secret`, and either `enable_discovery: true` with an `issuer` or both `auth_url` and `token_url`; a `saml` provider has all four `saml_*` fields; no name is defined twice. In directory mode, a file name that does not match its provider's `name` is an error before validation starts.
+Checked for every provider: `name` is present and matches `^[a-z0-9-]+$`; `auth_type` is `oauth2` (or empty), `saml`, or one of the static types `api_key`, `basic_auth`, `header`, `query_param`, `hmac_payload`, `aws_sigv4`; an `oauth2` provider has `client_id` and `client_secret`, and either `enable_discovery: true` with an `issuer` or both `auth_url` and `token_url`; a `saml` provider has all four `saml_*` fields, its `saml_idp_sso_url` is an http(s) URL with a host and its `saml_idp_x509_cert` is a CERTIFICATE PEM block or base64 DER that parses as X.509 (a field that is still a placeholder is left to the Broker); no name is defined twice. Unknown fields, a root that is not a `providers` list and multi-document files are rejected while reading, with line numbers. In directory mode, a file name that does not match its provider's `name` is an error before validation starts.
 
 Placeholders count as present values, so `validate` passes in a pull request that cannot see any secrets. Pass `-secrets` to also resolve every placeholder the manifest uses and fail on any that is missing; values are never printed.
 
@@ -174,13 +174,17 @@ token_url: https://github.com/login/oauth/access_token
 scopes: [read:user, user:email]
 ```
 
-Rules, all enforced before anything is sent: the file's `name` must equal the file name without its extension; a name may appear in one file only; a file must hold a single provider mapping, not a `providers:` list. Files are read in name order. Hidden files and anything that is not `.yaml`/`.yml` are ignored, so a `README.md` can live alongside.
+Rules, all enforced before anything is sent: the file's `name` must equal the file name without its extension; a name may appear in one file only; a file must hold exactly one YAML document with a single provider mapping, not a `providers:` list; a key that is not a provider field (a typo such as `scope:` for `scopes:`) is an error with its line number, since decoding would otherwise drop it silently. Files are read in name order. Hidden files and anything that is not `.yaml`/`.yml` are ignored, so a `README.md` can live alongside.
+
+A single-file manifest is held to the same standard: its root must be a mapping whose only key is `providers`, holding a list of mappings. A typo such as `provider:` or an empty file is an error rather than a manifest with zero providers, because `apply -prune` would treat zero providers as an instruction to delete everything. An explicit `providers: []` is accepted as a deliberate empty state.
 
 ### Provider fields
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | Unique slug, lowercase letters, digits and hyphens; the reconciliation key |
+| `description` | string | no | Shown in provider listings and the Gateway's provider catalogue |
+| `category` | string | no | Grouping label for provider listings, e.g. `crm` |
 | `auth_type` | string | yes | `oauth2`, `saml`, `api_key`, `basic_auth`, `header`, `query_param`, `hmac_payload`, `aws_sigv4` |
 | `client_id` | string | OAuth2 | OAuth2 client ID |
 | `client_secret` | string | OAuth2 | OAuth2 client secret |
@@ -201,7 +205,7 @@ Rules, all enforced before anything is sent: the file's `name` must equal the fi
 
 ## Secret sources
 
-`-secrets` names where placeholder values come from. Whatever the source, a placeholder it does not hold falls back to the process environment, so one value can be overridden for a run without touching the source.
+`-secrets` names where placeholder values come from. Whatever the source, a placeholder it does not hold falls back to the process environment. The source wins when both have a value; the environment only supplies what the source omits, which is useful for a placeholder that is deliberately kept out of the source.
 
 | Source | Where values live | Authentication |
 |---|---|---|

@@ -94,8 +94,53 @@ func TestReadManifest_DirectoryRejectsDuplicateName(t *testing.T) {
 func TestReadManifest_DirectoryRejectsListFile(t *testing.T) {
 	dir := writeFiles(t, map[string]string{"github.yaml": "providers:\n  - name: github\n"})
 	_, err := readManifest(dir, keepPlaceholders)
-	if err == nil || !strings.Contains(err.Error(), "expected a single provider mapping with a name") {
-		t.Fatalf("err = %v, want a single-mapping error", err)
+	if err == nil || !strings.Contains(err.Error(), "holds a providers list; a provider directory wants one provider mapping per file") {
+		t.Fatalf("err = %v, want a providers-list error", err)
+	}
+}
+
+func TestReadManifest_RejectsUnknownFieldWithLine(t *testing.T) {
+	dir := writeFiles(t, map[string]string{"github.yaml": "name: github\nauth_type: oauth2\nscope: [a]\n"})
+	_, err := readManifest(dir, keepPlaceholders)
+	if err == nil || !strings.Contains(err.Error(), `github.yaml: unknown field "scope" (line 3)`) {
+		t.Fatalf("dir: err = %v, want unknown field with line", err)
+	}
+	single := writeFiles(t, map[string]string{"m.yaml": "providers:\n  - name: github\n    cleint_id: x\n"})
+	_, err = readManifest(filepath.Join(single, "m.yaml"), keepPlaceholders)
+	if err == nil || !strings.Contains(err.Error(), `providers[0] (line 2): unknown field "cleint_id" (line 3)`) {
+		t.Fatalf("file: err = %v, want unknown field with line", err)
+	}
+}
+
+func TestReadManifest_RejectsMultipleDocuments(t *testing.T) {
+	dir := writeFiles(t, map[string]string{"github.yaml": githubFile + "---\nname: other\n"})
+	if _, err := readManifest(dir, keepPlaceholders); err == nil || !strings.Contains(err.Error(), "more than one YAML document") {
+		t.Fatalf("err = %v, want multi-document error", err)
+	}
+}
+
+func TestReadManifest_SingleFileRootMustBeProvidersList(t *testing.T) {
+	cases := map[string]string{
+		"provider:\n  - name: a\n":          `unknown top-level key "provider" (line 1)`,
+		"":                                  "manifest must be a mapping with a top-level providers list",
+		"{}":                                "manifest has no providers key",
+		"providers: {name: a}\n":            "providers (line 1) must be a list",
+		"providers:\n  - just-a-string\n":   "providers[0] (line 2) must be a mapping",
+		"name: github\nauth_type: oauth2\n": "this is a single provider file, not a manifest",
+		"providers: []\nextra: 1\n":         `unknown top-level key "extra" (line 2)`,
+	}
+	for doc, want := range cases {
+		dir := writeFiles(t, map[string]string{"m.yaml": doc})
+		_, err := readManifest(filepath.Join(dir, "m.yaml"), keepPlaceholders)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: err = %v, want %q", doc, err, want)
+		}
+	}
+	// An explicit empty list is a deliberate empty state.
+	dir := writeFiles(t, map[string]string{"m.yaml": "providers: []\n"})
+	l, err := readManifest(filepath.Join(dir, "m.yaml"), keepPlaceholders)
+	if err != nil || len(l.Manifest.Providers) != 0 {
+		t.Fatalf("providers: [] should load as zero providers, got %v %v", l.Manifest.Providers, err)
 	}
 }
 

@@ -1,9 +1,13 @@
 package cli
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -14,6 +18,8 @@ import (
 // POST /providers "profile" and PATCH /providers/{id} accept.
 type Provider struct {
 	Name             string                 `yaml:"name" json:"name"`
+	Description      string                 `yaml:"description,omitempty" json:"description,omitempty"`
+	Category         string                 `yaml:"category,omitempty" json:"category,omitempty"`
 	AuthType         string                 `yaml:"auth_type,omitempty" json:"auth_type,omitempty"`
 	AuthHeader       string                 `yaml:"auth_header,omitempty" json:"auth_header,omitempty"`
 	ClientID         string                 `yaml:"client_id,omitempty" json:"client_id,omitempty"`
@@ -74,11 +80,20 @@ func readManifest(path string, lookup lookupFunc) (loaded, error) {
 	if err != nil {
 		return loaded{}, fmt.Errorf("read manifest %s: %w", path, err)
 	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	doc, err := parseSingleDocument(data)
+	if err != nil {
 		return loaded{}, fmt.Errorf("parse %s: %w", path, err)
 	}
-	l, err := decodeDocument(&doc, lookup)
+	items, err := manifestProviders(doc)
+	if err != nil {
+		return loaded{}, fmt.Errorf("%s: %w", path, err)
+	}
+	for i, item := range items {
+		if err := checkProviderKeys(item); err != nil {
+			return loaded{}, fmt.Errorf("%s: providers[%d] (line %d): %w", path, i, item.Line, err)
+		}
+	}
+	l, err := decodeDocument(doc, lookup)
 	if err != nil {
 		return loaded{}, fmt.Errorf("parse %s: %w", path, err)
 	}
@@ -127,17 +142,23 @@ func readProviderDir(dir string, lookup lookupFunc) (loaded, error) {
 		if err != nil {
 			return loaded{}, fmt.Errorf("read %s: %w", path, err)
 		}
-		var file yaml.Node
-		if err := yaml.Unmarshal(data, &file); err != nil {
+		file, err := parseSingleDocument(data)
+		if err != nil {
 			return loaded{}, fmt.Errorf("parse %s: %w", path, err)
 		}
 		if len(file.Content) == 0 || file.Content[0].Kind != yaml.MappingNode {
 			return loaded{}, fmt.Errorf("%s: expected a single provider mapping with a name", path)
 		}
 		mapping := file.Content[0]
+		if scalarValue(mapping, "name") == "" && mappingHas(mapping, "providers") {
+			return loaded{}, fmt.Errorf("%s: holds a providers list; a provider directory wants one provider mapping per file", path)
+		}
 		name := scalarValue(mapping, "name")
 		if name == "" {
 			return loaded{}, fmt.Errorf("%s: expected a single provider mapping with a name", path)
+		}
+		if err := checkProviderKeys(mapping); err != nil {
+			return loaded{}, fmt.Errorf("%s: %w", path, err)
 		}
 		if stem := strings.TrimSuffix(n, filepath.Ext(n)); name != stem {
 			return loaded{}, fmt.Errorf("%s: provider name %q does not match the file name", path, name)
@@ -157,6 +178,102 @@ func readProviderDir(dir string, lookup lookupFunc) (loaded, error) {
 	l.Directory = true
 	l.Sources = sources
 	return l, nil
+}
+
+// parseSingleDocument parses exactly one YAML document. A second document
+// (after a `---`) is an error: the first would otherwise be used and the
+// rest dropped without a word.
+func parseSingleDocument(data []byte) (*yaml.Node, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	var doc yaml.Node
+	if err := dec.Decode(&doc); err != nil {
+		if errors.Is(err, io.EOF) {
+			return &yaml.Node{Kind: yaml.DocumentNode}, nil // empty file
+		}
+		return nil, err
+	}
+	var extra yaml.Node
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("contains more than one YAML document; expected exactly one")
+	}
+	return &doc, nil
+}
+
+// manifestProviders checks that a single-file manifest is a mapping whose
+// only key is `providers`, holding a sequence, and returns the sequence
+// items. Anything else (a typo such as `provider:`, an empty file, a
+// provider mapping passed as a manifest) would otherwise decode to zero
+// providers, which `apply -prune` would act on by deleting every live
+// provider. An explicit `providers: []` is accepted as a deliberate empty
+// state.
+func manifestProviders(doc *yaml.Node) ([]*yaml.Node, error) {
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, errors.New("manifest must be a mapping with a top-level providers list")
+	}
+	root := doc.Content[0]
+	if scalarValue(root, "name") != "" && !mappingHas(root, "providers") {
+		return nil, errors.New("this is a single provider file, not a manifest; pass its directory with -file, or wrap it in a providers list")
+	}
+	var seq *yaml.Node
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		k, v := root.Content[i], root.Content[i+1]
+		if k.Value != "providers" {
+			return nil, fmt.Errorf("unknown top-level key %q (line %d); a manifest has only providers", k.Value, k.Line)
+		}
+		seq = v
+	}
+	if seq == nil {
+		return nil, errors.New("manifest has no providers key")
+	}
+	if seq.Kind != yaml.SequenceNode {
+		return nil, fmt.Errorf("providers (line %d) must be a list", seq.Line)
+	}
+	for i, item := range seq.Content {
+		if item.Kind != yaml.MappingNode {
+			return nil, fmt.Errorf("providers[%d] (line %d) must be a mapping", i, item.Line)
+		}
+	}
+	return seq.Content, nil
+}
+
+// providerKeys is every yaml key Provider accepts, from its struct tags, so
+// the list cannot drift from the type.
+var providerKeys = func() map[string]bool {
+	keys := map[string]bool{}
+	t := reflect.TypeOf(Provider{})
+	for i := 0; i < t.NumField(); i++ {
+		tag := t.Field(i).Tag.Get("yaml")
+		if name, _, _ := strings.Cut(tag, ","); name != "" && name != "-" {
+			keys[name] = true
+		}
+	}
+	return keys
+}()
+
+// checkProviderKeys rejects a key Provider does not have. Decoding would
+// drop it silently, so `scope:` for `scopes:` or `cleint_id` would register
+// a provider without the field and nothing would say so.
+func checkProviderKeys(mapping *yaml.Node) error {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		k := mapping.Content[i]
+		if k.Kind == yaml.ScalarNode && !providerKeys[k.Value] {
+			return fmt.Errorf("unknown field %q (line %d)", k.Value, k.Line)
+		}
+	}
+	return nil
+}
+
+// mappingHas reports whether key is present in a mapping node.
+func mappingHas(mapping *yaml.Node, key string) bool {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if k := mapping.Content[i]; k.Kind == yaml.ScalarNode && k.Value == key {
+			return true
+		}
+	}
+	return false
 }
 
 // scalarValue returns the scalar value of key in a mapping node, or "".
@@ -245,11 +362,11 @@ func decodeDocument(doc *yaml.Node, lookup lookupFunc) (loaded, error) {
 // loadManifest parses manifest bytes and expands placeholders. Kept as the
 // unit under test for expansion; readManifest is what the commands use.
 func loadManifest(data []byte, lookup lookupFunc) (Manifest, []string, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	doc, err := parseSingleDocument(data)
+	if err != nil {
 		return Manifest{}, nil, err
 	}
-	l, err := decodeDocument(&doc, lookup)
+	l, err := decodeDocument(doc, lookup)
 	if err != nil {
 		return Manifest{}, l.Missing, err
 	}

@@ -81,7 +81,7 @@ scopes:
 
 Secrets never appear in a file: `${PLACEHOLDER}` references are resolved at run time from a [secret source](#secrets). A single `nexus-providers.yaml` with a `providers:` list works too, and is fine for a handful of providers; the directory form scales to hundreds and gives each provider its own git history.
 
-The CLI refuses a directory in which a file's `name` does not match its file name, a name appears twice, or a file is not a single provider mapping. Those are the copy-paste mistakes that used to reach the Broker as a confusing `400`.
+The CLI refuses a directory in which a file's `name` does not match its file name, a name appears twice, a file is not a single provider mapping, or a provider has a field it does not know (a typo such as `scope:`). Those are the copy-paste mistakes that used to reach the Broker as a confusing `400`, or worse, register a provider with a field silently missing.
 
 ### Manifest fields
 
@@ -158,7 +158,7 @@ printf '%s' "$NEW_SECRET" | gcloud secrets versions add oauth-github-client-secr
 nexus plan -file infra/providers -secrets gcp-secret-manager:my-project -secret-prefix oauth-
 ```
 
-With any source, a placeholder the source does not hold falls back to the environment, which lets one value be overridden for a single run.
+With any source, a placeholder the source does not hold falls back to the environment. The source wins when both have a value; the environment only supplies what the source omits.
 
 ---
 
