@@ -83,12 +83,19 @@ resource "google_kms_crypto_key" "providers" {
   lifecycle { prevent_destroy = true } # destroying the key destroys every file encrypted to it
 }
 
-# Who may encrypt and decrypt the secrets file. Same set as who may run plan/apply.
+# People who edit the file need to encrypt and decrypt.
 resource "google_kms_crypto_key_iam_member" "sops_editors" {
-  for_each      = toset(["user:operator@example.com", "serviceAccount:ci@my-project.iam.gserviceaccount.com"])
+  for_each      = toset(["user:operator@example.com"])
   crypto_key_id = google_kms_crypto_key.providers.id
   role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
   member        = each.value
+}
+
+# CI only ever runs plan, which only decrypts: the narrower role.
+resource "google_kms_crypto_key_iam_member" "ci_decrypt" {
+  crypto_key_id = google_kms_crypto_key.providers.id
+  role          = "roles/cloudkms.cryptoKeyDecrypter"
+  member        = "serviceAccount:nexus-ci@my-project.iam.gserviceaccount.com"
 }
 
 output "sops_kms_key" { value = google_kms_crypto_key.providers.id }
@@ -330,7 +337,7 @@ export NEXUS_REQUIRE_ENCRYPTED_SECRETS=true
 
 `plan` and `apply` run these before any secret is decrypted and before the Broker is contacted, and the literal-secret failure ends with how many providers are affected and which source to move the values into. The literal value itself is never printed. A SOPS file that was never encrypted is caught earlier still: decryption reports that it has no SOPS metadata, so renaming a plaintext file to `.enc.yaml` does not get it past the policy.
 
-This is a policy on those three paths, not a scan for secrets. Two things are deliberately not policed. `client_id` is not a secret, although `plan` masks it. `params` is masked as a whole in every plan and in the Broker's audit log, but the CLI cannot know which of its keys are credentials for a given provider, so a literal under `params` is accepted; keep credentials there behind placeholders by convention.
+"Exactly one" is judged on the value as written, with the grammar the manifest is expanded with: any non-empty braced name counts, and text or whitespace around the placeholder (including whitespace kept by quoting) makes it partly literal. This is a policy on those three paths, not a scan for secrets. Two things are deliberately not policed. `client_id` is not a secret, although `plan` masks it. `params` is masked as a whole in every plan and in the Broker's audit log, but the CLI cannot know which of its keys are credentials for a given provider, so a literal under `params` is accepted; keep credentials there behind placeholders by convention.
 
 Where to turn it on:
 
@@ -376,7 +383,7 @@ jobs:
           GOOGLE_CLOUD_QUOTA_PROJECT: my-project
 ```
 
-The service account needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key (decrypt is enough for `plan`; the role is the smallest predefined one that includes it). The only Actions secrets are the Broker's URL and API key; the provider secrets never leave the file.
+The service account needs only `roles/cloudkms.cryptoKeyDecrypter` on the key: `plan` decrypts and never encrypts, so CI should not be able to re-encrypt the file. People who edit it get `roles/cloudkms.cryptoKeyEncrypterDecrypter`. The only Actions secrets are the Broker's URL and API key; the provider secrets never leave the file.
 
 ---
 

@@ -302,8 +302,41 @@ auth_url: https://example.com/authorize
 token_url: https://example.com/token
 `
 
+// Surrounding whitespace is literal text; quoting keeps it.
+const paddedSecretFile = `name: padded
+auth_type: oauth2
+client_id: ${NEXUS_PROVIDER_PADDED_CLIENT_ID}
+client_secret: " ${NEXUS_PROVIDER_PADDED_CLIENT_SECRET} "
+auth_url: https://example.com/authorize
+token_url: https://example.com/token
+`
+
+// Any non-empty braced name the manifest expands is a placeholder.
+const hyphenSecretFile = `name: hyphen
+auth_type: oauth2
+client_id: ${NEXUS_PROVIDER_HYPHEN_CLIENT_ID}
+client_secret: ${client-secret.for/hyphen}
+auth_url: https://example.com/authorize
+token_url: https://example.com/token
+`
+
+func TestIsExactPlaceholder(t *testing.T) {
+	for v, want := range map[string]bool{
+		"${A}": true, "$A": true, "${CLIENT-SECRET}": true, "${a.b/c}": true,
+		"hunter2-${A}": false, " ${A}": false, "${A} ": false, "${A}${B}": false,
+		"${A}-${B}": false, "${}": false, "$": false, "literal": false, "": false,
+	} {
+		if got := isExactPlaceholder(v); got != want {
+			t.Errorf("isExactPlaceholder(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
 func TestRunValidate_RequireEncryptedSecrets(t *testing.T) {
-	dir := writeFiles(t, map[string]string{"github.yaml": githubFile, "literal.yaml": literalSecretFile, "mixed.yaml": mixedSecretFile})
+	dir := writeFiles(t, map[string]string{
+		"github.yaml": githubFile, "literal.yaml": literalSecretFile, "mixed.yaml": mixedSecretFile,
+		"padded.yaml": paddedSecretFile, "hyphen.yaml": hyphenSecretFile,
+	})
 	var out, errOut bytes.Buffer
 
 	// Without the flag a literal client_secret is accepted, as before.
@@ -322,7 +355,8 @@ func TestRunValidate_RequireEncryptedSecrets(t *testing.T) {
 		"-require-encrypted-secrets: manifest checked for literal secrets (pass -secrets to also check the source)",
 		filepath.Join(dir, "literal.yaml") + ": literal: client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest",
 		filepath.Join(dir, "mixed.yaml") + ": mixed: client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest",
-		"✗ 2 problem(s)",
+		filepath.Join(dir, "padded.yaml") + ": padded: client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest",
+		"✗ 3 problem(s)",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("missing %q in output:\n%s", want, out.String())
@@ -330,6 +364,9 @@ func TestRunValidate_RequireEncryptedSecrets(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "hunter2") {
 		t.Fatalf("the literal secret was echoed:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "hyphen:") {
+		t.Fatalf("a braced placeholder with a non-identifier name was rejected:\n%s", out.String())
 	}
 
 	// The environment variable is the flag's default.
