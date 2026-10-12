@@ -124,6 +124,22 @@ func validateManifest(l loaded) []issue {
 // ${NAME}, as validate sees them.
 func isPlaceholder(v string) bool { return strings.Contains(v, "${") }
 
+// literalSecretIssues is the -require-encrypted-secrets rule on the
+// manifest as written (placeholders kept): a client_secret must be a
+// placeholder, because a literal value is plaintext at rest in the
+// repository however the other secrets are stored. The value itself is
+// never part of the message. params is not policed: whether a key under it
+// is a credential is provider-specific, and plan masks it anyway.
+func literalSecretIssues(l loaded) []issue {
+	var issues []issue
+	for i, p := range l.Manifest.Providers {
+		if strings.TrimSpace(p.ClientSecret) != "" && !isPlaceholder(p.ClientSecret) {
+			issues = append(issues, issue{Source: l.Sources[i], Provider: p.Name, Message: "client_secret: literal value in the manifest; -require-encrypted-secrets needs a ${PLACEHOLDER} resolved from the encrypted source"})
+		}
+	}
+	return issues
+}
+
 // checkHTTPURL mirrors samlutil.parseHTTPSURL.
 func checkHTTPURL(name, raw string) string {
 	u, err := url.Parse(strings.TrimSpace(raw))
@@ -192,6 +208,17 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, readSummary(l, mf.file))
 
+	// -require-encrypted-secrets on the manifest alone: no literal
+	// client_secret. This part needs no source, so it runs in a pull
+	// request; the source itself is checked below when -secrets is given.
+	var literal []issue
+	if mf.requireEncrypted {
+		literal = literalSecretIssues(l)
+		if mf.secrets == "" {
+			fmt.Fprintln(stdout, "-require-encrypted-secrets: manifest checked for literal secrets (pass -secrets to also check the source)")
+		}
+	}
+
 	// With -secrets the rules run on the expanded manifest, exactly what
 	// plan and apply would send, so a secret that resolves to an empty
 	// string or a SAML certificate that resolves to junk fails here too.
@@ -204,7 +231,14 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "✗ %v\n", err)
 			return 1
 		}
-		lookup, err := lookupWith(context.Background(), src, l.Placeholders)
+		if mf.requireEncrypted {
+			if err := requireEncryptedSource(src); err != nil {
+				fmt.Fprintf(stderr, "✗ %v\n", err)
+				return 1
+			}
+			fmt.Fprintf(stdout, "-require-encrypted-secrets: %s is encrypted at rest; the environment is not consulted\n", src)
+		}
+		lookup, err := lookupWith(context.Background(), src, l.Placeholders, !mf.requireEncrypted)
 		if err != nil {
 			fmt.Fprintf(stderr, "✗ %v\n", err)
 			return 1
@@ -214,14 +248,14 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		if unresolved = len(checked.Missing); unresolved > 0 {
-			fmt.Fprintf(stdout, "✗ %s\n", unresolvedMessage(src, checked.Missing))
+			fmt.Fprintf(stdout, "✗ %s\n", unresolvedMessage(src, checked.Missing, !mf.requireEncrypted))
 		}
 		fmt.Fprintf(stdout, "%d placeholders, %d resolved from %s\n", len(l.Placeholders), len(l.Placeholders)-unresolved, src)
 	} else if len(l.Placeholders) > 0 {
 		fmt.Fprintf(stdout, "%d placeholders used (not resolved; pass -secrets to check them)\n", len(l.Placeholders))
 	}
 
-	issues := validateManifest(checked)
+	issues := append(literal, validateManifest(checked)...)
 	for _, i := range issues {
 		fmt.Fprintf(stdout, "✗ %s\n", i)
 	}

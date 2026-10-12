@@ -83,7 +83,23 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 		fmt.Fprintf(stderr, "✗ %v\n", err)
 		return 1
 	}
-	lookup, err := lookupWith(context.Background(), src, shape.Placeholders)
+	if mf.requireEncrypted {
+		// All three plaintext paths are closed before any secret is read:
+		// the source, the environment fallback (below) and a literal
+		// client_secret in a manifest file.
+		if err := requireEncryptedSource(src); err != nil {
+			fmt.Fprintf(stderr, "✗ %v\n", err)
+			return 1
+		}
+		if literal := literalSecretIssues(shape); len(literal) > 0 {
+			for _, i := range literal {
+				fmt.Fprintf(stderr, "✗ %s\n", i)
+			}
+			fmt.Fprintf(stderr, "✗ -require-encrypted-secrets: %d provider(s) carry a literal client_secret; move the value into %s and reference it as a ${PLACEHOLDER}.\n", len(literal), src)
+			return 1
+		}
+	}
+	lookup, err := lookupWith(context.Background(), src, shape.Placeholders, !mf.requireEncrypted)
 	if err != nil {
 		fmt.Fprintf(stderr, "✗ %v\n", err)
 		return 1
@@ -94,7 +110,7 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 		return 1
 	}
 	if len(l.Missing) > 0 {
-		fmt.Fprintf(stderr, "✗ %s\n", unresolvedMessage(src, l.Missing))
+		fmt.Fprintf(stderr, "✗ %s\n", unresolvedMessage(src, l.Missing, !mf.requireEncrypted))
 		return 1
 	}
 	manifest := l.Manifest

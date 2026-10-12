@@ -10,7 +10,7 @@ icon: material/console
 
 ```bash
 # With Go (binary is named nexus). Pin a release or take the latest.
-go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@v0.6.5
+go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@v0.6.6
 go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@latest
 
 # From a checkout, stamped with the framework version
@@ -26,6 +26,7 @@ nexus-cli/nexus version
 | `API_KEY` | `plan`, `apply` | Broker API key, the Broker's `API_KEY` |
 | `NEXUS_SECRETS` | no | Default for `-secrets` |
 | `NEXUS_SECRET_PREFIX` | no | Default for `-secret-prefix` |
+| `NEXUS_REQUIRE_ENCRYPTED_SECRETS` | no | `true`, `1`, `yes` or `on` turns `-require-encrypted-secrets` on for every command (see [Enforcing encrypted secrets](#enforcing-encrypted-secrets)) |
 
 ## Common flags
 
@@ -36,6 +37,7 @@ Every command that reads a manifest takes these.
 | `-file` | `nexus-providers.yaml` | A manifest file, or a directory of one provider per `<name>.yaml` (see [Manifest format](#manifest-format)) |
 | `-secrets` | `plan`, `apply`: `$NEXUS_SECRETS`, else `env`. `validate`: unset, so placeholders are only listed unless the flag is given | Where `${PLACEHOLDER}` values come from: `env`, `sops:<path>` or `gcp-secret-manager:<project>` (see [Secret sources](#secret-sources)) |
 | `-secret-prefix` | `$NEXUS_SECRET_PREFIX` | `gcp-secret-manager` only: prefix for derived secret ids |
+| `-require-encrypted-secrets` | `$NEXUS_REQUIRE_ENCRYPTED_SECRETS`, else off | Refuse every plaintext path for a secret: the source must be `sops:` or `gcp-secret-manager:`, the environment is never consulted for a placeholder, and `client_secret` must be a `${PLACEHOLDER}` in the manifest (see [Enforcing encrypted secrets](#enforcing-encrypted-secrets)) |
 
 ## Commands
 
@@ -51,6 +53,8 @@ nexus validate -file providers/ -secrets gcp-secret-manager:my-project -secret-p
 Checked for every provider: `name` is present and matches `^[a-z0-9-]+$`; `auth_type` is `oauth2` (or empty), `saml`, or one of the static types `api_key`, `basic_auth`, `header`, `query_param`, `hmac_payload`, `aws_sigv4`; an `oauth2` provider has `client_id` and `client_secret`, and either `enable_discovery: true` with an `issuer` or both `auth_url` and `token_url`; a `saml` provider has all four `saml_*` fields, its `saml_idp_sso_url` is an http(s) URL with a host and its `saml_idp_x509_cert` is a CERTIFICATE PEM block or base64 DER that parses as X.509 (a field that is still a placeholder is left to the Broker); no name is defined twice. Unknown fields, a root that is not a `providers` list and multi-document files are rejected while reading, with line numbers. In directory mode, a file name that does not match its provider's `name` is an error before validation starts.
 
 Placeholders count as present values, so `validate` passes in a pull request that cannot see any secrets. Pass `-secrets` to resolve every placeholder the manifest uses and run the same rules on the expanded manifest, exactly what `plan` would send: a missing placeholder, a secret that resolves to an empty string or a SAML certificate that resolves to something that is not one all fail. Values are never printed.
+
+With `-require-encrypted-secrets` and no `-secrets`, `validate` additionally rejects any provider whose `client_secret` is a literal rather than a placeholder, which needs no key and so belongs in a pull-request check. With both flags it also refuses a source that is not encrypted at rest and stops consulting the environment for placeholders the source lacks.
 
 ```
 Read 149 providers from providers/ (149 files)
@@ -236,7 +240,30 @@ sops --encrypt --gcp-kms projects/P/locations/global/keyRings/nexus/cryptoKeys/p
 nexus plan -file providers/ -secrets sops:secrets.enc.yaml
 ```
 
-The `sops` key in a decrypted YAML or JSON file (its metadata) is ignored.
+The `sops` key in a decrypted YAML or JSON file (its metadata) is ignored. The end-to-end workflow, from creating the key to rotation and CI, is in [Provider Secrets with SOPS](../guides/provider-secrets-with-sops.md).
+
+## Enforcing encrypted secrets
+
+Without the flag the CLI is permissive by design: `env` is the default source, a placeholder the source lacks is taken from the environment, and a provider file may carry a `client_secret` literally. Each of those is a way for a secret to exist in plaintext at rest (a shell profile, a CI variable, a file in the repository) and still reach the Broker without anyone noticing. `-require-encrypted-secrets`, or `NEXUS_REQUIRE_ENCRYPTED_SECRETS=true` for every invocation, closes all three:
+
+| Rule | Checked by | Failure message |
+|---|---|---|
+| The source is encrypted at rest: `-secrets` is `sops:<path>` or `gcp-secret-manager:<project>` | `validate -secrets`, `plan`, `apply` | `-require-encrypted-secrets: -secrets is "env", which is not encrypted at rest; use sops:<path> or gcp-secret-manager:<project>` |
+| No environment fallback: a placeholder the source does not hold is unresolved even if the shell exports it | `validate -secrets`, `plan`, `apply` | `${NAME}: not found (looked for key NAME in secrets.enc.yaml)`, with no "then environment variable" |
+| No literal `client_secret` in a provider file; it must be a `${PLACEHOLDER}` | `validate` (with or without `-secrets`), `plan`, `apply` | `providers/acme.yaml: acme: client_secret: literal value in the manifest; -require-encrypted-secrets needs a ${PLACEHOLDER} resolved from the encrypted source` |
+
+`plan` and `apply` run the checks before any secret is read and before the Broker is contacted; the literal-secret failure also says how many providers are affected and which source to move the values into. A literal value is never part of a message. `client_id` is not policed (it is not a secret, though `plan` masks it) and neither is `params`, because whether a key under it is a credential depends on the provider; keep credentials under `params` behind placeholders too, and `plan` masks the whole mapping regardless.
+
+A SOPS file that was never encrypted fails before the policy is reached: decryption reports that the file has no SOPS metadata, so a plaintext file renamed `.enc.yaml` cannot pass as encrypted.
+
+```bash
+# In CI, on every pull request: no key, no Broker, but no literal secrets either
+nexus validate -file infra/providers -require-encrypted-secrets
+
+# On the operator's machine and in the seed script
+export NEXUS_REQUIRE_ENCRYPTED_SECRETS=true
+nexus plan -file infra/providers -secrets sops:infra/secrets.enc.yaml
+```
 
 ## Drift detection
 

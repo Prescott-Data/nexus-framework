@@ -114,6 +114,7 @@ nav:
       - Troubleshooting: guides/troubleshooting.md
       - Health Checks: guides/healthchecks.md
       - Security-as-Code: guides/security-as-code.md
+      - Provider Secrets with SOPS: guides/provider-secrets-with-sops.md
       - Provider Secret Backends: guides/provider-secret-backends.md
       - Deploying Nexus: infrastructure/deploying-nexus.md
   - Reference:
@@ -125,7 +126,7 @@ nav:
 
 
 extra:
-  version: "0.6.5"
+  version: "0.6.6"
   social:
     - icon: material/web
       link: https://developers.prescottdata.io

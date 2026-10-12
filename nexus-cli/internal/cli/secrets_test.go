@@ -55,7 +55,7 @@ func TestEnvSourceAndFallback(t *testing.T) {
 	src := &sopsSource{path: "s.yaml", decryptFile: func(string, string) ([]byte, error) {
 		return []byte("IN_SOPS: from-sops\n"), nil
 	}}
-	lookup, err := lookupWith(context.Background(), src, []string{"IN_SOPS", "ONLY_IN_ENV", "NOWHERE"})
+	lookup, err := lookupWith(context.Background(), src, []string{"IN_SOPS", "ONLY_IN_ENV", "NOWHERE"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,17 +226,58 @@ func TestGCPSource_NoPlaceholdersOpensNoClient(t *testing.T) {
 
 func TestUnresolvedMessage_NamesWhatWasLookedFor(t *testing.T) {
 	gcp := &gcpSource{project: "proj", prefix: "oauth-"}
-	got := unresolvedMessage(gcp, []string{"NEXUS_PROVIDER_TWITTER_CLIENT_ID"})
+	got := unresolvedMessage(gcp, []string{"NEXUS_PROVIDER_TWITTER_CLIENT_ID"}, true)
 	want := "1 placeholder(s) could not be resolved from gcp-secret-manager:proj:\n" +
 		"  ${NEXUS_PROVIDER_TWITTER_CLIENT_ID}: not found (looked for secret oauth-twitter-client-id in project proj, then environment variable NEXUS_PROVIDER_TWITTER_CLIENT_ID)"
 	if got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
 	sops := &sopsSource{path: "s.enc.yaml"}
-	if got := unresolvedMessage(sops, []string{"A"}); !strings.Contains(got, "looked for key A in s.enc.yaml, then environment variable A") {
+	if got := unresolvedMessage(sops, []string{"A"}, true); !strings.Contains(got, "looked for key A in s.enc.yaml, then environment variable A") {
 		t.Fatalf("sops: %s", got)
 	}
-	if got := unresolvedMessage(envSource{}, []string{"A"}); !strings.Contains(got, "looked for environment variable A)") || strings.Contains(got, "then") {
+	if got := unresolvedMessage(envSource{}, []string{"A"}, true); !strings.Contains(got, "looked for environment variable A)") || strings.Contains(got, "then") {
 		t.Fatalf("env: %s", got)
+	}
+}
+
+func TestEncryptedSources_PolicyAndNoEnvFallback(t *testing.T) {
+	for _, c := range []struct {
+		src  secretSource
+		want bool
+	}{
+		{envSource{}, false},
+		{&sopsSource{path: "s.enc.yaml"}, true},
+		{&gcpSource{project: "p"}, true},
+	} {
+		if got := c.src.Encrypted(); got != c.want {
+			t.Errorf("%s: Encrypted() = %v, want %v", c.src, got, c.want)
+		}
+	}
+	err := requireEncryptedSource(envSource{})
+	if err == nil || !strings.Contains(err.Error(), `-secrets is "env", which is not encrypted at rest; use sops:<path> or gcp-secret-manager:<project>`) {
+		t.Fatalf("env source error = %v", err)
+	}
+	if err := requireEncryptedSource(&sopsSource{path: "s.enc.yaml"}); err != nil {
+		t.Fatalf("sops source rejected: %v", err)
+	}
+
+	// Without env fallback a value the source lacks stays unresolved even
+	// when the environment has it, and the message does not claim the
+	// environment was tried.
+	t.Setenv("ONLY_IN_ENV", "from-env")
+	src := &sopsSource{path: "s.yaml", decryptFile: func(string, string) ([]byte, error) { return []byte("IN_SOPS: a\n"), nil }}
+	lookup, err := lookupWith(context.Background(), src, []string{"IN_SOPS", "ONLY_IN_ENV"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := lookup("IN_SOPS"); !ok || v != "a" {
+		t.Fatalf("IN_SOPS = %q, %v", v, ok)
+	}
+	if _, ok := lookup("ONLY_IN_ENV"); ok {
+		t.Fatal("environment consulted although fallback is off")
+	}
+	if got := unresolvedMessage(src, []string{"ONLY_IN_ENV"}, false); strings.Contains(got, "then environment variable") || !strings.Contains(got, "looked for key ONLY_IN_ENV in s.yaml)") {
+		t.Fatalf("message:\n%s", got)
 	}
 }

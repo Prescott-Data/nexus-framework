@@ -283,3 +283,89 @@ func TestRun_UsageAndVersion(t *testing.T) {
 		t.Fatalf("version: code=%d out=%s", code, out.String())
 	}
 }
+
+const literalSecretFile = `name: literal
+auth_type: oauth2
+client_id: ${NEXUS_PROVIDER_LITERAL_CLIENT_ID}
+client_secret: hunter2-literal
+auth_url: https://example.com/authorize
+token_url: https://example.com/token
+`
+
+func TestRunValidate_RequireEncryptedSecrets(t *testing.T) {
+	dir := writeFiles(t, map[string]string{"github.yaml": githubFile, "literal.yaml": literalSecretFile})
+	var out, errOut bytes.Buffer
+
+	// Without the flag a literal client_secret is accepted, as before.
+	if code := run([]string{"validate", "-file", dir}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("exit = %d, want 0; out=%s err=%s", code, out.String(), errOut.String())
+	}
+
+	// With it, and no -secrets, the manifest rule alone applies and the
+	// value is not echoed.
+	out.Reset()
+	code := run([]string{"validate", "-file", dir, "-require-encrypted-secrets"}, strings.NewReader(""), &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; out=%s err=%s", code, out.String(), errOut.String())
+	}
+	for _, want := range []string{
+		"-require-encrypted-secrets: manifest checked for literal secrets (pass -secrets to also check the source)",
+		filepath.Join(dir, "literal.yaml") + ": literal: client_secret: literal value in the manifest; -require-encrypted-secrets needs a ${PLACEHOLDER} resolved from the encrypted source",
+		"✗ 1 problem(s)",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q in output:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "hunter2") {
+		t.Fatalf("the literal secret was echoed:\n%s", out.String())
+	}
+
+	// The environment variable is the flag's default.
+	t.Setenv("NEXUS_REQUIRE_ENCRYPTED_SECRETS", "true")
+	out.Reset()
+	if code := run([]string{"validate", "-file", dir}, strings.NewReader(""), &out, &errOut); code != 1 || !strings.Contains(out.String(), "literal value in the manifest") {
+		t.Fatalf("env default: exit = %d; out=%s", code, out.String())
+	}
+	t.Setenv("NEXUS_REQUIRE_ENCRYPTED_SECRETS", "")
+
+	// The environment is not an encrypted source.
+	dir = writeFiles(t, map[string]string{"github.yaml": githubFile})
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"validate", "-file", dir, "-require-encrypted-secrets", "-secrets", "env"}, strings.NewReader(""), &out, &errOut); code != 1 {
+		t.Fatalf("exit = %d, want 1; out=%s err=%s", code, out.String(), errOut.String())
+	}
+	if !strings.Contains(errOut.String(), `-secrets is "env", which is not encrypted at rest`) {
+		t.Fatalf("stderr:\n%s", errOut.String())
+	}
+
+	// A SOPS source that lacks a placeholder does not fall back to the
+	// environment, and the message says only the file was searched.
+	restore := sopsDecrypt
+	sopsDecrypt = func(string, string) ([]byte, error) { return []byte("NEXUS_PROVIDER_GITHUB_CLIENT_ID: id\n"), nil }
+	t.Cleanup(func() { sopsDecrypt = restore })
+	t.Setenv("NEXUS_PROVIDER_GITHUB_CLIENT_SECRET", "from-the-shell")
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"validate", "-file", dir, "-secrets", "sops:s.enc.yaml"}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("fallback on: exit = %d, want 0; out=%s err=%s", code, out.String(), errOut.String())
+	}
+	out.Reset()
+	code = run([]string{"validate", "-file", dir, "-secrets", "sops:s.enc.yaml", "-require-encrypted-secrets"}, strings.NewReader(""), &out, &errOut)
+	if code != 1 {
+		t.Fatalf("fallback off: exit = %d, want 1; out=%s err=%s", code, out.String(), errOut.String())
+	}
+	for _, want := range []string{
+		"-require-encrypted-secrets: sops:s.enc.yaml is encrypted at rest; the environment is not consulted",
+		"${NEXUS_PROVIDER_GITHUB_CLIENT_SECRET}: not found (looked for key NEXUS_PROVIDER_GITHUB_CLIENT_SECRET in s.enc.yaml)",
+		"2 placeholders, 1 resolved from sops:s.enc.yaml",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q in output:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "then environment variable") || strings.Contains(out.String(), "from-the-shell") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+}

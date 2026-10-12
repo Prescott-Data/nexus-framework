@@ -30,6 +30,11 @@ type secretSource interface {
 	// an unresolved placeholder names the exact secret id, file key or
 	// variable that was tried.
 	Where(name string) string
+	// Encrypted reports whether the values are encrypted at rest where
+	// this source reads them: a SOPS file and Secret Manager are; the
+	// process environment is not. -require-encrypted-secrets refuses a
+	// source for which this is false.
+	Encrypted() bool
 }
 
 // newSecretSource parses a -secrets value. "" and "env" are the environment.
@@ -54,11 +59,13 @@ func newSecretSource(spec, prefix string) (secretSource, error) {
 	}
 }
 
-// lookupWith resolves the manifest's placeholders through src, then falls
-// back to the environment for anything src does not hold, and returns the
-// lookup the manifest is expanded with. The source wins when both have a
-// value; the environment only supplies what the source omits.
-func lookupWith(ctx context.Context, src secretSource, names []string) (lookupFunc, error) {
+// lookupWith resolves the manifest's placeholders through src and returns
+// the lookup the manifest is expanded with. With envFallback, anything src
+// does not hold is looked up in the environment: the source wins when both
+// have a value; the environment only supplies what the source omits.
+// Without it (-require-encrypted-secrets) the environment is never read,
+// so a secret exported in a shell cannot slip into an apply unnoticed.
+func lookupWith(ctx context.Context, src secretSource, names []string, envFallback bool) (lookupFunc, error) {
 	values, err := src.Resolve(ctx, names)
 	if err != nil {
 		return nil, err
@@ -67,8 +74,20 @@ func lookupWith(ctx context.Context, src secretSource, names []string) (lookupFu
 		if v, ok := values[name]; ok {
 			return v, true
 		}
+		if !envFallback {
+			return "", false
+		}
 		return os.LookupEnv(name)
 	}, nil
+}
+
+// requireEncryptedSource is the -require-encrypted-secrets check on the
+// source itself: the values must be encrypted where they are read from.
+func requireEncryptedSource(src secretSource) error {
+	if src.Encrypted() {
+		return nil
+	}
+	return fmt.Errorf("-require-encrypted-secrets: -secrets is %q, which is not encrypted at rest; use sops:<path> or gcp-secret-manager:<project>", src.String())
 }
 
 // envSource is the process environment.
@@ -88,6 +107,8 @@ func (envSource) String() string { return "env" }
 
 func (envSource) Where(name string) string { return "environment variable " + name }
 
+func (envSource) Encrypted() bool { return false }
+
 // sopsSource is a SOPS-encrypted file whose top level maps placeholder
 // names to values: YAML or JSON (a flat mapping) or dotenv (KEY=value
 // lines). Decryption uses the keys SOPS can reach from this process (GCP
@@ -106,7 +127,7 @@ func (s *sopsSource) Resolve(_ context.Context, names []string) (map[string]stri
 	}
 	dec := s.decryptFile
 	if dec == nil {
-		dec = decrypt.File
+		dec = sopsDecrypt
 	}
 	plain, err := dec(s.path, format)
 	if err != nil {
@@ -128,6 +149,12 @@ func (s *sopsSource) Resolve(_ context.Context, names []string) (map[string]stri
 func (s *sopsSource) String() string { return "sops:" + s.path }
 
 func (s *sopsSource) Where(name string) string { return fmt.Sprintf("key %s in %s", name, s.path) }
+
+func (s *sopsSource) Encrypted() bool { return true }
+
+// sopsDecrypt is the SOPS decryption entry point; a test replaces it to run
+// the commands end to end without a key.
+var sopsDecrypt = decrypt.File
 
 // sopsFormat maps a file extension to the SOPS input format.
 func sopsFormat(path string) (string, error) {
@@ -309,13 +336,16 @@ func (g *gcpSource) Where(name string) string {
 	return fmt.Sprintf("secret %s in project %s", secretIDFor(name, g.prefix), g.project)
 }
 
+func (g *gcpSource) Encrypted() bool { return true }
+
 // unresolvedMessage says, for each missing placeholder, exactly what was
 // looked for and where, so the fix is obvious from the message alone.
-func unresolvedMessage(src secretSource, missing []string) string {
+// envFallback says whether the environment was tried after the source.
+func unresolvedMessage(src secretSource, missing []string, envFallback bool) string {
 	lines := make([]string, len(missing))
 	for i, name := range missing {
 		where := src.Where(name)
-		if src.String() != "env" {
+		if envFallback && src.String() != "env" {
 			where += ", then environment variable " + name
 		}
 		lines[i] = fmt.Sprintf("  ${%s}: not found (looked for %s)", name, where)

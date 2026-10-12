@@ -35,6 +35,7 @@ nexus-cli/nexus version
 | `API_KEY` | none | Broker API key |
 | `NEXUS_SECRETS` | `env` | Default secret source (see [Secrets](#secrets)) |
 | `NEXUS_SECRET_PREFIX` | none | Default `-secret-prefix` for Google Secret Manager |
+| `NEXUS_REQUIRE_ENCRYPTED_SECRETS` | off | `true` refuses plaintext secrets everywhere (see [Enforcing encrypted secrets](#enforcing-encrypted-secrets)) |
 
 ---
 
@@ -141,7 +142,9 @@ rm /tmp/secrets.yaml
 nexus plan -file infra/providers -secrets sops:infra/providers.enc.yaml
 ```
 
-To rotate a provider's secret later, `sops infra/providers.enc.yaml` opens the decrypted file in your editor and re-encrypts on save; the commit records that the secret changed without recording what it is, and `nexus plan` shows the provider as `~ UPDATE` with `client_secret`. YAML, JSON and dotenv files are accepted; values must be flat scalars keyed by placeholder name.
+To rotate a provider's secret later, `sops edit infra/providers.enc.yaml` opens the decrypted file in your editor and re-encrypts on save; the commit records that the secret changed without recording what it is, and `nexus plan` shows the provider as `~ UPDATE` with `client_secret`. YAML, JSON and dotenv files are accepted; values must be flat scalars keyed by placeholder name.
+
+This is the recommended source for a repository-managed deployment, and the whole workflow (choosing and creating the key, `.sops.yaml`, the first file, editing, rotation, CI, several environments, key management, and a troubleshooting table) is written out step by step in [Provider Secrets with SOPS](provider-secrets-with-sops.md).
 
 ### Google Secret Manager
 
@@ -159,6 +162,16 @@ nexus plan -file infra/providers -secrets gcp-secret-manager:my-project -secret-
 ```
 
 With any source, a placeholder the source does not hold falls back to the environment. The source wins when both have a value; the environment only supplies what the source omits.
+
+### Enforcing encrypted secrets
+
+The defaults above are permissive so that a first run on a laptop works with nothing but exported variables. For a deployment whose secrets are meant to live only in a SOPS file or Secret Manager, turn that permissiveness off:
+
+```bash
+export NEXUS_REQUIRE_ENCRYPTED_SECRETS=true
+```
+
+or pass `-require-encrypted-secrets` per command. From then on the CLI refuses `-secrets env`, never takes a placeholder's value from the environment, and rejects a provider file whose `client_secret` is a literal instead of a `${PLACEHOLDER}`. `validate` applies the last rule with no source at all, so a pull-request check can fail a commit that pastes a secret into a provider file before anyone with a key has to look at it. The messages, and what is deliberately not policed, are in the [CLI reference](../reference/cli.md#enforcing-encrypted-secrets).
 
 ---
 
@@ -245,13 +258,13 @@ Automatic apply on merge is not recommended. `apply -auto-approve` exists for sc
   run: go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@latest
 
 - name: Validate providers
-  run: nexus validate -file infra/providers
+  run: nexus validate -file infra/providers -require-encrypted-secrets
 
 - name: Nexus plan
   env:
     BROKER_BASE_URL: ${{ secrets.BROKER_BASE_URL }}
     API_KEY: ${{ secrets.BROKER_API_KEY }}
-  run: nexus plan -file infra/providers -secrets sops:infra/providers.enc.yaml
+  run: nexus plan -file infra/providers -secrets sops:infra/providers.enc.yaml -require-encrypted-secrets
 ```
 
 Every `apply` run generates audit log entries on the Broker, giving you a record of which providers were created, updated, or deleted and at what time. Combined with the git history of your manifest files, you have two independent audit trails for every provider change.

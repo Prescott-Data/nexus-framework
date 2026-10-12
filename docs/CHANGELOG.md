@@ -12,6 +12,25 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## 0.6.6 <span class="changelog-date">2026-10-12</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.6" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Added**
+
+- **`nexus -require-encrypted-secrets`** (or `NEXUS_REQUIRE_ENCRYPTED_SECRETS=true`) makes plaintext a hard error on `validate`, `plan` and `apply`, closing the three ways a secret could otherwise reach the Broker unencrypted at rest: `-secrets` must be `sops:<path>` or `gcp-secret-manager:<project>` (`env` is refused by name), a placeholder the source does not hold is unresolved rather than taken from the environment, and a `client_secret` written literally in a provider file is reported with its file and provider, without the value. On `validate` the manifest rule runs with no source at all, so a pull request check can enforce it without any key; with `-secrets` the source is checked too. Every message names the fix. `params` is not policed: which of its keys are credentials is provider-specific, and `plan` already masks it.
+- **Provider secrets with SOPS, end to end**: a new guide ([Provider Secrets with SOPS](guides/provider-secrets-with-sops.md)) covering the key, `.sops.yaml`, writing and editing the file, placeholder naming, rotation, enforcing the policy in CI, multiple environments, key management, whether to commit the ciphertext, what the CLI guarantees about the plaintext, and a troubleshooting table built from the failures met while migrating a 149-provider deployment.
+
+**Changed**
+
+- An unresolved-placeholder message only says "then environment variable X" when the environment was in fact consulted.
+
+</div>
+
+<div class="changelog-release" markdown>
+
 ## 0.6.5 <span class="changelog-date">2026-10-12</span>
 
 <div class="changelog-meta" markdown>
