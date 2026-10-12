@@ -210,3 +210,20 @@ func TestGCPSource_NoPlaceholdersOpensNoClient(t *testing.T) {
 		t.Fatalf("got %v, %v", got, err)
 	}
 }
+
+func TestUnresolvedMessage_NamesWhatWasLookedFor(t *testing.T) {
+	gcp := &gcpSource{project: "proj", prefix: "oauth-"}
+	got := unresolvedMessage(gcp, []string{"NEXUS_PROVIDER_TWITTER_CLIENT_ID"})
+	want := "1 placeholder(s) could not be resolved from gcp-secret-manager:proj:\n" +
+		"  ${NEXUS_PROVIDER_TWITTER_CLIENT_ID}: not found (looked for secret oauth-twitter-client-id in project proj, then environment variable NEXUS_PROVIDER_TWITTER_CLIENT_ID)"
+	if got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+	sops := &sopsSource{path: "s.enc.yaml"}
+	if got := unresolvedMessage(sops, []string{"A"}); !strings.Contains(got, "looked for key A in s.enc.yaml, then environment variable A") {
+		t.Fatalf("sops: %s", got)
+	}
+	if got := unresolvedMessage(envSource{}, []string{"A"}); !strings.Contains(got, "looked for environment variable A)") || strings.Contains(got, "then") {
+		t.Fatalf("env: %s", got)
+	}
+}

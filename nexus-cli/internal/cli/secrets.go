@@ -25,6 +25,10 @@ import (
 type secretSource interface {
 	Resolve(ctx context.Context, names []string) (map[string]string, error)
 	String() string
+	// Where returns what Resolve looked for when it did not find name, so
+	// an unresolved placeholder names the exact secret id, file key or
+	// variable that was tried.
+	Where(name string) string
 }
 
 // newSecretSource parses a -secrets value. "" and "env" are the environment.
@@ -81,6 +85,8 @@ func (envSource) Resolve(_ context.Context, names []string) (map[string]string, 
 
 func (envSource) String() string { return "env" }
 
+func (envSource) Where(name string) string { return "environment variable " + name }
+
 // sopsSource is a SOPS-encrypted file whose top level maps placeholder
 // names to values: YAML or JSON (a flat mapping) or dotenv (KEY=value
 // lines). Decryption uses the keys SOPS can reach from this process (GCP
@@ -119,6 +125,8 @@ func (s *sopsSource) Resolve(_ context.Context, names []string) (map[string]stri
 }
 
 func (s *sopsSource) String() string { return "sops:" + s.path }
+
+func (s *sopsSource) Where(name string) string { return fmt.Sprintf("key %s in %s", name, s.path) }
 
 // sopsFormat maps a file extension to the SOPS input format.
 func sopsFormat(path string) (string, error) {
@@ -274,6 +282,24 @@ func (g *gcpSource) Resolve(ctx context.Context, names []string) (map[string]str
 }
 
 func (g *gcpSource) String() string { return "gcp-secret-manager:" + g.project }
+
+func (g *gcpSource) Where(name string) string {
+	return fmt.Sprintf("secret %s in project %s", secretIDFor(name, g.prefix), g.project)
+}
+
+// unresolvedMessage says, for each missing placeholder, exactly what was
+// looked for and where, so the fix is obvious from the message alone.
+func unresolvedMessage(src secretSource, missing []string) string {
+	lines := make([]string, len(missing))
+	for i, name := range missing {
+		where := src.Where(name)
+		if src.String() != "env" {
+			where += ", then environment variable " + name
+		}
+		lines[i] = fmt.Sprintf("  ${%s}: not found (looked for %s)", name, where)
+	}
+	return fmt.Sprintf("%d placeholder(s) could not be resolved from %s:\n%s", len(missing), src, strings.Join(lines, "\n"))
+}
 
 // secretIDFor derives the Secret Manager secret id for a placeholder.
 func secretIDFor(placeholder, prefix string) string {

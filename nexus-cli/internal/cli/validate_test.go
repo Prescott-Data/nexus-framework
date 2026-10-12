@@ -142,7 +142,7 @@ func TestRunValidate_WithSecretsFailsOnUnresolved(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1; out=%s err=%s", code, out.String(), errOut.String())
 	}
-	if !strings.Contains(out.String(), "✗ ${NEXUS_PROVIDER_GITHUB_CLIENT_SECRET}: not found in env or the environment") {
+	if !strings.Contains(out.String(), "${NEXUS_PROVIDER_GITHUB_CLIENT_SECRET}: not found (looked for environment variable NEXUS_PROVIDER_GITHUB_CLIENT_SECRET)") {
 		t.Fatalf("output:\n%s", out.String())
 	}
 	t.Setenv("NEXUS_PROVIDER_GITHUB_CLIENT_SECRET", "sec")

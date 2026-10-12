@@ -75,7 +75,7 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 		return 1
 	}
 	if len(l.Missing) > 0 {
-		fmt.Fprintf(stderr, "✗ Failed to process manifest. The following placeholders are not in %s or the environment: %s\n", src, strings.Join(l.Missing, ", "))
+		fmt.Fprintf(stderr, "✗ %s\n", unresolvedMessage(src, l.Missing))
 		return 1
 	}
 	manifest := l.Manifest
@@ -293,7 +293,12 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 
 	fmt.Fprintln(stdout, "\n--- Applying Changes ---")
 
-	hadFailures := false
+	var failed []string // "name: reason", for the summary at the end
+	fail := func(name, format string, a ...interface{}) {
+		reason := fmt.Sprintf(format, a...)
+		fmt.Fprintln(stdout, reason)
+		failed = append(failed, name+": "+reason)
+	}
 
 	for _, p := range toCreate {
 		fmt.Fprintf(stdout, "Creating %s... ", p.Name)
@@ -304,15 +309,13 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 
 		jsonData, err := json.Marshal(payload)
 		if err != nil {
-			fmt.Fprintf(stdout, "Failed to marshal: %v\n", err)
-			hadFailures = true
+			fail(p.Name, "Failed to marshal: %v", err)
 			continue
 		}
 
 		req, err := http.NewRequest("POST", brokerURL+"/providers", bytes.NewBuffer(jsonData))
 		if err != nil {
-			fmt.Fprintf(stdout, "Failed to create request: %v\n", err)
-			hadFailures = true
+			fail(p.Name, "Failed to create request: %v", err)
 			continue
 		}
 		setAPIKey(req, apiKey)
@@ -320,8 +323,7 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			fmt.Fprintf(stdout, "Request failed: %v\n", err)
-			hadFailures = true
+			fail(p.Name, "Request failed: %v", err)
 			continue
 		}
 
@@ -331,8 +333,7 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 		} else {
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			fmt.Fprintf(stdout, "FAILED (Status %d): %s\n", resp.StatusCode, string(errBody))
-			hadFailures = true
+			fail(p.Name, "FAILED (Status %d): %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 		}
 	}
 
@@ -349,15 +350,13 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 
 		jsonData, err := json.Marshal(updates)
 		if err != nil {
-			fmt.Fprintf(stdout, "Failed to marshal: %v\n", err)
-			hadFailures = true
+			fail(name, "Failed to marshal: %v", err)
 			continue
 		}
 
 		req, err := http.NewRequest("PATCH", brokerURL+"/providers/"+id, bytes.NewBuffer(jsonData))
 		if err != nil {
-			fmt.Fprintf(stdout, "Failed to create request: %v\n", err)
-			hadFailures = true
+			fail(name, "Failed to create request: %v", err)
 			continue
 		}
 		setAPIKey(req, apiKey)
@@ -365,8 +364,7 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			fmt.Fprintf(stdout, "Request failed: %v\n", err)
-			hadFailures = true
+			fail(name, "Request failed: %v", err)
 			continue
 		}
 
@@ -376,8 +374,7 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 		} else {
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			fmt.Fprintf(stdout, "FAILED (Status %d): %s\n", resp.StatusCode, string(errBody))
-			hadFailures = true
+			fail(name, "FAILED (Status %d): %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 		}
 	}
 
@@ -387,16 +384,14 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 
 		req, err := http.NewRequest("DELETE", brokerURL+"/providers/"+id, nil)
 		if err != nil {
-			fmt.Fprintf(stdout, "Failed to create request: %v\n", err)
-			hadFailures = true
+			fail(name, "Failed to create request: %v", err)
 			continue
 		}
 		setAPIKey(req, apiKey)
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			fmt.Fprintf(stdout, "Request failed: %v\n", err)
-			hadFailures = true
+			fail(name, "Request failed: %v", err)
 			continue
 		}
 
@@ -406,15 +401,18 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 		} else {
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			fmt.Fprintf(stdout, "FAILED (Status %d): %s\n", resp.StatusCode, string(errBody))
-			hadFailures = true
+			fail(name, "FAILED (Status %d): %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 		}
 	}
 
-	if hadFailures {
-		fmt.Fprintln(stdout, "\nApply completed with errors.")
+	if len(failed) > 0 {
+		fmt.Fprintf(stdout, "\nApply completed with %d error(s):\n", len(failed))
+		for _, f := range failed {
+			fmt.Fprintf(stdout, "  ✗ %s\n", f)
+		}
 		return 1
 	}
+	fmt.Fprintln(stdout, "\nApply complete.")
 	return 0
 }
 

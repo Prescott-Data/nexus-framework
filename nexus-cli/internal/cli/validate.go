@@ -137,11 +137,14 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "✗ %v\n", err)
 			return 1
 		}
+		var missing []string
 		for _, name := range l.Placeholders {
 			if _, ok := lookup(name); !ok {
-				unresolved++
-				fmt.Fprintf(stdout, "✗ ${%s}: not found in %s or the environment\n", name, src)
+				missing = append(missing, name)
 			}
+		}
+		if unresolved = len(missing); unresolved > 0 {
+			fmt.Fprintf(stdout, "✗ %s\n", unresolvedMessage(src, missing))
 		}
 		fmt.Fprintf(stdout, "%d placeholders, %d resolved from %s\n", len(l.Placeholders), len(l.Placeholders)-unresolved, src)
 	} else if len(l.Placeholders) > 0 {
