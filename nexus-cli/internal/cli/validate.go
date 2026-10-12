@@ -124,17 +124,24 @@ func validateManifest(l loaded) []issue {
 // ${NAME}, as validate sees them.
 func isPlaceholder(v string) bool { return strings.Contains(v, "${") }
 
+// exactPlaceholder matches a value that is one placeholder and nothing
+// else: ${NAME} or $NAME, as os.Expand reads them.
+var exactPlaceholder = regexp.MustCompile(`^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)$`)
+
 // literalSecretIssues is the -require-encrypted-secrets rule on the
-// manifest as written (placeholders kept): a client_secret must be a
-// placeholder, because a literal value is plaintext at rest in the
-// repository however the other secrets are stored. The value itself is
-// never part of the message. params is not policed: whether a key under it
-// is a credential is provider-specific, and plan masks it anyway.
+// manifest as written (placeholders kept): a client_secret must be exactly
+// one placeholder. A literal value is plaintext at rest in the repository
+// however the other secrets are stored, and so is a literal with a
+// placeholder mixed in ("hunter2-${X}"), which would survive a
+// contains-"${" check and still be the whole secret once X resolves to
+// nothing. The value itself is never part of the message. params is not
+// policed: whether a key under it is a credential is provider-specific,
+// and plan masks it anyway.
 func literalSecretIssues(l loaded) []issue {
 	var issues []issue
 	for i, p := range l.Manifest.Providers {
-		if strings.TrimSpace(p.ClientSecret) != "" && !isPlaceholder(p.ClientSecret) {
-			issues = append(issues, issue{Source: l.Sources[i], Provider: p.Name, Message: "client_secret: literal value in the manifest; -require-encrypted-secrets needs a ${PLACEHOLDER} resolved from the encrypted source"})
+		if v := strings.TrimSpace(p.ClientSecret); v != "" && !exactPlaceholder.MatchString(v) {
+			issues = append(issues, issue{Source: l.Sources[i], Provider: p.Name, Message: "client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest"})
 		}
 	}
 	return issues

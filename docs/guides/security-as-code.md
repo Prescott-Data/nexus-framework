@@ -35,7 +35,7 @@ nexus-cli/nexus version
 | `API_KEY` | none | Broker API key |
 | `NEXUS_SECRETS` | `env` | Default secret source (see [Secrets](#secrets)) |
 | `NEXUS_SECRET_PREFIX` | none | Default `-secret-prefix` for Google Secret Manager |
-| `NEXUS_REQUIRE_ENCRYPTED_SECRETS` | off | `true` refuses plaintext secrets everywhere (see [Enforcing encrypted secrets](#enforcing-encrypted-secrets)) |
+| `NEXUS_REQUIRE_ENCRYPTED_SECRETS` | off | `true` turns `-require-encrypted-secrets` on for every command: the source must be `sops:` or `gcp-secret-manager:`, no environment fallback, and `client_secret` must be exactly one `${PLACEHOLDER}`. It does not scan `params` (see [Enforcing encrypted secrets](#enforcing-encrypted-secrets)) |
 
 ---
 
@@ -171,7 +171,7 @@ The defaults above are permissive so that a first run on a laptop works with not
 export NEXUS_REQUIRE_ENCRYPTED_SECRETS=true
 ```
 
-or pass `-require-encrypted-secrets` per command. From then on the CLI refuses `-secrets env`, never takes a placeholder's value from the environment, and rejects a provider file whose `client_secret` is a literal instead of a `${PLACEHOLDER}`. `validate` applies the last rule with no source at all, so a pull-request check can fail a commit that pastes a secret into a provider file before anyone with a key has to look at it. The messages, and what is deliberately not policed, are in the [CLI reference](../reference/cli.md#enforcing-encrypted-secrets).
+or pass `-require-encrypted-secrets` per command. From then on the CLI refuses `-secrets env`, never takes a placeholder's value from the environment, and rejects a provider file whose `client_secret` is anything other than exactly one `${PLACEHOLDER}`. It is a policy on those three paths, not a scan for secrets: a literal under `params` is accepted, so keep credentials there behind placeholders by convention. `validate` applies the last rule with no source at all, so a pull-request check can fail a commit that pastes a secret into a provider file before anyone with a key has to look at it. The messages, and what is deliberately not policed, are in the [CLI reference](../reference/cli.md#enforcing-encrypted-secrets).
 
 ---
 

@@ -95,7 +95,7 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 			for _, i := range literal {
 				fmt.Fprintf(stderr, "✗ %s\n", i)
 			}
-			fmt.Fprintf(stderr, "✗ -require-encrypted-secrets: %d provider(s) carry a literal client_secret; move the value into %s and reference it as a ${PLACEHOLDER}.\n", len(literal), src)
+			fmt.Fprintf(stderr, "✗ -require-encrypted-secrets: %d provider(s) carry a literal or partly literal client_secret; move the whole value into %s and reference it as exactly one ${PLACEHOLDER}.\n", len(literal), src)
 			return 1
 		}
 	}

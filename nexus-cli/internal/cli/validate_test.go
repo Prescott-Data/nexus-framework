@@ -292,8 +292,18 @@ auth_url: https://example.com/authorize
 token_url: https://example.com/token
 `
 
+// A placeholder mixed into a literal is still a literal secret: once DUMMY
+// resolves to nothing the whole value is "hunter2-".
+const mixedSecretFile = `name: mixed
+auth_type: oauth2
+client_id: ${NEXUS_PROVIDER_MIXED_CLIENT_ID}
+client_secret: hunter2-${DUMMY}
+auth_url: https://example.com/authorize
+token_url: https://example.com/token
+`
+
 func TestRunValidate_RequireEncryptedSecrets(t *testing.T) {
-	dir := writeFiles(t, map[string]string{"github.yaml": githubFile, "literal.yaml": literalSecretFile})
+	dir := writeFiles(t, map[string]string{"github.yaml": githubFile, "literal.yaml": literalSecretFile, "mixed.yaml": mixedSecretFile})
 	var out, errOut bytes.Buffer
 
 	// Without the flag a literal client_secret is accepted, as before.
@@ -310,8 +320,9 @@ func TestRunValidate_RequireEncryptedSecrets(t *testing.T) {
 	}
 	for _, want := range []string{
 		"-require-encrypted-secrets: manifest checked for literal secrets (pass -secrets to also check the source)",
-		filepath.Join(dir, "literal.yaml") + ": literal: client_secret: literal value in the manifest; -require-encrypted-secrets needs a ${PLACEHOLDER} resolved from the encrypted source",
-		"✗ 1 problem(s)",
+		filepath.Join(dir, "literal.yaml") + ": literal: client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest",
+		filepath.Join(dir, "mixed.yaml") + ": mixed: client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest",
+		"✗ 2 problem(s)",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("missing %q in output:\n%s", want, out.String())
@@ -324,7 +335,7 @@ func TestRunValidate_RequireEncryptedSecrets(t *testing.T) {
 	// The environment variable is the flag's default.
 	t.Setenv("NEXUS_REQUIRE_ENCRYPTED_SECRETS", "true")
 	out.Reset()
-	if code := run([]string{"validate", "-file", dir}, strings.NewReader(""), &out, &errOut); code != 1 || !strings.Contains(out.String(), "literal value in the manifest") {
+	if code := run([]string{"validate", "-file", dir}, strings.NewReader(""), &out, &errOut); code != 1 || !strings.Contains(out.String(), "not exactly one ${PLACEHOLDER}") {
 		t.Fatalf("env default: exit = %d; out=%s", code, out.String())
 	}
 	t.Setenv("NEXUS_REQUIRE_ENCRYPTED_SECRETS", "")

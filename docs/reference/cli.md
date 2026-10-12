@@ -37,7 +37,7 @@ Every command that reads a manifest takes these.
 | `-file` | `nexus-providers.yaml` | A manifest file, or a directory of one provider per `<name>.yaml` (see [Manifest format](#manifest-format)) |
 | `-secrets` | `plan`, `apply`: `$NEXUS_SECRETS`, else `env`. `validate`: unset, so placeholders are only listed unless the flag is given | Where `${PLACEHOLDER}` values come from: `env`, `sops:<path>` or `gcp-secret-manager:<project>` (see [Secret sources](#secret-sources)) |
 | `-secret-prefix` | `$NEXUS_SECRET_PREFIX` | `gcp-secret-manager` only: prefix for derived secret ids |
-| `-require-encrypted-secrets` | `$NEXUS_REQUIRE_ENCRYPTED_SECRETS`, else off | Refuse every plaintext path for a secret: the source must be `sops:` or `gcp-secret-manager:`, the environment is never consulted for a placeholder, and `client_secret` must be a `${PLACEHOLDER}` in the manifest (see [Enforcing encrypted secrets](#enforcing-encrypted-secrets)) |
+| `-require-encrypted-secrets` | `$NEXUS_REQUIRE_ENCRYPTED_SECRETS`, else off | Refuse every plaintext path for a secret: the source must be `sops:` or `gcp-secret-manager:`, the environment is never consulted for a placeholder, and `client_secret` must be exactly one `${PLACEHOLDER}` in the manifest (`params` is not policed) (see [Enforcing encrypted secrets](#enforcing-encrypted-secrets)) |
 
 ## Commands
 
@@ -54,7 +54,7 @@ Checked for every provider: `name` is present and matches `^[a-z0-9-]+$`; `auth_
 
 Placeholders count as present values, so `validate` passes in a pull request that cannot see any secrets. Pass `-secrets` to resolve every placeholder the manifest uses and run the same rules on the expanded manifest, exactly what `plan` would send: a missing placeholder, a secret that resolves to an empty string or a SAML certificate that resolves to something that is not one all fail. Values are never printed.
 
-With `-require-encrypted-secrets` and no `-secrets`, `validate` additionally rejects any provider whose `client_secret` is a literal rather than a placeholder, which needs no key and so belongs in a pull-request check. With both flags it also refuses a source that is not encrypted at rest and stops consulting the environment for placeholders the source lacks.
+With `-require-encrypted-secrets` and no `-secrets`, `validate` additionally rejects any provider whose `client_secret` is not exactly one placeholder, which needs no key and so belongs in a pull-request check. With both flags it also refuses a source that is not encrypted at rest and stops consulting the environment for placeholders the source lacks.
 
 ```
 Read 149 providers from providers/ (149 files)
@@ -250,7 +250,7 @@ Without the flag the CLI is permissive by design: `env` is the default source, a
 |---|---|---|
 | The source is encrypted at rest: `-secrets` is `sops:<path>` or `gcp-secret-manager:<project>` | `validate -secrets`, `plan`, `apply` | `-require-encrypted-secrets: -secrets is "env", which is not encrypted at rest; use sops:<path> or gcp-secret-manager:<project>` |
 | No environment fallback: a placeholder the source does not hold is unresolved even if the shell exports it | `validate -secrets`, `plan`, `apply` | `${NAME}: not found (looked for key NAME in secrets.enc.yaml)`, with no "then environment variable" |
-| No literal `client_secret` in a provider file; it must be a `${PLACEHOLDER}` | `validate` (with or without `-secrets`), `plan`, `apply` | `providers/acme.yaml: acme: client_secret: literal value in the manifest; -require-encrypted-secrets needs a ${PLACEHOLDER} resolved from the encrypted source` |
+| `client_secret` in a provider file is exactly one `${PLACEHOLDER}`: not a literal, and not a literal with a placeholder mixed in (`hunter2-${X}` is the whole secret once `X` is empty) | `validate` (with or without `-secrets`), `plan`, `apply` | `providers/acme.yaml: acme: client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest` |
 
 `plan` and `apply` run the checks before any secret is read and before the Broker is contacted; the literal-secret failure also says how many providers are affected and which source to move the values into. A literal value is never part of a message. `client_id` is not policed (it is not a secret, though `plan` masks it) and neither is `params`, because whether a key under it is a credential depends on the provider; keep credentials under `params` behind placeholders too, and `plan` masks the whole mapping regardless.
 

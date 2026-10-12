@@ -371,8 +371,8 @@ func TestPlan_RequireEncryptedSecretsStopsBeforeBroker(t *testing.T) {
 		t.Fatalf("exit = %d, want 1; out=%s", code, out.String())
 	}
 	for _, want := range []string{
-		manifest + ": salesforce: client_secret: literal value in the manifest",
-		"1 provider(s) carry a literal client_secret; move the value into sops:s.enc.yaml and reference it as a ${PLACEHOLDER}.",
+		manifest + ": salesforce: client_secret: not exactly one ${PLACEHOLDER}",
+		"1 provider(s) carry a literal or partly literal client_secret; move the whole value into sops:s.enc.yaml and reference it as exactly one ${PLACEHOLDER}.",
 	} {
 		if !strings.Contains(errOut.String(), want) {
 			t.Fatalf("missing %q in stderr:\n%s", want, errOut.String())

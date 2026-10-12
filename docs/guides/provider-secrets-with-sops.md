@@ -12,7 +12,7 @@ It is written to be followed top to bottom the first time and used as a lookup a
 
 ## The model in one paragraph
 
-Provider files say **which** secrets a provider needs, as `${PLACEHOLDER}` references and nothing else. One [SOPS](https://github.com/getsops/sops) file holds **the values**, every one encrypted with a key you control (Google Cloud KMS, AWS KMS, age or PGP). `nexus plan` and `nexus apply` decrypt that file in memory, substitute the values into the manifest, and send the result to the Broker, which stores each secret in its own vault or [secret backend](provider-secret-backends.md). The plaintext exists in three places only: in the provider's console when you copy it, in your editor while `sops edit` is open, and in the CLI's memory for the length of a run. Nothing on disk, in git, in a shell profile or in a CI log ever holds a secret.
+Provider files say **which** secrets a provider needs, as `${PLACEHOLDER}` references and nothing else. One [SOPS](https://github.com/getsops/sops) file holds **the values**, every one encrypted with a key you control (Google Cloud KMS, AWS KMS, age or PGP). `nexus plan` and `nexus apply` decrypt that file in memory, substitute the values into the manifest, and send the result to the Broker, which stores each secret in its own vault or [secret backend](provider-secret-backends.md). The plaintext then exists only transiently: in the provider's console when you copy it; in a temporary file that `sops edit` (and the first-time encrypt in Step 3) creates with owner-only permissions and removes when the editor closes; and in the CLI's memory for the length of a run. The CLI itself never writes plaintext to disk, and nothing in git, in a shell profile or in a CI log ever holds a secret. Disk controls on the editing machine still matter for those transient files: full-disk encryption, and a temp directory you control.
 
 ```
 infra/
@@ -173,7 +173,7 @@ A value that looks like a number (a 19-digit client id, say) is kept as its exac
 
 ### Creating it
 
-Never write the plaintext inside the repository, even for a moment: an editor backup, a crash or a stray `git add -A` is how a plaintext file gets committed. Write it in a private temporary directory and encrypt from there:
+Never write the plaintext inside the repository, even for a moment: an editor backup, a crash or a stray `git add -A` is how a plaintext file gets committed. Write it in a private temporary directory (owner-only, on an encrypted volume), encrypt from there, and remove the directory in the same breath:
 
 ```bash
 TMP="$(mktemp -d)" && chmod 700 "$TMP"
@@ -306,6 +306,8 @@ EDITOR="subl --wait" sops edit infra/secrets.enc.yaml      # Sublime Text
 
 Without `--wait` the editor returns immediately, `sops` sees an unchanged file and writes nothing. Opening `infra/secrets.enc.yaml` directly in an editor shows the `ENC[...]` strings: that is the ciphertext, not a bug, and editing it by hand corrupts the MAC.
 
+While the editor is open, the decrypted content is a plaintext file in the system temp directory (`$TMPDIR`, or `/tmp`), created by `sops` with owner-only permissions and deleted when the editor exits. That is the one moment a secret is on disk, so: keep that directory on an encrypted volume (the default on current macOS and on Linux with full-disk encryption), close the editor as soon as you have saved, and be aware that an editor's own backup or swap files can outlive the session; disable them for that path (`code --wait` keeps none; for vim, `set noswapfile nobackup nowritebackup` on the sops temp path).
+
 A one-line change without an editor: `sops set infra/secrets.enc.yaml '["NEXUS_PROVIDER_X_CLIENT_SECRET"]' '"new-value"'`. Note that the value then passes through your shell history; prefer `sops edit` for secrets.
 
 ---
@@ -324,11 +326,11 @@ export NEXUS_REQUIRE_ENCRYPTED_SECRETS=true
 |---|---|---|
 | A source that is not encrypted at rest (`env`, or no `-secrets` at all on `plan`/`apply`) | `validate -secrets`, `plan`, `apply` | `-require-encrypted-secrets: -secrets is "env", which is not encrypted at rest; use sops:<path> or gcp-secret-manager:<project>` |
 | Environment fallback: a placeholder missing from the file is unresolved even when the shell exports it | `validate -secrets`, `plan`, `apply` | `${NEXUS_PROVIDER_X_CLIENT_SECRET}: not found (looked for key NEXUS_PROVIDER_X_CLIENT_SECRET in infra/secrets.enc.yaml)`, with no "then environment variable" clause |
-| A literal `client_secret` in a provider file | `validate` even without `-secrets`, `plan`, `apply` | `infra/providers/x.yaml: x: client_secret: literal value in the manifest; -require-encrypted-secrets needs a ${PLACEHOLDER} resolved from the encrypted source` |
+| A `client_secret` that is not exactly one `${PLACEHOLDER}`: a literal, or a literal with a placeholder mixed in (`hunter2-${X}` is the whole secret once `X` resolves to nothing) | `validate` even without `-secrets`, `plan`, `apply` | `infra/providers/x.yaml: x: client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest` |
 
 `plan` and `apply` run these before any secret is decrypted and before the Broker is contacted, and the literal-secret failure ends with how many providers are affected and which source to move the values into. The literal value itself is never printed. A SOPS file that was never encrypted is caught earlier still: decryption reports that it has no SOPS metadata, so renaming a plaintext file to `.enc.yaml` does not get it past the policy.
 
-Two things are deliberately not policed. `client_id` is not a secret, although `plan` masks it. `params` is masked as a whole in every plan and in the Broker's audit log, but the CLI cannot know which of its keys are credentials for a given provider, so a literal under `params` is accepted; keep credentials there behind placeholders by convention.
+This is a policy on those three paths, not a scan for secrets. Two things are deliberately not policed. `client_id` is not a secret, although `plan` masks it. `params` is masked as a whole in every plan and in the Broker's audit log, but the CLI cannot know which of its keys are credentials for a given provider, so a literal under `params` is accepted; keep credentials there behind placeholders by convention.
 
 Where to turn it on:
 
@@ -431,7 +433,7 @@ Whichever you choose, the plaintext patterns belong in `.gitignore` regardless, 
 
 ## What the CLI guarantees about the plaintext
 
-- Decryption happens in memory, through the SOPS library; no temporary file, no subprocess, nothing written to disk.
+- The CLI decrypts in memory, through the SOPS library: no temporary file, no subprocess, nothing written to disk. (`sops edit` is the exception, by design of editing: a transient plaintext temp file that `sops` deletes afterwards, see Step 6.)
 - Only the placeholders the provider files use are taken from the decrypted content; the rest is dropped.
 - `plan` masks `client_secret`, `client_id`, the whole of `params`, and every other field that held a placeholder in the manifest, on both sides of a diff, as `*** → ***`.
 - Every validation message is passed through a redaction step that replaces any resolved value with its placeholder, including values a YAML decoder would otherwise quote in a type error and quoted scalars it would truncate.
