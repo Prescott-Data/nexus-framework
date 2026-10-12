@@ -112,7 +112,7 @@ Use `-prune` with care: deleting a provider orphans every connection tied to it.
 
 ### `version`
 
-Prints the CLI version (`dev` for a plain `go build`; the framework version for `make cli` and released binaries).
+Prints the CLI version: the module version for a `go install ...@vX.Y.Z` binary, the framework version for `make cli`, `dev` for a plain `go build` in a checkout.
 
 ---
 

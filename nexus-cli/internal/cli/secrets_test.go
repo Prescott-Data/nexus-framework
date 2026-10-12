@@ -75,8 +75,8 @@ func TestSopsSource_FormatsAndScalars(t *testing.T) {
 		path, plain string
 		want        map[string]string
 	}{
-		{"s.yaml", "A: one\nB: 2\nC: true\nD:\nsops: {version: 3}\n", map[string]string{"A": "one", "B": "2", "C": "true", "D": ""}},
-		{"s.json", `{"A":"one","B":2,"sops":{"version":"3"}}`, map[string]string{"A": "one", "B": "2"}},
+		{"s.yaml", "A: one\nB: 2\nC: true\nD:\nBIG: 9007199254740993\nLEAD: 0012\nsops: {version: 3}\n", map[string]string{"A": "one", "B": "2", "C": "true", "D": "", "BIG": "9007199254740993", "LEAD": "0012"}},
+		{"s.json", `{"A":"one","B":2,"BIG":9007199254740993,"F":1.50,"sops":{"version":"3"}}`, map[string]string{"A": "one", "B": "2", "BIG": "9007199254740993", "F": "1.50"}},
 		{"s.env", "# comment\nA=one\nB=\"two\"\nsops_version=3.8\n", map[string]string{"A": "one", "B": "two"}},
 	}
 	for _, c := range cases {

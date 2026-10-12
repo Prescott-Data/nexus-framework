@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -148,23 +149,43 @@ func sopsFormat(path string) (string, error) {
 func parseSecretsFile(plain []byte, format string) (map[string]string, error) {
 	out := map[string]string{}
 	switch format {
-	case "yaml", "json":
-		var raw map[string]interface{}
-		if format == "yaml" {
-			if err := yaml.Unmarshal(plain, &raw); err != nil {
-				return nil, fmt.Errorf("parse decrypted content: %w", err)
+	case "yaml":
+		// Decode to nodes and take each scalar's original text, so a numeric
+		// secret such as 9007199254740993 is never rounded through a float.
+		var raw map[string]yaml.Node
+		if err := yaml.Unmarshal(plain, &raw); err != nil {
+			return nil, fmt.Errorf("parse decrypted content: %w", err)
+		}
+		for k, n := range raw {
+			if k == "sops" { // metadata block, present when a file was decrypted in place
+				continue
 			}
-		} else if err := json.Unmarshal(plain, &raw); err != nil {
+			switch {
+			case n.Kind == yaml.ScalarNode && n.Tag == "!!null":
+				out[k] = ""
+			case n.Kind == yaml.ScalarNode:
+				out[k] = n.Value
+			default:
+				return nil, fmt.Errorf("key %q: value must be a scalar", k)
+			}
+		}
+	case "json":
+		dec := json.NewDecoder(bytes.NewReader(plain))
+		dec.UseNumber() // keep a number's text; float64 would round large ints
+		var raw map[string]interface{}
+		if err := dec.Decode(&raw); err != nil {
 			return nil, fmt.Errorf("parse decrypted content: %w", err)
 		}
 		for k, v := range raw {
-			if k == "sops" { // metadata block, present when a file was decrypted in place
+			if k == "sops" {
 				continue
 			}
 			switch val := v.(type) {
 			case string:
 				out[k] = val
-			case bool, int, int64, float64:
+			case json.Number:
+				out[k] = val.String()
+			case bool:
 				out[k] = fmt.Sprint(val)
 			case nil:
 				out[k] = ""

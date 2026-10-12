@@ -8,10 +8,25 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
+	"strings"
 )
 
-// Version is stamped at build time (make cli); "dev" for a plain go build.
+// Version is stamped at build time (make cli). A binary from
+// `go install ...@vX.Y.Z` reports that module version through build info;
+// a plain go build in a checkout reports "dev".
 var Version = "dev"
+
+func init() {
+	if Version != "dev" {
+		return
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if v := strings.TrimPrefix(info.Main.Version, "v"); v != "" && v != "(devel)" {
+			Version = v
+		}
+	}
+}
 
 const usageText = `Usage: nexus <command> [flags]
 
