@@ -90,7 +90,7 @@ Read 3 providers from providers/ (3 files)
 Plan complete. Run 'nexus apply' to perform these actions.
 ```
 
-`client_secret` and `client_id` are always masked, and so is any field that held a placeholder in the manifest, whatever its name: a `params` map with `webhook_secret: ${WEBHOOK_SECRET}` prints as `params: *** → ***`. The Broker's audit log masks every value under `params` too, keeping only the keys. Providers are listed in manifest order, orphans in name order.
+`client_secret`, `client_id` and `params` are always masked (`params` may hold a credential for a static provider, and the live value is a secret even when the manifest now sets a literal), and so is any other field that held a placeholder in the manifest, whatever its name. A changed `params` prints as `params: *** → ***`. The Broker's audit log masks every value under `params` too, keeping only the keys. Providers are listed in manifest order, orphans in name order.
 
 ---
 

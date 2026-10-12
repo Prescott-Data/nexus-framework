@@ -439,11 +439,14 @@ func readSummary(l loaded, path string) string {
 }
 
 // isSecretField returns true for fields that are always masked in plan
-// output. A field that held a placeholder in the manifest is masked as well
-// (loaded.Sensitive), whatever its name.
+// output: the OAuth credentials, and params, which may hold a credential
+// for a static provider on either side of the diff (the live value is a
+// secret even when the manifest now sets a literal). A field that held a
+// placeholder in the manifest is masked as well (loaded.Sensitive),
+// whatever its name.
 func isSecretField(field string) bool {
 	switch field {
-	case "client_secret", "client_id":
+	case "client_secret", "client_id", "params":
 		return true
 	}
 	return false

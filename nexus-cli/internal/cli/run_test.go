@@ -148,6 +148,21 @@ func TestPlan_ReportsCreateUpdateOrphanWithoutMutating(t *testing.T) {
 			t.Errorf("plan output leaks %q:\n%s", secret, out.String())
 		}
 	}
+	// A literal now replacing the placeholder: the live value is still a
+	// secret and params stays masked.
+	literal := writeFiles(t, map[string]string{"m.yaml": strings.Replace(planManifest, "${WH_SECRET}", "typed-in-plain", 1)})
+	out.Reset()
+	if code := run([]string{"plan", "-file", filepath.Join(literal, "m.yaml")}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("exit = %d; err=%s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "~ UPDATE : hooks\n    params: *** → ***") {
+		t.Fatalf("params must stay masked for a literal value:\n%s", out.String())
+	}
+	for _, secret := range []string{"old-hook-secret", "typed-in-plain"} {
+		if strings.Contains(out.String(), secret) {
+			t.Errorf("plan output leaks %q:\n%s", secret, out.String())
+		}
+	}
 	if len(b.mutations) != 0 {
 		t.Fatalf("plan must not mutate, got %v", b.mutations)
 	}
