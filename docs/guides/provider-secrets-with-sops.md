@@ -56,7 +56,7 @@ Secret Manager remains a good source when a team already keeps provider credenti
 ## Prerequisites
 
 - **sops 3.9 or later**, for the `sops encrypt` / `sops edit` subcommands used here (older releases spell them `sops -e` and plain `sops`). `brew install sops`, `apt install sops` on recent Debian and Ubuntu, or a binary from the [releases page](https://github.com/getsops/sops/releases). `sops --version` must print 3.9.0 or higher.
-- **The `nexus` CLI** 0.6.6 or later: `go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@latest`. The CLI links the SOPS library, so it decrypts without shelling out and without `sops` on the machine that runs `plan`; only editing needs the binary.
+- **The `nexus` CLI** 0.6.7 or later: `go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@latest`. The CLI links the SOPS library, so it decrypts without shelling out and without `sops` on the machine that runs `plan`; only editing needs the binary.
 - **A key**, chosen in the next section, and the credentials to use it from the machine that runs `plan` and `apply`.
 - **A Broker** reachable as `BROKER_BASE_URL` with its `API_KEY`, for `plan` and `apply`. `validate` needs neither.
 
@@ -335,7 +335,7 @@ export NEXUS_REQUIRE_ENCRYPTED_SECRETS=true
 | Environment fallback: a placeholder missing from the file is unresolved even when the shell exports it | `validate -secrets`, `plan`, `apply` | `${NEXUS_PROVIDER_X_CLIENT_SECRET}: not found (looked for key NEXUS_PROVIDER_X_CLIENT_SECRET in infra/secrets.enc.yaml)`, with no "then environment variable" clause |
 | A `client_secret` that is not exactly one `${PLACEHOLDER}`: a literal, or a literal with a placeholder mixed in (`hunter2-${X}` is the whole secret once `X` resolves to nothing) | `validate` even without `-secrets`, `plan`, `apply` | `infra/providers/x.yaml: x: client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest` |
 
-`plan` and `apply` run these before any secret is decrypted and before the Broker is contacted, and the literal-secret failure ends with how many providers are affected and which source to move the values into. The literal value itself is never printed. A SOPS file that was never encrypted is caught earlier still: decryption reports that it has no SOPS metadata, so renaming a plaintext file to `.enc.yaml` does not get it past the policy. And because SOPS can be told to leave chosen keys in plaintext (`unencrypted_suffix`, `unencrypted_regex`, `encrypted_regex` in `.sops.yaml` or on the command line), the file is also inspected as stored: any value the manifest asks for that is not an `ENC[...]` ciphertext stops the run, by key name only.
+`plan` and `apply` run these before any secret is decrypted and before the Broker is contacted, and the literal-secret failure ends with how many providers are affected and which source to move the values into. The literal value itself is never printed. A SOPS file that was never encrypted is caught earlier still: decryption reports that it has no SOPS metadata, so renaming a plaintext file to `.enc.yaml` does not get it past the policy. And because SOPS can be told to leave chosen keys in plaintext (`unencrypted_suffix`, `unencrypted_regex`, `encrypted_regex` in `.sops.yaml` or on the command line), the file as stored is also compared with what it decrypts to: SOPS leaves an unencrypted value untouched, so any requested value that is stored exactly as it decrypts was never encrypted (a literal that happens to start with `ENC[` included), and the run stops, by key name only.
 
 "Exactly one" is judged on the value as written, with the grammar the manifest is expanded with: any non-empty braced name counts, and text or whitespace around the placeholder (including whitespace kept by quoting) makes it partly literal. This is a policy on those three paths, not a scan for secrets. Two things are deliberately not policed. `client_id` is not a secret, although `plan` masks it. `params` is masked as a whole in every plan and in the Broker's audit log, but the CLI cannot know which of its keys are credentials for a given provider, so a literal under `params` is accepted; keep credentials there behind placeholders by convention.
 
@@ -372,7 +372,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: "1.22" }
-      - run: go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@v0.6.6
+      - run: go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@v0.6.7
       - run: nexus validate -file infra/providers      # shape, duplicates, no literal secrets
 
   # Only on push to main, only in a protected environment. The one job that can decrypt.
@@ -388,7 +388,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: "1.22" }
-      - run: go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@v0.6.6
+      - run: go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@v0.6.7
       - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/123456789/locations/global/workloadIdentityPools/github/providers/github
@@ -404,12 +404,13 @@ jobs:
 The workflow alone is not the control; the cloud side must refuse a token from anywhere else. On the Workload Identity Federation provider, set an attribute condition that pins the repository **and** the ref or environment, so that a token minted by a pull request, a fork, or a copy of this workflow on another branch cannot impersonate the service account even if the YAML is identical:
 
 ```
-assertion.repository == "my-org/my-repo" && assertion.ref == "refs/heads/main"
-# or, binding to the protected environment instead of the branch:
-assertion.repository == "my-org/my-repo" && assertion.environment == "nexus-plan"
+# bound to the branch:
+assertion.sub == "repo:my-org/my-repo:ref:refs/heads/main"
+# or bound to the protected environment (a job that declares `environment:` gets this sub instead of the ref form):
+assertion.sub == "repo:my-org/my-repo:environment:nexus-plan"
 ```
 
-Map `attribute.repository` and `attribute.ref` (or `attribute.environment`) from the token's claims when you create the provider, and bind the service account to the pool with a principalSet that names the repository. The service account itself needs only `roles/cloudkms.cryptoKeyDecrypter` on the key: `plan` decrypts and never encrypts, so CI should not be able to re-encrypt the file. People who edit it get `roles/cloudkms.cryptoKeyEncrypterDecrypter`. The only Actions secrets are the Broker's URL and API key; the provider secrets never leave the file.
+GitHub's token has no separate environment claim; the environment, or otherwise the ref, is encoded in the standard `sub` claim, which is why the condition compares `assertion.sub`. Map `google.subject` from `assertion.sub` and `attribute.repository` from `assertion.repository` when you create the provider, and bind the service account to the pool with a principalSet that names the repository. The service account itself needs only `roles/cloudkms.cryptoKeyDecrypter` on the key: `plan` decrypts and never encrypts, so CI should not be able to re-encrypt the file. People who edit it get `roles/cloudkms.cryptoKeyEncrypterDecrypter`. The only Actions secrets are the Broker's URL and API key; the provider secrets never leave the file.
 
 If reviewers want to see the plan before merging rather than after, run it from an operator's machine and paste the masked output into the pull request. A `pull_request` job that can decrypt is not a safe shortcut to that, and `pull_request_target` with a checkout of the PR head is worse.
 
@@ -499,6 +500,6 @@ What the CLI cannot do is protect a machine that is already compromised while `p
 | The editor opens and shows `ENC[...]` strings | You opened the file directly, not through `sops edit` | `sops edit infra/secrets.enc.yaml` |
 | `sops edit` returns at once and nothing changed | A GUI editor that does not block | `EDITOR="code --wait"` (or the editor's equivalent) |
 | `-require-encrypted-secrets: -secrets is "env"` on `plan` | `NEXUS_SECRETS` is unset and no `-secrets` was passed, so the default `env` source was selected | Pass `-secrets sops:…` or export `NEXUS_SECRETS` |
-| `-require-encrypted-secrets: N value(s) are stored in plaintext in …: KEY` | A SOPS `unencrypted_suffix` / `unencrypted_regex` / `encrypted_regex` rule left that key in plaintext in the file | Remove the rule (or rename the key so it no longer matches), then decrypt and re-encrypt: `sops decrypt infra/secrets.enc.yaml > "$TMP/secrets.yaml"` in a private temp dir, `sops encrypt --filename-override infra/secrets.enc.yaml --output infra/secrets.enc.yaml "$TMP/secrets.yaml"`, remove the temp dir. `sops updatekeys` is not enough: it changes recipients, not which values are encrypted |
+| `-require-encrypted-secrets: N value(s) are stored in plaintext in …: KEY` | A SOPS `unencrypted_suffix` / `unencrypted_regex` / `encrypted_regex` rule left that key in plaintext in the file | Remove the rule (or rename the key so it no longer matches), then decrypt and re-encrypt: `sops decrypt infra/secrets.enc.yaml > "$TMP/secrets.yaml"` in a private temp dir, `sops encrypt --filename-override infra/secrets.enc.yaml --output infra/secrets.enc.yaml "$TMP/secrets.yaml"`, remove the temp dir. `sops updatekeys` is not enough: it changes recipients, not which values are encrypted. The check is "stored value equals decrypted value", so the value must actually change under encryption |
 | `plan` shows `client_secret: *** → ***` for a provider you did not rotate | The Broker's stored secret differs from the file (someone rotated through the API, or the file is stale) | Decide which is right; `apply` sends the file's value, so update the file first if the Broker is right |
 | `plan` is silent after a rotation for an old provider | The provider has no fingerprint yet (registered before 0.6.4) | Rotate once with `PATCH /providers/{id}`, or wait for the Broker to use the secret; from then on `plan` compares it |

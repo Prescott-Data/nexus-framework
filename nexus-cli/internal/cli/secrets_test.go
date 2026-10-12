@@ -286,6 +286,15 @@ func TestSopsSource_RequireCiphertextRefusesPlaintextValues(t *testing.T) {
 	if got, err := src.Resolve(context.Background(), []string{"ID", "NOWHERE"}); err != nil || got["ID"] != "id" {
 		t.Fatalf("got %v, %v", got, err)
 	}
+	// A value that merely looks like ciphertext is not: SOPS left it
+	// untouched, so it decrypts to itself, and that is the test.
+	shaped := writeCiphertextFile(t, "shaped.enc.yaml", []string{"ID"}, map[string]string{"SECRET_unencrypted": "ENC[plain-but-not-encrypted]"})
+	sh := &sopsSource{path: shaped, decryptFile: func(string, string) ([]byte, error) {
+		return []byte("ID: id\nSECRET_unencrypted: ENC[plain-but-not-encrypted]\n"), nil
+	}, requireCiphertext: true}
+	if _, err := sh.Resolve(context.Background(), []string{"ID", "SECRET_unencrypted"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET_unencrypted") {
+		t.Fatalf("ciphertext-shaped literal: %v", err)
+	}
 	// Same rule for the other formats.
 	jsonPath := filepath.Join(writeFiles(t, map[string]string{"s.enc.json": `{"ID":"ENC[AES256_GCM,data:a,type:str]","SECRET":"plain","NUM":9007199254740993,"FLAG":true,"NONE":null,"sops":{"version":"3.13.3"}}`}), "s.enc.json")
 	js := &sopsSource{path: jsonPath, decryptFile: func(string, string) ([]byte, error) {

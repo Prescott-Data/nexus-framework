@@ -12,6 +12,21 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## 0.6.7 <span class="changelog-date">2026-10-12</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.7" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Fixed**
+
+- **`-require-encrypted-secrets` no longer trusts an `ENC[` prefix.** A value SOPS left unencrypted (`unencrypted_suffix`, `unencrypted_regex`, `encrypted_regex`) is returned verbatim on decryption, so a literal that happened to start with `ENC[` passed 0.6.6's check. A requested value now counts as unencrypted when the file as stored holds it exactly as it decrypts, which is what "never encrypted" means whatever the value looks like; an encrypted value can never equal its own ciphertext. The stored file is parsed with the same scalar-to-text mapping as the decrypted one, so a JSON number, boolean or null compares by its text.
+- The SOPS guide's Workload Identity Federation condition for a protected environment compared a claim GitHub's token does not carry; it now compares `assertion.sub` in both its branch (`repo:ORG/REPO:ref:refs/heads/main`) and environment (`repo:ORG/REPO:environment:NAME`) forms.
+
+</div>
+
+<div class="changelog-release" markdown>
+
 ## 0.6.6 <span class="changelog-date">2026-10-12</span>
 
 <div class="changelog-meta" markdown>

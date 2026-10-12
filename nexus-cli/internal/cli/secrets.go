@@ -137,19 +137,6 @@ func (s *sopsSource) Resolve(_ context.Context, names []string) (map[string]stri
 	if err != nil {
 		return nil, err
 	}
-	if s.requireCiphertext {
-		raw, err := os.ReadFile(s.path)
-		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", s.path, err)
-		}
-		plain, err := plaintextKeys(raw, format, names)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", s.path, err)
-		}
-		if len(plain) > 0 {
-			return nil, fmt.Errorf("-require-encrypted-secrets: %d value(s) are stored in plaintext in %s (left unencrypted by a SOPS unencrypted_suffix, unencrypted_regex or encrypted_regex rule): %s", len(plain), s.path, strings.Join(plain, ", "))
-		}
-	}
 	dec := s.decryptFile
 	if dec == nil {
 		dec = sopsDecrypt
@@ -161,6 +148,19 @@ func (s *sopsSource) Resolve(_ context.Context, names []string) (map[string]stri
 	all, err := parseSecretsFile(plain, format)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", s.path, err)
+	}
+	if s.requireCiphertext {
+		raw, err := os.ReadFile(s.path)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", s.path, err)
+		}
+		unenc, err := unencryptedKeys(raw, format, names, all)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", s.path, err)
+		}
+		if len(unenc) > 0 {
+			return nil, fmt.Errorf("-require-encrypted-secrets: %d value(s) are stored in plaintext in %s (left unencrypted by a SOPS unencrypted_suffix, unencrypted_regex or encrypted_regex rule): %s", len(unenc), s.path, strings.Join(unenc, ", "))
+		}
 	}
 	out := make(map[string]string, len(names))
 	for _, n := range names {
@@ -181,58 +181,31 @@ func (s *sopsSource) Encrypted() bool { return true }
 // the commands end to end without a key.
 var sopsDecrypt = decrypt.File
 
-// plaintextKeys reads the SOPS file as stored, before decryption, and
-// returns the requested names whose value is present but is not a SOPS
-// ciphertext (ENC[...]). Names only: a plaintext value found here is
-// exactly what must never be printed. A name absent from the file is not
-// reported; it is unresolved and reported as such later.
-func plaintextKeys(raw []byte, format string, names []string) ([]string, error) {
-	stored := map[string]string{}
-	switch format {
-	case "yaml":
-		var doc map[string]yaml.Node
-		if err := yaml.Unmarshal(raw, &doc); err != nil {
-			return nil, fmt.Errorf("parse stored content: %w", err)
-		}
-		for k, n := range doc {
-			if k != "sops" && n.Kind == yaml.ScalarNode {
-				stored[k] = n.Value
-			}
-		}
-	case "json":
-		var doc map[string]interface{}
-		if err := json.Unmarshal(raw, &doc); err != nil {
-			return nil, fmt.Errorf("parse stored content: %w", err)
-		}
-		for k, v := range doc {
-			if k == "sops" {
-				continue
-			}
-			// A number, boolean or null is accepted by the decrypted parser
-			// as a value, so stored that way it is plaintext: record it as
-			// a non-ciphertext string.
-			if s, ok := v.(string); ok {
-				stored[k] = s
-			} else {
-				stored[k] = ""
-			}
-		}
-	case "dotenv":
-		for _, line := range strings.Split(string(raw), "\n") {
-			if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok && !strings.HasPrefix(k, "#") && !strings.HasPrefix(k, "sops_") {
-				stored[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
-			}
-		}
-	default:
-		return nil, fmt.Errorf("unsupported format %q", format)
+// unencryptedKeys returns the requested names whose value in the file as
+// stored is identical to what decryption yielded. SOPS leaves a value it
+// did not encrypt (unencrypted_suffix, unencrypted_regex, encrypted_regex)
+// untouched, so "stored == decrypted" is exactly "was never encrypted",
+// whatever the value looks like: a literal that happens to start with
+// ENC[ is caught the same as any other. An encrypted value never equals
+// its ciphertext. The stored file is parsed with the same scalar-to-text
+// mapping as the decrypted one, so a number, boolean or null compares by
+// its text. Names only are returned: a value found here is exactly what
+// must never be printed. A name absent from the file is not reported; it
+// is unresolved and reported as such later.
+func unencryptedKeys(raw []byte, format string, names []string, decrypted map[string]string) ([]string, error) {
+	stored, err := parseSecretsFile(raw, format)
+	if err != nil {
+		return nil, fmt.Errorf("parse stored content: %w", err)
 	}
-	var plain []string
+	var unenc []string
 	for _, n := range names {
-		if v, ok := stored[n]; ok && !strings.HasPrefix(v, "ENC[") {
-			plain = append(plain, n)
+		if sv, ok := stored[n]; ok {
+			if dv, ok := decrypted[n]; ok && sv == dv {
+				unenc = append(unenc, n)
+			}
 		}
 	}
-	return plain, nil
+	return unenc, nil
 }
 
 // sopsFormat maps a file extension to the SOPS input format.
