@@ -180,6 +180,17 @@ providers:
 	}
 }
 
+func TestValidate_URLErrorDoesNotEchoTheValue(t *testing.T) {
+	l := load(t, "providers:\n  - name: s\n    auth_type: saml\n    saml_idp_entity_id: e\n    saml_sp_entity_id: sp\n    saml_idp_x509_cert: x\n    saml_idp_sso_url: \"https://user:s3cret-token@sso.example.com/\\x7f\"\n")
+	got := strings.Join(messages(validateManifest(l)), "\n")
+	if !strings.Contains(got, "saml_idp_sso_url is invalid: ") {
+		t.Fatalf("want an invalid-URL message, got:\n%s", got)
+	}
+	if strings.Contains(got, "s3cret-token") || strings.Contains(got, "sso.example.com") {
+		t.Fatalf("message echoes the URL:\n%s", got)
+	}
+}
+
 func TestRunValidate_IgnoresNexusSecretsEnv(t *testing.T) {
 	// $NEXUS_SECRETS must not make validate decrypt or contact anything.
 	dir := writeFiles(t, map[string]string{"github.yaml": githubFile})

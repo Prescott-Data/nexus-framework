@@ -185,7 +185,9 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 			}
 
 			var fullProfile map[string]interface{}
-			if err := json.NewDecoder(respProfile.Body).Decode(&fullProfile); err != nil {
+			profileDec := json.NewDecoder(respProfile.Body)
+			profileDec.UseNumber() // compare numbers by their text, like the manifest side
+			if err := profileDec.Decode(&fullProfile); err != nil {
 				mu.Lock()
 				fetchErr = fmt.Errorf("failed to decode profile for %s: %w", name, err)
 				mu.Unlock()

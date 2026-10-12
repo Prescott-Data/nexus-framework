@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,8 +22,12 @@ func computeDrift(desired Provider, live map[string]interface{}) (bool, map[stri
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to marshal desired provider: %w", err)
 	}
+	// UseNumber keeps a number's exact text (a 16-digit id would otherwise
+	// round through float64 and be sent back changed).
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
 	var desiredMap map[string]interface{}
-	if err := json.Unmarshal(b, &desiredMap); err != nil {
+	if err := dec.Decode(&desiredMap); err != nil {
 		return false, nil, fmt.Errorf("failed to unmarshal desired provider: %w", err)
 	}
 

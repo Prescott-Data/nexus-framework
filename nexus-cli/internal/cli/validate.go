@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -125,6 +126,12 @@ func isPlaceholder(v string) bool { return strings.Contains(v, "${") }
 func checkHTTPURL(name, raw string) string {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
+		// *url.Error prints the whole input; the value may be a resolved
+		// secret, so report only the underlying reason.
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
 		return fmt.Sprintf("%s is invalid: %v", name, err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {

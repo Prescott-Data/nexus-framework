@@ -299,6 +299,26 @@ func TestRun_BadFlagIsUsageError(t *testing.T) {
 	}
 }
 
+func TestDrift_KeepsLargeNumbersExact(t *testing.T) {
+	// A manifest `account_id: ${ID}` resolving to 9007199254740993 is
+	// retyped to an int; it must reach the Broker unchanged.
+	live := map[string]interface{}{"id": "x", "name": "p", "enable_discovery": false, "scopes": []interface{}{},
+		"params": map[string]interface{}{"account_id": json.Number("9007199254740991")}}
+	desired := Provider{Name: "p", Params: map[string]interface{}{"account_id": int64(9007199254740993)}}
+	_, updates, err := computeDrift(desired, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(updates)
+	if string(b) != `{"params":{"account_id":9007199254740993}}` {
+		t.Fatalf("update payload = %s, want the exact integer", b)
+	}
+	live["params"] = map[string]interface{}{"account_id": json.Number("9007199254740993")}
+	if drifted, _, _ := computeDrift(desired, live); drifted {
+		t.Fatal("equal large numbers must not drift")
+	}
+}
+
 func TestDrift_ExplicitEmptyClearsOmittedLeavesAlone(t *testing.T) {
 	live := map[string]interface{}{"id": "x", "name": "p", "description": "old", "category": "crm", "enable_discovery": false, "scopes": []interface{}{}}
 	empty := ""

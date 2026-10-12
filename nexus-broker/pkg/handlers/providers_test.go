@@ -262,6 +262,13 @@ func TestPatchProvider_AuditRedactsSecrets(t *testing.T) {
 	updates := map[string]interface{}{
 		"auth_url":      "https://new.example.com/auth",
 		"client_secret": "super-secret-value",
+		"params": map[string]interface{}{
+			"webhook_secret": "whsec_plaintext",
+			"credential_schema": map[string]interface{}{
+				"required": []interface{}{"api_key"},
+				"nested":   map[string]interface{}{"token": "t0k3n"},
+			},
+		},
 	}
 	jsonBody, _ := json.Marshal(updates)
 
@@ -288,6 +295,24 @@ func TestPatchProvider_AuditRedactsSecrets(t *testing.T) {
 		// non-secret fields should be passed through
 		if updates["auth_url"] != "https://new.example.com/auth" {
 			return false
+		}
+		// params keeps its shape, every scalar under it is masked
+		params, ok := updates["params"].(map[string]interface{})
+		if !ok || params["webhook_secret"] != "[REDACTED]" {
+			return false
+		}
+		schema := params["credential_schema"].(map[string]interface{})
+		if schema["required"].([]interface{})[0] != "[REDACTED]" {
+			return false
+		}
+		if schema["nested"].(map[string]interface{})["token"] != "[REDACTED]" {
+			return false
+		}
+		serialised, _ := json.Marshal(data)
+		for _, leaked := range []string{"whsec_plaintext", "t0k3n", "api_key", "super-secret-value"} {
+			if bytes.Contains(serialised, []byte(leaked)) {
+				return false
+			}
 		}
 		return true
 	}), mock.AnythingOfType("*http.Request"))

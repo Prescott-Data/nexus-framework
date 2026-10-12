@@ -9,7 +9,8 @@ icon: material/console
 ## Install
 
 ```bash
-# With Go (binary is named nexus)
+# With Go (binary is named nexus). Pin a release or take the latest.
+go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@v0.6.5
 go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@latest
 
 # From a checkout, stamped with the framework version
@@ -89,7 +90,7 @@ Read 3 providers from providers/ (3 files)
 Plan complete. Run 'nexus apply' to perform these actions.
 ```
 
-`client_secret` and `client_id` are always masked, and so is any field that held a placeholder in the manifest, whatever its name: a `params` map with `webhook_secret: ${WEBHOOK_SECRET}` prints as `params: *** → ***`. Providers are listed in manifest order, orphans in name order.
+`client_secret` and `client_id` are always masked, and so is any field that held a placeholder in the manifest, whatever its name: a `params` map with `webhook_secret: ${WEBHOOK_SECRET}` prints as `params: *** → ***`. The Broker's audit log masks every value under `params` too, keeping only the keys. Providers are listed in manifest order, orphans in name order.
 
 ---
 
@@ -112,7 +113,7 @@ Use `-prune` with care: deleting a provider orphans every connection tied to it.
 
 ### `version`
 
-Prints the CLI version: the module version for a `go install ...@vX.Y.Z` binary, the framework version for `make cli`, `dev` for a plain `go build` in a checkout.
+Prints the CLI version: the module version for a `go install ...@vX.Y.Z` binary (the release workflow publishes the module tag `nexus-cli/vX.Y.Z` with every release from 0.6.5 on), the framework version for `make cli`, `dev` for a plain `go build` in a checkout.
 
 ---
 
