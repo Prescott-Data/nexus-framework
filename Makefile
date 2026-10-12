@@ -1,6 +1,6 @@
 # Nexus Framework - Root Makefile
 
-.PHONY: up down restart logs build test clean stamp check-version version
+.PHONY: up down restart logs build test clean stamp check-version version cli
 
 # Single source of truth for the framework version. Every build and spec
 # derives from this file so a bump propagates from one place.
@@ -37,6 +37,10 @@ logs:
 # Build images without starting
 build:
 	docker-compose build
+
+# Build the nexus CLI into nexus-cli/nexus, stamped with VERSION
+cli:
+	(cd nexus-cli && go build -ldflags "-X github.com/Prescott-Data/nexus-framework/nexus-cli/internal/cli.Version=$(VERSION)" -o nexus ./cmd/nexus)
 
 # Run all unit + contract tests (no Docker required)
 test:

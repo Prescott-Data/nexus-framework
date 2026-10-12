@@ -94,6 +94,29 @@ func (h *ProvidersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// redactLeaves replaces every scalar in a JSON value with "[REDACTED]",
+// keeping the shape (object keys, array lengths).
+func redactLeaves(v interface{}) interface{} {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(val))
+		for k, inner := range val {
+			out[k] = redactLeaves(inner)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(val))
+		for i, inner := range val {
+			out[i] = redactLeaves(inner)
+		}
+		return out
+	case nil:
+		return nil
+	default:
+		return "[REDACTED]"
+	}
+}
+
 // Patch handles PATCH /providers/{id} to update specific fields of a provider profile
 func (h *ProvidersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
@@ -104,7 +127,9 @@ func (h *ProvidersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var updates map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.UseNumber() // a large integer in params must reach the row as written, not rounded through float64
+	if err := dec.Decode(&updates); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "invalid_json", "Invalid JSON")
 		return
 	}
@@ -115,12 +140,17 @@ func (h *ProvidersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.audit != nil {
-		// Redact sensitive fields — log only field names for credentials
+		// Redact sensitive fields — log only field names for credentials.
+		// params may carry credentials for static providers (an API key, a
+		// webhook secret), so its values are masked too; its keys are kept
+		// so the audit row still says which parameters changed.
 		redactedUpdates := make(map[string]interface{})
 		for k, v := range updates {
 			switch k {
 			case "client_secret", "client_id":
 				redactedUpdates[k] = "[REDACTED]"
+			case "params":
+				redactedUpdates[k] = redactLeaves(v)
 			default:
 				redactedUpdates[k] = v
 			}

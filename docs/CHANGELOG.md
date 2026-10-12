@@ -12,7 +12,41 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
-## 0.6.4 <span class="changelog-date">2026-10-13</span>
+## 0.6.5 <span class="changelog-date">2026-10-12</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.5" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Added**
+
+- **The CLI is now `nexus`.** `go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@latest` (or `make cli`) builds a binary named `nexus`, so the commands read `nexus plan`, `nexus apply`, `nexus validate` and `nexus version`. The code moved into `nexus-cli/internal/cli`; the module path is unchanged.
+- **A directory of provider files is a manifest.** `-file` may name a directory holding one provider per `<name>.yaml`, which `plan`, `apply` and `validate` assemble in file-name order the way Terraform reads every `.tf` in a directory. A file whose `name` does not match its file name, a name defined twice, or a file that is not a single provider mapping is a hard error before anything reaches the Broker. Hidden files and non-YAML files are ignored.
+- **Secret sources.** `-secrets` (or `$NEXUS_SECRETS`) names where `${PLACEHOLDER}` values come from: `env` (the default, as before), `sops:<file>` (a SOPS-encrypted YAML, JSON or dotenv file mapping placeholder to value, decrypted in memory with the keys the process can reach, such as Google Cloud KMS through application default credentials) or `gcp-secret-manager:<project>` (one Secret Manager secret per placeholder, latest version, read concurrently; the id is the placeholder without `NEXUS_PROVIDER_`, lower-cased with `-`, behind `-secret-prefix`). Only the placeholders the manifest uses are fetched. A placeholder the source does not hold falls back to the environment, and anything still unresolved is listed by name. No wrapper script is needed to run the CLI against a hosted deployment.
+- **`nexus validate`** checks a manifest offline with the Broker's own registration rules: provider name format, the required fields for `oauth2` (including the discovery/issuer rules), `saml` and the static auth types, unsupported `auth_type` values and duplicate names, each attributed to its file. Placeholders count as present, so it runs in a pull request without secrets; with `-secrets` it resolves every placeholder and runs the same rules on the expanded manifest, so an empty secret or a malformed resolved value fails validate the way it would fail apply. `plan` and `apply` run the same checks before contacting the Broker.
+- **SAML providers can be managed from a manifest** (`saml_idp_entity_id`, `saml_idp_sso_url`, `saml_idp_x509_cert`, `saml_sp_entity_id`); `validate` applies the Broker's URL and X.509 format rules to them.
+- **Strict manifests.** A manifest whose root is not a `providers` list (a typo such as `provider:`, an empty file, a provider file passed as a manifest), a provider with a field the CLI does not know, or a file holding more than one YAML document is rejected with a line number instead of decoding to fewer providers than written, which `apply -prune` would have acted on.
+- **Plan output masks `params` always, and every other field that held a placeholder**, not only `client_id` and `client_secret`, so a secret under `params` is never written to a terminal or CI log on either side of the diff. The Broker's `provider.updated` audit event masks every value under `params` as well, keeping the keys, so a credential sent in `params` is not persisted in the audit table.
+- **Numbers survive the round trip.** Drift compares and sends numbers by their exact text, and the Broker's `PATCH /providers/{id}` decodes them the same way, so a 16-digit id in `params` is not rounded through a float on either side.
+- **Resolved values never appear in messages.** A YAML type error or a validation finding that would quote a value which came from a secret source shows the `${PLACEHOLDER}` instead. YAML aliases (`*anchor`) are followed when deciding which fields are sensitive, so a secret anchored on one field and aliased into another is masked under both.
+- **The release workflow tags the CLI module** (`nexus-cli/vX.Y.Z` beside `vX.Y.Z`), so `go install .../nexus-cli/cmd/nexus@vX.Y.Z` resolves and the binary reports that version.
+- **`description` and `category` are manifest fields.** The CLI's provider type did not have them, so a manifest that set them registered a provider without them and `plan` never noticed; with the unknown-field check they would have been rejected instead. They are now sent, compared and shown as drift like any other field; omitting one leaves the live value alone, an explicit `""` clears it.
+- **`User-Agent: nexus-cli/<version>`** on every Broker request, so the audit log can tell CLI changes from manual API calls as the documentation already claimed.
+- **Failures name what was looked for.** An unresolved placeholder says which secret id and project, file key or environment variable was tried; `apply` ends with a list of every provider that failed and why.
+
+**Changed**
+
+- Orphans and updates are printed and applied in name order, so two runs of `plan` produce the same text.
+- A provider with no `scopes:` no longer drifts on every run: the manifest's missing list and the Broker's empty one are the same state, as an explicit `[]` against a missing value already was.
+- A manifest the Broker would reject now fails `plan` and `apply` up front with every problem listed, instead of one `400` per provider during apply.
+
+</div>
+
+---
+
+<div class="changelog-release" markdown>
+
+## 0.6.4 <span class="changelog-date">2026-10-12</span>
 
 <div class="changelog-meta" markdown>
 <a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.4" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
@@ -32,7 +66,7 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
-## 0.6.3 <span class="changelog-date">2026-10-13</span>
+## 0.6.3 <span class="changelog-date">2026-10-12</span>
 
 <div class="changelog-meta" markdown>
 <a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.3" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
@@ -50,7 +84,7 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
-## 0.6.2 <span class="changelog-date">2026-10-13</span>
+## 0.6.2 <span class="changelog-date">2026-10-12</span>
 
 <div class="changelog-meta" markdown>
 <a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.2" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
@@ -68,7 +102,7 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
-## 0.6.1 <span class="changelog-date">2026-10-13</span>
+## 0.6.1 <span class="changelog-date">2026-10-12</span>
 
 <div class="changelog-meta" markdown>
 <a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.1" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>

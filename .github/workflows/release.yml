@@ -10,7 +10,10 @@
 #
 # Nobody tags by hand. The VERSION file is the single source of truth, and
 # the "Release tags only via release workflow" ruleset blocks v* tags from
-# anyone but this workflow's deploy key and repository admins.
+# anyone but this workflow's deploy key and repository admins. The same
+# commit also gets nexus-cli/vX.Y.Z, the Go module tag for the CLI in its
+# subdirectory; extend the ruleset to nexus-cli/v* so it is equally
+# protected.
 #
 # The tag is pushed over SSH with the RELEASE_TAG_DEPLOY_KEY secret rather
 # than GITHUB_TOKEN, for two reasons: the token cannot bypass the tag
@@ -45,7 +48,11 @@ jobs:
           VERSION=$(cat VERSION | tr -d '[:space:]')
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "📦 Version: ${VERSION} → Tag: v${VERSION}"
+          # nexus-cli is its own Go module in a subdirectory, so a versioned
+          # `go install .../nexus-cli/cmd/nexus@vX.Y.Z` needs the
+          # module-prefixed tag nexus-cli/vX.Y.Z next to the repository tag.
+          echo "cli_tag=nexus-cli/v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "📦 Version: ${VERSION} → Tags: v${VERSION}, nexus-cli/v${VERSION}"
 
       - name: Verify every version surface agrees with VERSION
         run: make check-version
@@ -90,15 +97,20 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+          git tag -a "${{ steps.version.outputs.cli_tag }}" -m "nexus-cli module ${{ steps.version.outputs.tag }}"
+          # --atomic: both tags are published or neither is, so a release can
+          # never exist without its CLI module tag.
           GIT_SSH_COMMAND="ssh -i $key_file -o IdentitiesOnly=yes" \
-            git push "git@github.com:${GITHUB_REPOSITORY}.git" "${{ steps.version.outputs.tag }}"
+            git push --atomic "git@github.com:${GITHUB_REPOSITORY}.git" \
+              "${{ steps.version.outputs.tag }}" "${{ steps.version.outputs.cli_tag }}"
 
       - name: Generate release notes
         if: steps.check.outputs.exists == 'false'
         id: notes
         run: |
           # Get the previous tag
-          PREV_TAG=$(git tag --sort=-version:refname | grep -xv "${{ steps.version.outputs.tag }}" | head -1)
+          # Repository tags only; module tags such as nexus-cli/v0.6.5 are not releases.
+          PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]' | grep -xv "${{ steps.version.outputs.tag }}" | head -1)
           echo "Previous tag: ${PREV_TAG:-none}"
 
           if [ -n "$PREV_TAG" ]; then

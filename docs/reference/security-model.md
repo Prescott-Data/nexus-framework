@@ -63,7 +63,7 @@ Nexus maintains a tamper-evident **audit log** for all control-plane mutations. 
 This audit log is queryable via the [`GET /audit`](audit-log.md) endpoint and is the foundational building block for compliance, forensic analysis, and detecting unauthorized mutations.
 
 !!! tip "GitOps for Auditability"
-    For the strongest audit posture, use [`nexus-cli`](../guides/security-as-code.md) to manage providers declaratively. Every `nexus-cli apply` run goes through git history AND generates audit log entries — giving you two independent sources of truth.
+    For the strongest audit posture, use the [`nexus` CLI](../guides/security-as-code.md) to manage providers declaratively. Every `nexus apply` run goes through git history AND generates audit log entries — giving you two independent sources of truth.
 
 ---
 

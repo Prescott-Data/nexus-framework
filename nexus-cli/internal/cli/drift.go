@@ -1,6 +1,7 @@
-package main
+package cli
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,8 +22,12 @@ func computeDrift(desired Provider, live map[string]interface{}) (bool, map[stri
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to marshal desired provider: %w", err)
 	}
+	// UseNumber keeps a number's exact text (a 16-digit id would otherwise
+	// round through float64 and be sent back changed).
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
 	var desiredMap map[string]interface{}
-	if err := json.Unmarshal(b, &desiredMap); err != nil {
+	if err := dec.Decode(&desiredMap); err != nil {
 		return false, nil, fmt.Errorf("failed to unmarshal desired provider: %w", err)
 	}
 
@@ -58,8 +63,10 @@ func computeDrift(desired Provider, live map[string]interface{}) (bool, map[stri
 		lvb, _ := json.Marshal(liveVal)
 
 		if !exists || string(vb) != string(lvb) {
-			// Special case: if desired is empty array/slice and live is null/missing, don't consider it drift
-			if string(vb) == "[]" && (string(lvb) == "null" || string(lvb) == "") {
+			// An empty list and a missing/null one are the same state on
+			// both sides: a manifest without `scopes:` marshals as null and
+			// the Broker returns [], and the reverse for an explicit [].
+			if emptyList(string(vb)) && emptyList(string(lvb)) {
 				continue
 			}
 
@@ -75,6 +82,9 @@ func computeDrift(desired Provider, live map[string]interface{}) (bool, map[stri
 
 	return drifted, updates, nil
 }
+
+// emptyList reports whether a JSON value is an empty list or nothing.
+func emptyList(j string) bool { return j == "[]" || j == "null" || j == "" }
 
 // secretFingerprint matches the Broker's provider.SecretFingerprint: the
 // first 16 hex characters of the SHA-256 of the secret.

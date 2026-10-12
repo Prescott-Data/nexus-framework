@@ -6,7 +6,7 @@ icon: material/puzzle-edit-outline
 
 A provider in Nexus represents the configuration for a third-party service your agents connect to. This guide covers how to register, update, and delete providers through the Gateway's REST API, and how to list the providers available in your workspace.
 
-For declarative provider management using `nexus-cli`, see the [Security-as-Code](security-as-code.md) guide. For production environments where provider configuration is sensitive infrastructure, the declarative approach is preferred.
+For declarative provider management using the `nexus` CLI, see the [Security-as-Code](security-as-code.md) guide. For production environments where provider configuration is sensitive infrastructure, the declarative approach is preferred.
 
 ---
 
