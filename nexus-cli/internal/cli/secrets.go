@@ -123,8 +123,8 @@ func (envSource) Encrypted() bool { return false }
 // plaintext never touches disk.
 type sopsSource struct {
 	path string
-	// decryptFile is swapped in tests; the default is decrypt.File.
-	decryptFile func(path, format string) ([]byte, error)
+	// decryptData is swapped in tests; the default is decrypt.Data.
+	decryptData func(data []byte, format string) ([]byte, error)
 	// requireCiphertext (set by -require-encrypted-secrets) refuses any
 	// requested value that is stored in plaintext in the file, which SOPS
 	// allows through unencrypted_suffix / unencrypted_regex /
@@ -137,11 +137,18 @@ func (s *sopsSource) Resolve(_ context.Context, names []string) (map[string]stri
 	if err != nil {
 		return nil, err
 	}
-	dec := s.decryptFile
+	// One read: the bytes that are decrypted are the bytes that are
+	// compared below, so a file replaced between two reads cannot pair an
+	// old plaintext with a new ciphertext and pass the policy.
+	raw, err := os.ReadFile(s.path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", s.path, err)
+	}
+	dec := s.decryptData
 	if dec == nil {
 		dec = sopsDecrypt
 	}
-	plain, err := dec(s.path, format)
+	plain, err := dec(raw, format)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt %s: %w", s.path, err)
 	}
@@ -150,10 +157,6 @@ func (s *sopsSource) Resolve(_ context.Context, names []string) (map[string]stri
 		return nil, fmt.Errorf("%s: %w", s.path, err)
 	}
 	if s.requireCiphertext {
-		raw, err := os.ReadFile(s.path)
-		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", s.path, err)
-		}
 		unenc, err := unencryptedKeys(raw, format, names, all)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", s.path, err)
@@ -177,9 +180,9 @@ func (s *sopsSource) Where(name string) string { return fmt.Sprintf("key %s in %
 
 func (s *sopsSource) Encrypted() bool { return true }
 
-// sopsDecrypt is the SOPS decryption entry point; a test replaces it to run
-// the commands end to end without a key.
-var sopsDecrypt = decrypt.File
+// sopsDecrypt is the SOPS decryption entry point, over bytes already read;
+// a test replaces it to run the commands end to end without a key.
+var sopsDecrypt = decrypt.Data
 
 // unencryptedKeys returns the requested names whose value in the file as
 // stored is identical to what decryption yielded. SOPS leaves a value it
