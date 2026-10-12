@@ -12,7 +12,7 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
-## 0.6.5 <span class="changelog-date">2026-10-13</span>
+## 0.6.5 <span class="changelog-date">2026-10-12</span>
 
 <div class="changelog-meta" markdown>
 <a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.5" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
@@ -43,7 +43,7 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
-## 0.6.4 <span class="changelog-date">2026-10-13</span>
+## 0.6.4 <span class="changelog-date">2026-10-12</span>
 
 <div class="changelog-meta" markdown>
 <a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.4" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
@@ -63,7 +63,7 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
-## 0.6.3 <span class="changelog-date">2026-10-13</span>
+## 0.6.3 <span class="changelog-date">2026-10-12</span>
 
 <div class="changelog-meta" markdown>
 <a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.3" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
@@ -81,7 +81,7 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
-## 0.6.2 <span class="changelog-date">2026-10-13</span>
+## 0.6.2 <span class="changelog-date">2026-10-12</span>
 
 <div class="changelog-meta" markdown>
 <a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.2" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
@@ -99,7 +99,7 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
-## 0.6.1 <span class="changelog-date">2026-10-13</span>
+## 0.6.1 <span class="changelog-date">2026-10-12</span>
 
 <div class="changelog-meta" markdown>
 <a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.1" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
