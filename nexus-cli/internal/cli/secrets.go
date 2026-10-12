@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -157,7 +159,7 @@ func (s *sopsSource) Resolve(_ context.Context, names []string) (map[string]stri
 		return nil, fmt.Errorf("%s: %w", s.path, err)
 	}
 	if s.requireCiphertext {
-		unenc, err := unencryptedKeys(raw, format, names, all)
+		unenc, err := unencryptedKeys(raw, plain, format, names)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", s.path, err)
 		}
@@ -185,20 +187,25 @@ func (s *sopsSource) Encrypted() bool { return true }
 var sopsDecrypt = decrypt.Data
 
 // unencryptedKeys returns the requested names whose value in the file as
-// stored is identical to what decryption yielded. SOPS leaves a value it
-// did not encrypt (unencrypted_suffix, unencrypted_regex, encrypted_regex)
-// untouched, so "stored == decrypted" is exactly "was never encrypted",
+// stored is the same value decryption yielded. SOPS leaves a value it did
+// not encrypt (unencrypted_suffix, unencrypted_regex, encrypted_regex)
+// in place, so "stored == decrypted" is exactly "was never encrypted",
 // whatever the value looks like: a literal that happens to start with
-// ENC[ is caught the same as any other. An encrypted value never equals
-// its ciphertext. The stored file is parsed with the same scalar-to-text
-// mapping as the decrypted one, so a number, boolean or null compares by
-// its text. Names only are returned: a value found here is exactly what
-// must never be printed. A name absent from the file is not reported; it
-// is unresolved and reported as such later.
-func unencryptedKeys(raw []byte, format string, names []string, decrypted map[string]string) ([]string, error) {
-	stored, err := parseSecretsFile(raw, format)
+// ENC[ is caught the same as any other, and an encrypted value never
+// equals its ciphertext. The comparison is on parsed values, not text,
+// because SOPS re-emits the document after decrypting and may respell a
+// scalar it left alone (TRUE as true, 1.50 as 1.5); the text handed to
+// the manifest is unaffected. Names only are returned: a value found here
+// is exactly what must never be printed. A name absent from the file is
+// not reported; it is unresolved and reported as such later.
+func unencryptedKeys(raw, plain []byte, format string, names []string) ([]string, error) {
+	stored, err := canonicalValues(raw, format)
 	if err != nil {
 		return nil, fmt.Errorf("parse stored content: %w", err)
+	}
+	decrypted, err := canonicalValues(plain, format)
+	if err != nil {
+		return nil, fmt.Errorf("parse decrypted content: %w", err)
 	}
 	var unenc []string
 	for _, n := range names {
@@ -209,6 +216,85 @@ func unencryptedKeys(raw []byte, format string, names []string, decrypted map[st
 		}
 	}
 	return unenc, nil
+}
+
+// canonicalValues maps each top-level scalar of a secrets document to a
+// spelling-independent form: the parsed value for YAML (so TRUE, true and
+// True agree, as do 1.50 and 1.5), a normalised number for JSON, the
+// unquoted text for dotenv. Strings are themselves, prefixed so a string
+// "true" never equals the boolean. Used only to compare the stored and
+// the decrypted document; resolved values keep their exact text.
+func canonicalValues(data []byte, format string) (map[string]string, error) {
+	out := map[string]string{}
+	switch format {
+	case "yaml":
+		var doc map[string]yaml.Node
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
+		}
+		for k, n := range doc {
+			if k == "sops" || n.Kind != yaml.ScalarNode {
+				continue
+			}
+			var v interface{}
+			if err := n.Decode(&v); err != nil {
+				v = n.Value
+			}
+			out[k] = canonicalScalar(v)
+		}
+	case "json":
+		dec := json.NewDecoder(bytes.NewReader(data))
+		dec.UseNumber()
+		var doc map[string]interface{}
+		if err := dec.Decode(&doc); err != nil {
+			return nil, err
+		}
+		for k, v := range doc {
+			if k == "sops" {
+				continue
+			}
+			out[k] = canonicalScalar(v)
+		}
+	case "dotenv":
+		for _, line := range strings.Split(string(data), "\n") {
+			if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok && !strings.HasPrefix(k, "#") && !strings.HasPrefix(k, "sops_") {
+				out[strings.TrimSpace(k)] = "s:" + strings.Trim(strings.TrimSpace(v), `"'`)
+			}
+		}
+	default:
+		return nil, fmt.Errorf("unsupported format %q", format)
+	}
+	return out, nil
+}
+
+// canonicalScalar renders a parsed scalar so that equal values have equal
+// strings whatever their source spelling. Numbers go through big.Float so
+// 1.50 and 1.5 agree and a 16-digit integer stays exact; anything that is
+// not a scalar is rendered opaquely and never matches a resolved value.
+func canonicalScalar(v interface{}) string {
+	switch x := v.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "b:" + strconv.FormatBool(x)
+	case string:
+		return "s:" + x
+	case int:
+		return "n:" + strconv.FormatInt(int64(x), 10)
+	case int64:
+		return "n:" + strconv.FormatInt(x, 10)
+	case uint64:
+		return "n:" + strconv.FormatUint(x, 10)
+	case float64:
+		return "n:" + strconv.FormatFloat(x, 'g', -1, 64)
+	case json.Number:
+		if f, ok := new(big.Float).SetPrec(256).SetString(x.String()); ok {
+			return "n:" + f.Text('g', -1)
+		}
+		return "s:" + x.String()
+	default:
+		return fmt.Sprintf("other:%T", v)
+	}
 }
 
 // sopsFormat maps a file extension to the SOPS input format.

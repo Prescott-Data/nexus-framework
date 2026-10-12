@@ -304,14 +304,24 @@ func TestSopsSource_RequireCiphertextRefusesPlaintextValues(t *testing.T) {
 	if _, err := sh.Resolve(context.Background(), []string{"ID", "SECRET_unencrypted"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET_unencrypted") {
 		t.Fatalf("ciphertext-shaped literal: %v", err)
 	}
+	// SOPS re-emits the document after decrypting and may respell a scalar
+	// it left alone; the comparison is on values, so a respelling does
+	// not hide a plaintext value, and a string "true" is not the boolean.
+	respelt := writeCiphertextFile(t, "respelt.enc.yaml", []string{"ID"}, map[string]string{"FLAG_unencrypted": "TRUE", "RATE_unencrypted": "1.50", "WORD_unencrypted": "\"true\""})
+	rs := &sopsSource{path: respelt, decryptData: func([]byte, string) ([]byte, error) {
+		return []byte("ID: id\nFLAG_unencrypted: true\nRATE_unencrypted: 1.5\nWORD_unencrypted: 'true'\n"), nil
+	}, requireCiphertext: true}
+	if _, err := rs.Resolve(context.Background(), []string{"ID", "FLAG_unencrypted", "RATE_unencrypted", "WORD_unencrypted"}); err == nil || !strings.HasSuffix(err.Error(), ": FLAG_unencrypted, RATE_unencrypted, WORD_unencrypted") {
+		t.Fatalf("respelt scalars: %v", err)
+	}
 	// Same rule for the other formats.
-	jsonPath := filepath.Join(writeFiles(t, map[string]string{"s.enc.json": `{"ID":"ENC[AES256_GCM,data:a,type:str]","SECRET":"plain","NUM":9007199254740993,"FLAG":true,"NONE":null,"sops":{"version":"3.13.3"}}`}), "s.enc.json")
+	jsonPath := filepath.Join(writeFiles(t, map[string]string{"s.enc.json": `{"ID":"ENC[AES256_GCM,data:a,type:str]","SECRET":"plain","NUM":9007199254740993,"FLAG":true,"NONE":null,"RATE":1.50,"sops":{"version":"3.13.3"}}`}), "s.enc.json")
 	js := &sopsSource{path: jsonPath, decryptData: func([]byte, string) ([]byte, error) {
-		return []byte(`{"ID":"id","SECRET":"plain","NUM":9007199254740993,"FLAG":true,"NONE":null}`), nil
+		return []byte(`{"ID":"id","SECRET":"plain","NUM":9007199254740993,"FLAG":true,"NONE":null,"RATE":1.5}`), nil
 	}, requireCiphertext: true}
 	// A number, boolean or null stored as such is plaintext too: the
 	// decrypted parser would accept each as a value.
-	if _, err := js.Resolve(context.Background(), []string{"ID", "SECRET", "NUM", "FLAG", "NONE"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET, NUM, FLAG, NONE") {
+	if _, err := js.Resolve(context.Background(), []string{"ID", "SECRET", "NUM", "FLAG", "NONE", "RATE"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET, NUM, FLAG, NONE, RATE") {
 		t.Fatalf("json: %v", err)
 	}
 	envPath := filepath.Join(writeFiles(t, map[string]string{"s.env": "ID=ENC[AES256_GCM,data:a,type:str]\nSECRET=plain\nsops_version=3.13.3\n"}), "s.env")
