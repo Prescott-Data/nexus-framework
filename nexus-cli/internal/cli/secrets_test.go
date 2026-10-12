@@ -123,6 +123,19 @@ func TestSopsSource_RejectsNestedAndUnknownExt(t *testing.T) {
 	}
 }
 
+func TestSopsSource_DotenvErrorDoesNotEchoTheLine(t *testing.T) {
+	src := &sopsSource{path: "s.env", decryptFile: func(string, string) ([]byte, error) {
+		return []byte("A=fine\n\nhunter2-without-equals\n"), nil
+	}}
+	_, err := src.Resolve(context.Background(), []string{"A"})
+	if err == nil || !strings.Contains(err.Error(), "dotenv line 3: expected KEY=value") {
+		t.Fatalf("err = %v, want a line-number-only error", err)
+	}
+	if strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("error echoes decrypted content: %v", err)
+	}
+}
+
 func TestSopsSource_RealDecryptRejectsPlaintextFile(t *testing.T) {
 	// A file without SOPS metadata must not be accepted as if it were
 	// encrypted; this exercises the real decrypt path with no keys needed.

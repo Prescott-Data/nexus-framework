@@ -194,14 +194,15 @@ func parseSecretsFile(plain []byte, format string) (map[string]string, error) {
 			}
 		}
 	case "dotenv":
-		for _, line := range strings.Split(string(plain), "\n") {
+		for i, line := range strings.Split(string(plain), "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
 			}
 			k, v, ok := strings.Cut(line, "=")
 			if !ok {
-				return nil, fmt.Errorf("dotenv line %q: expected KEY=value", line)
+				// The line is decrypted secret material; name it by number only.
+				return nil, fmt.Errorf("dotenv line %d: expected KEY=value", i+1)
 			}
 			if k = strings.TrimSpace(k); k != "sops_version" && !strings.HasPrefix(k, "sops_") {
 				out[k] = strings.Trim(strings.TrimSpace(v), `"'`)
