@@ -183,11 +183,11 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, readSummary(l, mf.file))
 
-	issues := validateManifest(l)
-	for _, i := range issues {
-		fmt.Fprintf(stdout, "✗ %s\n", i)
-	}
-
+	// With -secrets the rules run on the expanded manifest, exactly what
+	// plan and apply would send, so a secret that resolves to an empty
+	// string or a SAML certificate that resolves to junk fails here too.
+	// Without it they run on the manifest as written, placeholders present.
+	checked := l
 	unresolved := 0
 	if mf.secrets != "" {
 		src, err := newSecretSource(mf.secrets, mf.secretPrefix)
@@ -200,18 +200,21 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "✗ %v\n", err)
 			return 1
 		}
-		var missing []string
-		for _, name := range l.Placeholders {
-			if _, ok := lookup(name); !ok {
-				missing = append(missing, name)
-			}
+		if checked, err = readManifest(mf.file, lookup); err != nil {
+			fmt.Fprintf(stderr, "✗ %v\n", err)
+			return 1
 		}
-		if unresolved = len(missing); unresolved > 0 {
-			fmt.Fprintf(stdout, "✗ %s\n", unresolvedMessage(src, missing))
+		if unresolved = len(checked.Missing); unresolved > 0 {
+			fmt.Fprintf(stdout, "✗ %s\n", unresolvedMessage(src, checked.Missing))
 		}
 		fmt.Fprintf(stdout, "%d placeholders, %d resolved from %s\n", len(l.Placeholders), len(l.Placeholders)-unresolved, src)
 	} else if len(l.Placeholders) > 0 {
 		fmt.Fprintf(stdout, "%d placeholders used (not resolved; pass -secrets to check them)\n", len(l.Placeholders))
+	}
+
+	issues := validateManifest(checked)
+	for _, i := range issues {
+		fmt.Fprintf(stdout, "✗ %s\n", i)
 	}
 
 	if len(issues) > 0 || unresolved > 0 {

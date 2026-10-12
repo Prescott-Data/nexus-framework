@@ -217,7 +217,7 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 	toDelete := []string{}                              // list of IDs
 	toDeleteNames := []string{}
 
-	for _, p := range manifest.Providers {
+	for i, p := range manifest.Providers {
 		if live, exists := liveProviderMap[p.Name]; exists {
 			id, ok := live["id"].(string)
 			if !ok {
@@ -242,7 +242,7 @@ func runApply(args []string, isPlanOnly bool, stdin io.Reader, stdout, stderr io
 				for _, field := range fields {
 					newVal := updates[field]
 					oldVal := live[field]
-					if isSecretField(field) {
+					if isSecretField(field) || (i < len(l.Sensitive) && l.Sensitive[i][field]) {
 						fmt.Fprintf(stdout, "    %s: *** → ***\n", field)
 					} else {
 						fmt.Fprintf(stdout, "    %s: %v → %v\n", field, formatVal(oldVal), formatVal(newVal))
@@ -436,7 +436,9 @@ func readSummary(l loaded, path string) string {
 	return fmt.Sprintf("Read %d providers from %s", len(l.Manifest.Providers), path)
 }
 
-// isSecretField returns true for fields that should be masked in plan output.
+// isSecretField returns true for fields that are always masked in plan
+// output. A field that held a placeholder in the manifest is masked as well
+// (loaded.Sensitive), whatever its name.
 func isSecretField(field string) bool {
 	switch field {
 	case "client_secret", "client_id":

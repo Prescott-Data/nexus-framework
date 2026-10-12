@@ -90,6 +90,10 @@ const planManifest = `providers:
     scopes: [a, b]
   - name: brand-new
     auth_type: api_key
+  - name: hooks
+    auth_type: api_key
+    params:
+      webhook_secret: ${WH_SECRET}
 `
 
 // setupBroker starts a fake Broker holding github (matching), salesforce
@@ -107,12 +111,14 @@ func setupBroker(t *testing.T) (*fakeBroker, string) {
 		"auth_url": "https://login.salesforce.com/services/oauth2/authorize", "token_url": "https://login.salesforce.com/services/oauth2/token",
 	})
 	b.add("id-old", "old-provider", nil)
+	b.add("id-hooks", "hooks", map[string]interface{}{"auth_type": "api_key", "scopes": nil, "params": map[string]interface{}{"webhook_secret": "old-hook-secret"}})
 	srv := httptest.NewServer(b.handler())
 	t.Cleanup(srv.Close)
 	t.Setenv("BROKER_BASE_URL", srv.URL)
 	t.Setenv("API_KEY", "test-key")
 	t.Setenv("GH_ID", "gh-id")
 	t.Setenv("GH_SECRET", "gh-secret")
+	t.Setenv("WH_SECRET", "new-hook-secret")
 	dir := writeFiles(t, map[string]string{"m.yaml": planManifest})
 	return b, filepath.Join(dir, "m.yaml")
 }
@@ -125,15 +131,21 @@ func TestPlan_ReportsCreateUpdateOrphanWithoutMutating(t *testing.T) {
 		t.Fatalf("exit = %d; err=%s", code, errOut.String())
 	}
 	for _, want := range []string{
-		"Read 3 providers from " + manifest,
+		"Read 4 providers from " + manifest,
 		"= OK     : github (no changes)",
 		"~ UPDATE : salesforce\n    scopes: [a] → [a, b]",
 		"+ CREATE : brand-new",
+		"~ UPDATE : hooks\n    params: *** → ***",
 		"! ORPHAN : old-provider (would be deleted if -prune was passed)",
 		"Plan complete. Run 'nexus apply' to perform these actions.",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("plan output missing %q:\n%s", want, out.String())
+		}
+	}
+	for _, secret := range []string{"new-hook-secret", "old-hook-secret", "gh-secret", "sf-secret"} {
+		if strings.Contains(out.String(), secret) {
+			t.Errorf("plan output leaks %q:\n%s", secret, out.String())
 		}
 	}
 	if len(b.mutations) != 0 {
@@ -159,6 +171,7 @@ func TestPlan_PruneListsDeletionAndNoChangesExitsZero(t *testing.T) {
 	// Bring the Broker in line and plan again: nothing to do.
 	b.add("id-new", "brand-new", map[string]interface{}{"auth_type": "api_key", "scopes": nil})
 	b.providers["id-sf"]["scopes"] = []interface{}{"a", "b"}
+	b.providers["id-hooks"]["params"] = map[string]interface{}{"webhook_secret": "new-hook-secret"}
 	delete(b.providers, "id-old")
 	out.Reset()
 	if code := run([]string{"plan", "-file", manifest, "-prune"}, strings.NewReader(""), &out, &errOut); code != 0 {
@@ -175,19 +188,22 @@ func TestApply_AutoApprovePruneMutatesInOrder(t *testing.T) {
 	if code := run([]string{"apply", "-file", manifest, "-prune", "-auto-approve"}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("exit = %d; out=%s err=%s", code, out.String(), errOut.String())
 	}
-	if len(b.mutations) != 3 {
-		t.Fatalf("mutations = %v, want create, update, delete", b.mutations)
+	if len(b.mutations) != 4 {
+		t.Fatalf("mutations = %v, want create, two updates, delete", b.mutations)
 	}
 	if !strings.HasPrefix(b.mutations[0], `POST /providers {"profile":{"name":"brand-new","auth_type":"api_key"`) {
 		t.Errorf("create: %s", b.mutations[0])
 	}
-	if b.mutations[1] != `PATCH /providers/id-sf {"scopes":["a","b"]}` {
-		t.Errorf("update must send only the drifted field: %s", b.mutations[1])
+	if b.mutations[1] != `PATCH /providers/id-hooks {"params":{"webhook_secret":"new-hook-secret"}}` {
+		t.Errorf("updates go in name order, hooks first: %s", b.mutations[1])
 	}
-	if b.mutations[2] != "DELETE /providers/id-old" {
-		t.Errorf("delete: %s", b.mutations[2])
+	if b.mutations[2] != `PATCH /providers/id-sf {"scopes":["a","b"]}` {
+		t.Errorf("update must send only the drifted field: %s", b.mutations[2])
 	}
-	for _, want := range []string{"-auto-approve set; applying without confirmation.", "Creating brand-new... OK", "Updating salesforce... OK", "Deleting old-provider... OK", "Apply complete."} {
+	if b.mutations[3] != "DELETE /providers/id-old" {
+		t.Errorf("delete: %s", b.mutations[3])
+	}
+	for _, want := range []string{"-auto-approve set; applying without confirmation.", "Creating brand-new... OK", "Updating hooks... OK", "Updating salesforce... OK", "Deleting old-provider... OK", "Apply complete."} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output missing %q:\n%s", want, out.String())
 		}
@@ -218,6 +234,7 @@ func TestApply_FailureIsSummarisedAndExitsOne(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Creating brand-new... FAILED (Status 400):",
+		"Updating hooks... OK",
 		"Updating salesforce... OK",
 		"Apply completed with 1 error(s):\n  ✗ brand-new: FAILED (Status 400): {\"error\":\"invalid_profile\",\"message\":\"client_secret: missing required field\"}",
 	} {
@@ -279,5 +296,18 @@ func TestRun_BadFlagIsUsageError(t *testing.T) {
 	}
 	if code := run([]string{"plan", "-h"}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("-h exit = %d, want 0", code)
+	}
+}
+
+func TestDrift_ExplicitEmptyClearsOmittedLeavesAlone(t *testing.T) {
+	live := map[string]interface{}{"id": "x", "name": "p", "description": "old", "category": "crm", "enable_discovery": false, "scopes": []interface{}{}}
+	empty := ""
+	drifted, updates, err := computeDrift(Provider{Name: "p", Description: &empty}, live)
+	if err != nil || !drifted || updates["description"] != "" || len(updates) != 1 {
+		t.Fatalf("explicit empty description must be sent to clear it: drifted=%v updates=%v err=%v", drifted, updates, err)
+	}
+	drifted, updates, err = computeDrift(Provider{Name: "p"}, live)
+	if err != nil || drifted {
+		t.Fatalf("omitted description/category must be left as the Broker has them: drifted=%v updates=%v err=%v", drifted, updates, err)
 	}
 }

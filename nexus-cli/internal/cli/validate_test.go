@@ -227,6 +227,16 @@ func TestRunValidate_WithSecretsFailsOnUnresolved(t *testing.T) {
 	if !strings.Contains(out.String(), "${NEXUS_PROVIDER_GITHUB_CLIENT_SECRET}: not found (looked for environment variable NEXUS_PROVIDER_GITHUB_CLIENT_SECRET)") {
 		t.Fatalf("output:\n%s", out.String())
 	}
+	// A placeholder that resolves to an empty string fails the Broker's
+	// rule on the expanded manifest, exactly as plan would.
+	t.Setenv("NEXUS_PROVIDER_GITHUB_CLIENT_SECRET", "")
+	out.Reset()
+	if code := run([]string{"validate", "-file", dir, "-secrets", "env"}, strings.NewReader(""), &out, &errOut); code != 1 {
+		t.Fatalf("empty secret: exit = %d, want 1; out=%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "github: client_secret: missing required field") {
+		t.Fatalf("output:\n%s", out.String())
+	}
 	t.Setenv("NEXUS_PROVIDER_GITHUB_CLIENT_SECRET", "sec")
 	out.Reset()
 	if code := run([]string{"validate", "-file", dir, "-secrets", "env"}, strings.NewReader(""), &out, &errOut); code != 0 {

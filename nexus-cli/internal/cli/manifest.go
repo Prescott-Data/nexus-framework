@@ -17,9 +17,11 @@ import (
 // Provider is one entry of the manifest; its JSON form is what the Broker's
 // POST /providers "profile" and PATCH /providers/{id} accept.
 type Provider struct {
-	Name             string                 `yaml:"name" json:"name"`
-	Description      string                 `yaml:"description,omitempty" json:"description,omitempty"`
-	Category         string                 `yaml:"category,omitempty" json:"category,omitempty"`
+	Name string `yaml:"name" json:"name"`
+	// Pointers: an omitted field is left as the Broker has it, while an
+	// explicit empty string ("") is sent and clears the live value.
+	Description      *string                `yaml:"description,omitempty" json:"description,omitempty"`
+	Category         *string                `yaml:"category,omitempty" json:"category,omitempty"`
 	AuthType         string                 `yaml:"auth_type,omitempty" json:"auth_type,omitempty"`
 	AuthHeader       string                 `yaml:"auth_header,omitempty" json:"auth_header,omitempty"`
 	ClientID         string                 `yaml:"client_id,omitempty" json:"client_id,omitempty"`
@@ -54,6 +56,10 @@ type loaded struct {
 	Directory    bool     // read from a provider directory rather than one manifest
 	Placeholders []string // every ${NAME} referenced, in document order, unique
 	Missing      []string // placeholders the lookup could not resolve
+	// Sensitive[i][field] is true when provider i's top-level field held a
+	// placeholder anywhere in its subtree, so plan output masks it: a
+	// resolved value is a secret even when the field is params.
+	Sensitive []map[string]bool
 }
 
 // lookupFunc resolves a placeholder name; ok=false means unresolved.
@@ -308,6 +314,39 @@ func placeholdersIn(doc *yaml.Node) []string {
 	return names
 }
 
+// placeholderFields records, per provider, which top-level fields contain a
+// placeholder somewhere beneath them, before expansion replaces it.
+func placeholderFields(doc *yaml.Node) []map[string]bool {
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	var seq *yaml.Node
+	for i := 0; i+1 < len(doc.Content[0].Content); i += 2 {
+		if doc.Content[0].Content[i].Value == "providers" {
+			seq = doc.Content[0].Content[i+1]
+		}
+	}
+	if seq == nil || seq.Kind != yaml.SequenceNode {
+		return nil
+	}
+	out := make([]map[string]bool, len(seq.Content))
+	for i, item := range seq.Content {
+		out[i] = map[string]bool{}
+		if item.Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(item.Content); j += 2 {
+			key, value := item.Content[j].Value, item.Content[j+1]
+			walkValues(value, func(n *yaml.Node) {
+				if len(placeholdersIn(&yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{n}})) > 0 {
+					out[i][key] = true
+				}
+			})
+		}
+	}
+	return out
+}
+
 // walkValues calls fn on every value scalar in the tree: sequence items and
 // mapping values, never mapping keys.
 func walkValues(n *yaml.Node, fn func(*yaml.Node)) {
@@ -330,7 +369,7 @@ func walkValues(n *yaml.Node, fn func(*yaml.Node)) {
 // so `skip_scope_on_exchange: ${SKIP}` with SKIP=true still decodes to a
 // boolean; a quoted or tagged scalar stays a string.
 func decodeDocument(doc *yaml.Node, lookup lookupFunc) (loaded, error) {
-	l := loaded{Placeholders: placeholdersIn(doc)}
+	l := loaded{Placeholders: placeholdersIn(doc), Sensitive: placeholderFields(doc)}
 	seen := map[string]bool{}
 	walkValues(doc, func(n *yaml.Node) {
 		if !strings.Contains(n.Value, "$") {
