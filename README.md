@@ -192,7 +192,7 @@ Nexus splits the auth surface into a control plane and a data plane:
 | **[Gateway](nexus-gateway/README.md)** | The public API. Agents call the Gateway; it proxies to the Broker over an internal channel. |
 | **[Bridge](nexus-bridge/README.md)** | Go library that runs inside your agent process and injects credentials into outgoing HTTP and gRPC requests automatically. |
 | **[Sidecar](nexus-sidecar/README.md)** | Polyglot proxy. The agent sends plain HTTP with a connection ID; the Sidecar injects credentials and forwards to an allowlisted upstream. |
-| **[CLI](nexus-cli/)** | Command-line tooling for operating a Nexus deployment. |
+| **[CLI](nexus-cli/)** | `nexus validate`, `plan` and `apply`: provider configuration as code, with secrets from the environment, a SOPS file or Google Secret Manager. |
 
 Start with [Architecture](docs/architecture.md) — it establishes the control/data plane split, the OAuth handshake flow, and the credential retrieval model that every other doc assumes.
 

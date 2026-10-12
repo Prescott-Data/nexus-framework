@@ -104,11 +104,11 @@ The Broker cannot reach `BACKEND_AUTH_URL` to validate the user context token fo
 
 ---
 
-## nexus-cli issues
+## nexus CLI issues
 
 ### `plan` shows all providers as CREATE even after apply
 
-The `name` field in the manifest does not match the `name` stored on the Broker. `nexus-cli` uses `name` as the reconciliation key — it must match exactly. Check the live state:
+The `name` field in the manifest does not match the `name` stored on the Broker. `nexus` uses `name` as the reconciliation key — it must match exactly. Check the live state:
 
 ```bash
 curl -s http://localhost:8090/v1/providers \

@@ -12,6 +12,31 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## 0.6.5 <span class="changelog-date">2026-10-12</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.5" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Added**
+
+- **The CLI is now `nexus`.** `go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@latest` (or `make cli`) builds a binary named `nexus`, so the commands read `nexus plan`, `nexus apply`, `nexus validate` and `nexus version`. The code moved into `nexus-cli/internal/cli`; the module path is unchanged.
+- **A directory of provider files is a manifest.** `-file` may name a directory holding one provider per `<name>.yaml`, which `plan`, `apply` and `validate` assemble in file-name order the way Terraform reads every `.tf` in a directory. A file whose `name` does not match its file name, a name defined twice, or a file that is not a single provider mapping is a hard error before anything reaches the Broker. Hidden files and non-YAML files are ignored.
+- **Secret sources.** `-secrets` (or `$NEXUS_SECRETS`) names where `${PLACEHOLDER}` values come from: `env` (the default, as before), `sops:<file>` (a SOPS-encrypted YAML, JSON or dotenv file mapping placeholder to value, decrypted in memory with the keys the process can reach, such as Google Cloud KMS through application default credentials) or `gcp-secret-manager:<project>` (one Secret Manager secret per placeholder, latest version, read concurrently; the id is the placeholder without `NEXUS_PROVIDER_`, lower-cased with `-`, behind `-secret-prefix`). Only the placeholders the manifest uses are fetched. A placeholder the source does not hold falls back to the environment, and anything still unresolved is listed by name. No wrapper script is needed to run the CLI against a hosted deployment.
+- **`nexus validate`** checks a manifest offline with the Broker's own registration rules: provider name format, the required fields for `oauth2` (including the discovery/issuer rules), `saml` and the static auth types, unsupported `auth_type` values and duplicate names, each attributed to its file. Placeholders count as present, so it runs in a pull request without secrets; with `-secrets` it also resolves every placeholder and fails on any that is missing. `plan` and `apply` run the same checks before contacting the Broker.
+- **SAML providers can be managed from a manifest** (`saml_idp_entity_id`, `saml_idp_sso_url`, `saml_idp_x509_cert`, `saml_sp_entity_id`).
+
+**Changed**
+
+- Orphans and updates are printed and applied in name order, so two runs of `plan` produce the same text.
+- A manifest the Broker would reject now fails `plan` and `apply` up front with every problem listed, instead of one `400` per provider during apply.
+
+</div>
+
+---
+
+<div class="changelog-release" markdown>
+
 ## 0.6.4 <span class="changelog-date">2026-10-13</span>
 
 <div class="changelog-meta" markdown>

@@ -84,6 +84,6 @@ The audit log is stored in the same PostgreSQL database as provider and connecti
 
 ---
 
-## Using the audit log with nexus-cli
+## Using the audit log with the nexus CLI
 
-When you manage providers through `nexus-cli apply`, every provider create, update, and delete generates audit log entries. This gives you an automated, traceable record of every declarative change with the `nexus-cli` User-Agent in the `user_agent` field, making it straightforward to distinguish CLI-driven changes from manual API calls.
+When you manage providers through `nexus apply`, every provider create, update, and delete generates audit log entries. This gives you an automated, traceable record of every declarative change with the `nexus-cli` User-Agent in the `user_agent` field, making it straightforward to distinguish CLI-driven changes from manual API calls.
