@@ -366,13 +366,14 @@ func TestPlan_RequireEncryptedSecretsStopsBeforeBroker(t *testing.T) {
 		return []byte("GH_ID: gh-id\nGH_SECRET: gh-secret\nWH_SECRET: new-hook-secret\n"), nil
 	}
 	t.Cleanup(func() { sopsDecrypt = restore })
+	stored := writeCiphertextFile(t, "s.enc.yaml", []string{"GH_ID", "GH_SECRET", "SF_SECRET", "WH_SECRET"}, nil)
 	errOut.Reset()
-	if code := run([]string{"plan", "-file", manifest, "-require-encrypted-secrets", "-secrets", "sops:s.enc.yaml"}, strings.NewReader(""), &out, &errOut); code != 1 {
+	if code := run([]string{"plan", "-file", manifest, "-require-encrypted-secrets", "-secrets", "sops:" + stored}, strings.NewReader(""), &out, &errOut); code != 1 {
 		t.Fatalf("exit = %d, want 1; out=%s", code, out.String())
 	}
 	for _, want := range []string{
 		manifest + ": salesforce: client_secret: not exactly one ${PLACEHOLDER}",
-		"1 provider(s) carry a literal or partly literal client_secret; move the whole value into sops:s.enc.yaml and reference it as exactly one ${PLACEHOLDER}.",
+		"1 provider(s) carry a literal or partly literal client_secret; move the whole value into sops:" + stored + " and reference it as exactly one ${PLACEHOLDER}.",
 	} {
 		if !strings.Contains(errOut.String(), want) {
 			t.Fatalf("missing %q in stderr:\n%s", want, errOut.String())
@@ -395,7 +396,7 @@ func TestPlan_RequireEncryptedSecretsStopsBeforeBroker(t *testing.T) {
 	}
 	out.Reset()
 	errOut.Reset()
-	if code := run([]string{"plan", "-file", filepath.Join(dir, "m.yaml"), "-require-encrypted-secrets", "-secrets", "sops:s.enc.yaml"}, strings.NewReader(""), &out, &errOut); code != 0 {
+	if code := run([]string{"plan", "-file", filepath.Join(dir, "m.yaml"), "-require-encrypted-secrets", "-secrets", "sops:" + stored}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("exit = %d, want 0; out=%s err=%s", code, out.String(), errOut.String())
 	}
 	if !strings.Contains(out.String(), "= OK     : github (no changes)") {

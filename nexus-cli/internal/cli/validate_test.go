@@ -393,21 +393,22 @@ func TestRunValidate_RequireEncryptedSecrets(t *testing.T) {
 	restore := sopsDecrypt
 	sopsDecrypt = func(string, string) ([]byte, error) { return []byte("NEXUS_PROVIDER_GITHUB_CLIENT_ID: id\n"), nil }
 	t.Cleanup(func() { sopsDecrypt = restore })
+	stored := writeCiphertextFile(t, "s.enc.yaml", []string{"NEXUS_PROVIDER_GITHUB_CLIENT_ID"}, nil)
 	t.Setenv("NEXUS_PROVIDER_GITHUB_CLIENT_SECRET", "from-the-shell")
 	out.Reset()
 	errOut.Reset()
-	if code := run([]string{"validate", "-file", dir, "-secrets", "sops:s.enc.yaml"}, strings.NewReader(""), &out, &errOut); code != 0 {
+	if code := run([]string{"validate", "-file", dir, "-secrets", "sops:" + stored}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("fallback on: exit = %d, want 0; out=%s err=%s", code, out.String(), errOut.String())
 	}
 	out.Reset()
-	code = run([]string{"validate", "-file", dir, "-secrets", "sops:s.enc.yaml", "-require-encrypted-secrets"}, strings.NewReader(""), &out, &errOut)
+	code = run([]string{"validate", "-file", dir, "-secrets", "sops:" + stored, "-require-encrypted-secrets"}, strings.NewReader(""), &out, &errOut)
 	if code != 1 {
 		t.Fatalf("fallback off: exit = %d, want 1; out=%s err=%s", code, out.String(), errOut.String())
 	}
 	for _, want := range []string{
-		"-require-encrypted-secrets: sops:s.enc.yaml is encrypted at rest; the environment is not consulted",
-		"${NEXUS_PROVIDER_GITHUB_CLIENT_SECRET}: not found (looked for key NEXUS_PROVIDER_GITHUB_CLIENT_SECRET in s.enc.yaml)",
-		"2 placeholders, 1 resolved from sops:s.enc.yaml",
+		"-require-encrypted-secrets: sops:" + stored + " is encrypted at rest; the environment is not consulted",
+		"${NEXUS_PROVIDER_GITHUB_CLIENT_SECRET}: not found (looked for key NEXUS_PROVIDER_GITHUB_CLIENT_SECRET in " + stored + ")",
+		"2 placeholders, 1 resolved from sops:" + stored,
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("missing %q in output:\n%s", want, out.String())

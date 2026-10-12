@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"context"
 	"errors"
 	"os"
@@ -238,6 +239,63 @@ func TestUnresolvedMessage_NamesWhatWasLookedFor(t *testing.T) {
 	}
 	if got := unresolvedMessage(envSource{}, []string{"A"}, true); !strings.Contains(got, "looked for environment variable A)") || strings.Contains(got, "then") {
 		t.Fatalf("env: %s", got)
+	}
+}
+
+// writeCiphertextFile writes a file shaped like a SOPS-encrypted one: every
+// listed key holds an ENC[...] value except those in plain, plus a sops
+// metadata block. Decryption is faked by the tests that use it.
+func writeCiphertextFile(t *testing.T, name string, enc []string, plain map[string]string) string {
+	t.Helper()
+	var b strings.Builder
+	for _, k := range enc {
+		fmt.Fprintf(&b, "%s: ENC[AES256_GCM,data:abc,iv:def,tag:ghi,type:str]\n", k)
+	}
+	for k, v := range plain {
+		fmt.Fprintf(&b, "%s: %s\n", k, v)
+	}
+	b.WriteString("sops:\n    version: 3.13.3\n    lastmodified: \"2026-10-12T00:00:00Z\"\n")
+	dir := writeFiles(t, map[string]string{name: b.String()})
+	return filepath.Join(dir, name)
+}
+
+func TestSopsSource_RequireCiphertextRefusesPlaintextValues(t *testing.T) {
+	// A file whose client secret was left in plaintext by an
+	// unencrypted_suffix rule still decrypts; the policy must catch it.
+	path := writeCiphertextFile(t, "s.enc.yaml", []string{"ID"}, map[string]string{"SECRET_unencrypted": "hunter2", "OTHER_unencrypted": "x"})
+	decrypted := func(string, string) ([]byte, error) {
+		return []byte("ID: id\nSECRET_unencrypted: hunter2\nOTHER_unencrypted: x\n"), nil
+	}
+	src := &sopsSource{path: path, decryptFile: decrypted}
+	if _, err := src.Resolve(context.Background(), []string{"ID", "SECRET_unencrypted"}); err != nil {
+		t.Fatalf("without the policy a plaintext value is the user's choice: %v", err)
+	}
+	if err := requireEncryptedSource(src); err != nil || !src.requireCiphertext {
+		t.Fatalf("policy not armed: %v", err)
+	}
+	_, err := src.Resolve(context.Background(), []string{"ID", "SECRET_unencrypted"})
+	if err == nil {
+		t.Fatal("plaintext value accepted under -require-encrypted-secrets")
+	}
+	want := "-require-encrypted-secrets: 1 value(s) are stored in plaintext in " + path + " (left unencrypted by a SOPS unencrypted_suffix, unencrypted_regex or encrypted_regex rule): SECRET_unencrypted"
+	if err.Error() != want || strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("error = %q\nwant   %q", err.Error(), want)
+	}
+	// Only requested names count, and a name absent from the file is not
+	// "plaintext": it is unresolved, reported later with the others.
+	if got, err := src.Resolve(context.Background(), []string{"ID", "NOWHERE"}); err != nil || got["ID"] != "id" {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	// Same rule for the other formats.
+	jsonPath := filepath.Join(writeFiles(t, map[string]string{"s.enc.json": `{"ID":"ENC[AES256_GCM,data:a,type:str]","SECRET":"plain","sops":{"version":"3.13.3"}}`}), "s.enc.json")
+	js := &sopsSource{path: jsonPath, decryptFile: func(string, string) ([]byte, error) { return []byte(`{"ID":"id","SECRET":"plain"}`), nil }, requireCiphertext: true}
+	if _, err := js.Resolve(context.Background(), []string{"ID", "SECRET"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET") {
+		t.Fatalf("json: %v", err)
+	}
+	envPath := filepath.Join(writeFiles(t, map[string]string{"s.env": "ID=ENC[AES256_GCM,data:a,type:str]\nSECRET=plain\nsops_version=3.13.3\n"}), "s.env")
+	de := &sopsSource{path: envPath, decryptFile: func(string, string) ([]byte, error) { return []byte("ID=id\nSECRET=plain\n"), nil }, requireCiphertext: true}
+	if _, err := de.Resolve(context.Background(), []string{"ID", "SECRET"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET") {
+		t.Fatalf("dotenv: %v", err)
 	}
 }
 

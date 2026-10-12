@@ -83,11 +83,18 @@ func lookupWith(ctx context.Context, src secretSource, names []string, envFallba
 
 // requireEncryptedSource is the -require-encrypted-secrets check on the
 // source itself: the values must be encrypted where they are read from.
+// For a SOPS file that is a property of each value, not of the file: SOPS
+// can leave chosen keys in plaintext (unencrypted_suffix, unencrypted_regex,
+// encrypted_regex) and the file still decrypts, so the source is also told
+// to verify every requested value is ciphertext in the file as stored.
 func requireEncryptedSource(src secretSource) error {
-	if src.Encrypted() {
-		return nil
+	if !src.Encrypted() {
+		return fmt.Errorf("-require-encrypted-secrets: -secrets is %q, which is not encrypted at rest; use sops:<path> or gcp-secret-manager:<project>", src.String())
 	}
-	return fmt.Errorf("-require-encrypted-secrets: -secrets is %q, which is not encrypted at rest; use sops:<path> or gcp-secret-manager:<project>", src.String())
+	if s, ok := src.(*sopsSource); ok {
+		s.requireCiphertext = true
+	}
+	return nil
 }
 
 // envSource is the process environment.
@@ -118,12 +125,30 @@ type sopsSource struct {
 	path string
 	// decryptFile is swapped in tests; the default is decrypt.File.
 	decryptFile func(path, format string) ([]byte, error)
+	// requireCiphertext (set by -require-encrypted-secrets) refuses any
+	// requested value that is stored in plaintext in the file, which SOPS
+	// allows through unencrypted_suffix / unencrypted_regex /
+	// encrypted_regex while the file still decrypts normally.
+	requireCiphertext bool
 }
 
 func (s *sopsSource) Resolve(_ context.Context, names []string) (map[string]string, error) {
 	format, err := sopsFormat(s.path)
 	if err != nil {
 		return nil, err
+	}
+	if s.requireCiphertext {
+		raw, err := os.ReadFile(s.path)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", s.path, err)
+		}
+		plain, err := plaintextKeys(raw, format, names)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", s.path, err)
+		}
+		if len(plain) > 0 {
+			return nil, fmt.Errorf("-require-encrypted-secrets: %d value(s) are stored in plaintext in %s (left unencrypted by a SOPS unencrypted_suffix, unencrypted_regex or encrypted_regex rule): %s", len(plain), s.path, strings.Join(plain, ", "))
+		}
 	}
 	dec := s.decryptFile
 	if dec == nil {
@@ -155,6 +180,52 @@ func (s *sopsSource) Encrypted() bool { return true }
 // sopsDecrypt is the SOPS decryption entry point; a test replaces it to run
 // the commands end to end without a key.
 var sopsDecrypt = decrypt.File
+
+// plaintextKeys reads the SOPS file as stored, before decryption, and
+// returns the requested names whose value is present but is not a SOPS
+// ciphertext (ENC[...]). Names only: a plaintext value found here is
+// exactly what must never be printed. A name absent from the file is not
+// reported; it is unresolved and reported as such later.
+func plaintextKeys(raw []byte, format string, names []string) ([]string, error) {
+	stored := map[string]string{}
+	switch format {
+	case "yaml":
+		var doc map[string]yaml.Node
+		if err := yaml.Unmarshal(raw, &doc); err != nil {
+			return nil, fmt.Errorf("parse stored content: %w", err)
+		}
+		for k, n := range doc {
+			if k != "sops" && n.Kind == yaml.ScalarNode {
+				stored[k] = n.Value
+			}
+		}
+	case "json":
+		var doc map[string]interface{}
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			return nil, fmt.Errorf("parse stored content: %w", err)
+		}
+		for k, v := range doc {
+			if s, ok := v.(string); ok && k != "sops" {
+				stored[k] = s
+			}
+		}
+	case "dotenv":
+		for _, line := range strings.Split(string(raw), "\n") {
+			if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok && !strings.HasPrefix(k, "#") && !strings.HasPrefix(k, "sops_") {
+				stored[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
+			}
+		}
+	default:
+		return nil, fmt.Errorf("unsupported format %q", format)
+	}
+	var plain []string
+	for _, n := range names {
+		if v, ok := stored[n]; ok && !strings.HasPrefix(v, "ENC[") {
+			plain = append(plain, n)
+		}
+	}
+	return plain, nil
+}
 
 // sopsFormat maps a file extension to the SOPS input format.
 func sopsFormat(path string) (string, error) {
