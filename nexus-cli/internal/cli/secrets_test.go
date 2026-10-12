@@ -15,6 +15,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// touch gives a fake-backed sops source a real file to read; the fake
+// decrypt ignores the bytes.
+func touch(t *testing.T, name string) string {
+	t.Helper()
+	return filepath.Join(writeFiles(t, map[string]string{name: ""}), name)
+}
+
 func TestSecretIDFor(t *testing.T) {
 	cases := []struct{ in, prefix, want string }{
 		{"NEXUS_PROVIDER_TWITTER_CLIENT_ID", "oauth-", "oauth-twitter-client-id"},
@@ -53,7 +60,7 @@ func TestNewSecretSource(t *testing.T) {
 
 func TestEnvSourceAndFallback(t *testing.T) {
 	t.Setenv("ONLY_IN_ENV", "from-env")
-	src := &sopsSource{path: "s.yaml", decryptFile: func(string, string) ([]byte, error) {
+	src := &sopsSource{path: touch(t, "s.yaml"), decryptData: func([]byte, string) ([]byte, error) {
 		return []byte("IN_SOPS: from-sops\n"), nil
 	}}
 	lookup, err := lookupWith(context.Background(), src, []string{"IN_SOPS", "ONLY_IN_ENV", "NOWHERE"}, true)
@@ -81,9 +88,10 @@ func TestSopsSource_FormatsAndScalars(t *testing.T) {
 		{"s.env", "# comment\nA=one\nB=\"two\"\nsops_version=3.8\n", map[string]string{"A": "one", "B": "two"}},
 	}
 	for _, c := range cases {
-		src := &sopsSource{path: c.path, decryptFile: func(path, format string) ([]byte, error) {
-			if path != c.path {
-				t.Fatalf("decrypt path = %s", path)
+		wantFormat, _ := sopsFormat(c.path)
+		src := &sopsSource{path: touch(t, c.path), decryptData: func(_ []byte, format string) ([]byte, error) {
+			if format != wantFormat {
+				t.Fatalf("decrypt format = %s, want %s", format, wantFormat)
 			}
 			return []byte(c.plain), nil
 		}}
@@ -108,7 +116,7 @@ func TestSopsSource_FormatsAndScalars(t *testing.T) {
 }
 
 func TestSopsSource_RejectsNestedAndUnknownExt(t *testing.T) {
-	src := &sopsSource{path: "s.yaml", decryptFile: func(string, string) ([]byte, error) {
+	src := &sopsSource{path: touch(t, "s.yaml"), decryptData: func([]byte, string) ([]byte, error) {
 		return []byte("A:\n  nested: 1\n"), nil
 	}}
 	if _, err := src.Resolve(context.Background(), []string{"A"}); err == nil || !strings.Contains(err.Error(), "must be a scalar") {
@@ -118,14 +126,15 @@ func TestSopsSource_RejectsNestedAndUnknownExt(t *testing.T) {
 	if _, err := src.Resolve(context.Background(), []string{"A"}); err == nil || !strings.Contains(err.Error(), "unsupported SOPS file type") {
 		t.Fatalf("err = %v, want unsupported type", err)
 	}
-	src = &sopsSource{path: "s.yaml", decryptFile: func(string, string) ([]byte, error) { return nil, errors.New("no key") }}
-	if _, err := src.Resolve(context.Background(), []string{"A"}); err == nil || !strings.Contains(err.Error(), "decrypt s.yaml: no key") {
+	noKey := touch(t, "s.yaml")
+	src = &sopsSource{path: noKey, decryptData: func([]byte, string) ([]byte, error) { return nil, errors.New("no key") }}
+	if _, err := src.Resolve(context.Background(), []string{"A"}); err == nil || !strings.Contains(err.Error(), "decrypt "+noKey+": no key") {
 		t.Fatalf("err = %v, want decrypt error", err)
 	}
 }
 
 func TestSopsSource_DotenvErrorDoesNotEchoTheLine(t *testing.T) {
-	src := &sopsSource{path: "s.env", decryptFile: func(string, string) ([]byte, error) {
+	src := &sopsSource{path: touch(t, "s.env"), decryptData: func([]byte, string) ([]byte, error) {
 		return []byte("A=fine\n\nhunter2-without-equals\n"), nil
 	}}
 	_, err := src.Resolve(context.Background(), []string{"A"})
@@ -263,10 +272,10 @@ func TestSopsSource_RequireCiphertextRefusesPlaintextValues(t *testing.T) {
 	// A file whose client secret was left in plaintext by an
 	// unencrypted_suffix rule still decrypts; the policy must catch it.
 	path := writeCiphertextFile(t, "s.enc.yaml", []string{"ID"}, map[string]string{"SECRET_unencrypted": "hunter2", "OTHER_unencrypted": "x"})
-	decrypted := func(string, string) ([]byte, error) {
+	decrypted := func([]byte, string) ([]byte, error) {
 		return []byte("ID: id\nSECRET_unencrypted: hunter2\nOTHER_unencrypted: x\n"), nil
 	}
-	src := &sopsSource{path: path, decryptFile: decrypted}
+	src := &sopsSource{path: path, decryptData: decrypted}
 	if _, err := src.Resolve(context.Background(), []string{"ID", "SECRET_unencrypted"}); err != nil {
 		t.Fatalf("without the policy a plaintext value is the user's choice: %v", err)
 	}
@@ -286,18 +295,37 @@ func TestSopsSource_RequireCiphertextRefusesPlaintextValues(t *testing.T) {
 	if got, err := src.Resolve(context.Background(), []string{"ID", "NOWHERE"}); err != nil || got["ID"] != "id" {
 		t.Fatalf("got %v, %v", got, err)
 	}
+	// A value that merely looks like ciphertext is not: SOPS left it
+	// untouched, so it decrypts to itself, and that is the test.
+	shaped := writeCiphertextFile(t, "shaped.enc.yaml", []string{"ID"}, map[string]string{"SECRET_unencrypted": "ENC[plain-but-not-encrypted]"})
+	sh := &sopsSource{path: shaped, decryptData: func([]byte, string) ([]byte, error) {
+		return []byte("ID: id\nSECRET_unencrypted: ENC[plain-but-not-encrypted]\n"), nil
+	}, requireCiphertext: true}
+	if _, err := sh.Resolve(context.Background(), []string{"ID", "SECRET_unencrypted"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET_unencrypted") {
+		t.Fatalf("ciphertext-shaped literal: %v", err)
+	}
+	// SOPS re-emits the document after decrypting and may respell a scalar
+	// it left alone; the comparison is on values, so a respelling does
+	// not hide a plaintext value, and a string "true" is not the boolean.
+	respelt := writeCiphertextFile(t, "respelt.enc.yaml", []string{"ID"}, map[string]string{"FLAG_unencrypted": "TRUE", "RATE_unencrypted": "1.50", "WORD_unencrypted": "\"true\""})
+	rs := &sopsSource{path: respelt, decryptData: func([]byte, string) ([]byte, error) {
+		return []byte("ID: id\nFLAG_unencrypted: true\nRATE_unencrypted: 1.5\nWORD_unencrypted: 'true'\n"), nil
+	}, requireCiphertext: true}
+	if _, err := rs.Resolve(context.Background(), []string{"ID", "FLAG_unencrypted", "RATE_unencrypted", "WORD_unencrypted"}); err == nil || !strings.HasSuffix(err.Error(), ": FLAG_unencrypted, RATE_unencrypted, WORD_unencrypted") {
+		t.Fatalf("respelt scalars: %v", err)
+	}
 	// Same rule for the other formats.
-	jsonPath := filepath.Join(writeFiles(t, map[string]string{"s.enc.json": `{"ID":"ENC[AES256_GCM,data:a,type:str]","SECRET":"plain","NUM":9007199254740993,"FLAG":true,"NONE":null,"sops":{"version":"3.13.3"}}`}), "s.enc.json")
-	js := &sopsSource{path: jsonPath, decryptFile: func(string, string) ([]byte, error) {
-		return []byte(`{"ID":"id","SECRET":"plain","NUM":9007199254740993,"FLAG":true,"NONE":null}`), nil
+	jsonPath := filepath.Join(writeFiles(t, map[string]string{"s.enc.json": `{"ID":"ENC[AES256_GCM,data:a,type:str]","SECRET":"plain","NUM":9007199254740993,"FLAG":true,"NONE":null,"RATE":1.50,"sops":{"version":"3.13.3"}}`}), "s.enc.json")
+	js := &sopsSource{path: jsonPath, decryptData: func([]byte, string) ([]byte, error) {
+		return []byte(`{"ID":"id","SECRET":"plain","NUM":9007199254740993,"FLAG":true,"NONE":null,"RATE":1.5}`), nil
 	}, requireCiphertext: true}
 	// A number, boolean or null stored as such is plaintext too: the
 	// decrypted parser would accept each as a value.
-	if _, err := js.Resolve(context.Background(), []string{"ID", "SECRET", "NUM", "FLAG", "NONE"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET, NUM, FLAG, NONE") {
+	if _, err := js.Resolve(context.Background(), []string{"ID", "SECRET", "NUM", "FLAG", "NONE", "RATE"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET, NUM, FLAG, NONE, RATE") {
 		t.Fatalf("json: %v", err)
 	}
 	envPath := filepath.Join(writeFiles(t, map[string]string{"s.env": "ID=ENC[AES256_GCM,data:a,type:str]\nSECRET=plain\nsops_version=3.13.3\n"}), "s.env")
-	de := &sopsSource{path: envPath, decryptFile: func(string, string) ([]byte, error) { return []byte("ID=id\nSECRET=plain\n"), nil }, requireCiphertext: true}
+	de := &sopsSource{path: envPath, decryptData: func([]byte, string) ([]byte, error) { return []byte("ID=id\nSECRET=plain\n"), nil }, requireCiphertext: true}
 	if _, err := de.Resolve(context.Background(), []string{"ID", "SECRET"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET") {
 		t.Fatalf("dotenv: %v", err)
 	}
@@ -328,7 +356,8 @@ func TestEncryptedSources_PolicyAndNoEnvFallback(t *testing.T) {
 	// when the environment has it, and the message does not claim the
 	// environment was tried.
 	t.Setenv("ONLY_IN_ENV", "from-env")
-	src := &sopsSource{path: "s.yaml", decryptFile: func(string, string) ([]byte, error) { return []byte("IN_SOPS: a\n"), nil }}
+	sopsPath := touch(t, "s.yaml")
+	src := &sopsSource{path: sopsPath, decryptData: func([]byte, string) ([]byte, error) { return []byte("IN_SOPS: a\n"), nil }}
 	lookup, err := lookupWith(context.Background(), src, []string{"IN_SOPS", "ONLY_IN_ENV"}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -339,7 +368,7 @@ func TestEncryptedSources_PolicyAndNoEnvFallback(t *testing.T) {
 	if _, ok := lookup("ONLY_IN_ENV"); ok {
 		t.Fatal("environment consulted although fallback is off")
 	}
-	if got := unresolvedMessage(src, []string{"ONLY_IN_ENV"}, false); strings.Contains(got, "then environment variable") || !strings.Contains(got, "looked for key ONLY_IN_ENV in s.yaml)") {
+	if got := unresolvedMessage(src, []string{"ONLY_IN_ENV"}, false); strings.Contains(got, "then environment variable") || !strings.Contains(got, "looked for key ONLY_IN_ENV in "+sopsPath+")") {
 		t.Fatalf("message:\n%s", got)
 	}
 }

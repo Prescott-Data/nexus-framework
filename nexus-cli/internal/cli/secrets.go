@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -123,8 +125,8 @@ func (envSource) Encrypted() bool { return false }
 // plaintext never touches disk.
 type sopsSource struct {
 	path string
-	// decryptFile is swapped in tests; the default is decrypt.File.
-	decryptFile func(path, format string) ([]byte, error)
+	// decryptData is swapped in tests; the default is decrypt.Data.
+	decryptData func(data []byte, format string) ([]byte, error)
 	// requireCiphertext (set by -require-encrypted-secrets) refuses any
 	// requested value that is stored in plaintext in the file, which SOPS
 	// allows through unencrypted_suffix / unencrypted_regex /
@@ -137,30 +139,33 @@ func (s *sopsSource) Resolve(_ context.Context, names []string) (map[string]stri
 	if err != nil {
 		return nil, err
 	}
-	if s.requireCiphertext {
-		raw, err := os.ReadFile(s.path)
-		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", s.path, err)
-		}
-		plain, err := plaintextKeys(raw, format, names)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", s.path, err)
-		}
-		if len(plain) > 0 {
-			return nil, fmt.Errorf("-require-encrypted-secrets: %d value(s) are stored in plaintext in %s (left unencrypted by a SOPS unencrypted_suffix, unencrypted_regex or encrypted_regex rule): %s", len(plain), s.path, strings.Join(plain, ", "))
-		}
+	// One read: the bytes that are decrypted are the bytes that are
+	// compared below, so a file replaced between two reads cannot pair an
+	// old plaintext with a new ciphertext and pass the policy.
+	raw, err := os.ReadFile(s.path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", s.path, err)
 	}
-	dec := s.decryptFile
+	dec := s.decryptData
 	if dec == nil {
 		dec = sopsDecrypt
 	}
-	plain, err := dec(s.path, format)
+	plain, err := dec(raw, format)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt %s: %w", s.path, err)
 	}
 	all, err := parseSecretsFile(plain, format)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", s.path, err)
+	}
+	if s.requireCiphertext {
+		unenc, err := unencryptedKeys(raw, plain, format, names)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", s.path, err)
+		}
+		if len(unenc) > 0 {
+			return nil, fmt.Errorf("-require-encrypted-secrets: %d value(s) are stored in plaintext in %s (left unencrypted by a SOPS unencrypted_suffix, unencrypted_regex or encrypted_regex rule): %s", len(unenc), s.path, strings.Join(unenc, ", "))
+		}
 	}
 	out := make(map[string]string, len(names))
 	for _, n := range names {
@@ -177,62 +182,119 @@ func (s *sopsSource) Where(name string) string { return fmt.Sprintf("key %s in %
 
 func (s *sopsSource) Encrypted() bool { return true }
 
-// sopsDecrypt is the SOPS decryption entry point; a test replaces it to run
-// the commands end to end without a key.
-var sopsDecrypt = decrypt.File
+// sopsDecrypt is the SOPS decryption entry point, over bytes already read;
+// a test replaces it to run the commands end to end without a key.
+var sopsDecrypt = decrypt.Data
 
-// plaintextKeys reads the SOPS file as stored, before decryption, and
-// returns the requested names whose value is present but is not a SOPS
-// ciphertext (ENC[...]). Names only: a plaintext value found here is
-// exactly what must never be printed. A name absent from the file is not
-// reported; it is unresolved and reported as such later.
-func plaintextKeys(raw []byte, format string, names []string) ([]string, error) {
-	stored := map[string]string{}
+// unencryptedKeys returns the requested names whose value in the file as
+// stored is the same value decryption yielded. SOPS leaves a value it did
+// not encrypt (unencrypted_suffix, unencrypted_regex, encrypted_regex)
+// in place, so "stored == decrypted" is exactly "was never encrypted",
+// whatever the value looks like: a literal that happens to start with
+// ENC[ is caught the same as any other, and an encrypted value never
+// equals its ciphertext. The comparison is on parsed values, not text,
+// because SOPS re-emits the document after decrypting and may respell a
+// scalar it left alone (TRUE as true, 1.50 as 1.5); the text handed to
+// the manifest is unaffected. Names only are returned: a value found here
+// is exactly what must never be printed. A name absent from the file is
+// not reported; it is unresolved and reported as such later.
+func unencryptedKeys(raw, plain []byte, format string, names []string) ([]string, error) {
+	stored, err := canonicalValues(raw, format)
+	if err != nil {
+		return nil, fmt.Errorf("parse stored content: %w", err)
+	}
+	decrypted, err := canonicalValues(plain, format)
+	if err != nil {
+		return nil, fmt.Errorf("parse decrypted content: %w", err)
+	}
+	var unenc []string
+	for _, n := range names {
+		if sv, ok := stored[n]; ok {
+			if dv, ok := decrypted[n]; ok && sv == dv {
+				unenc = append(unenc, n)
+			}
+		}
+	}
+	return unenc, nil
+}
+
+// canonicalValues maps each top-level scalar of a secrets document to a
+// spelling-independent form: the parsed value for YAML (so TRUE, true and
+// True agree, as do 1.50 and 1.5), a normalised number for JSON, the
+// unquoted text for dotenv. Strings are themselves, prefixed so a string
+// "true" never equals the boolean. Used only to compare the stored and
+// the decrypted document; resolved values keep their exact text.
+func canonicalValues(data []byte, format string) (map[string]string, error) {
+	out := map[string]string{}
 	switch format {
 	case "yaml":
 		var doc map[string]yaml.Node
-		if err := yaml.Unmarshal(raw, &doc); err != nil {
-			return nil, fmt.Errorf("parse stored content: %w", err)
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
 		}
 		for k, n := range doc {
-			if k != "sops" && n.Kind == yaml.ScalarNode {
-				stored[k] = n.Value
+			if k == "sops" || n.Kind != yaml.ScalarNode {
+				continue
 			}
+			var v interface{}
+			if err := n.Decode(&v); err != nil {
+				v = n.Value
+			}
+			out[k] = canonicalScalar(v)
 		}
 	case "json":
+		dec := json.NewDecoder(bytes.NewReader(data))
+		dec.UseNumber()
 		var doc map[string]interface{}
-		if err := json.Unmarshal(raw, &doc); err != nil {
-			return nil, fmt.Errorf("parse stored content: %w", err)
+		if err := dec.Decode(&doc); err != nil {
+			return nil, err
 		}
 		for k, v := range doc {
 			if k == "sops" {
 				continue
 			}
-			// A number, boolean or null is accepted by the decrypted parser
-			// as a value, so stored that way it is plaintext: record it as
-			// a non-ciphertext string.
-			if s, ok := v.(string); ok {
-				stored[k] = s
-			} else {
-				stored[k] = ""
-			}
+			out[k] = canonicalScalar(v)
 		}
 	case "dotenv":
-		for _, line := range strings.Split(string(raw), "\n") {
+		for _, line := range strings.Split(string(data), "\n") {
 			if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok && !strings.HasPrefix(k, "#") && !strings.HasPrefix(k, "sops_") {
-				stored[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
+				out[strings.TrimSpace(k)] = "s:" + strings.Trim(strings.TrimSpace(v), `"'`)
 			}
 		}
 	default:
 		return nil, fmt.Errorf("unsupported format %q", format)
 	}
-	var plain []string
-	for _, n := range names {
-		if v, ok := stored[n]; ok && !strings.HasPrefix(v, "ENC[") {
-			plain = append(plain, n)
+	return out, nil
+}
+
+// canonicalScalar renders a parsed scalar so that equal values have equal
+// strings whatever their source spelling. Numbers go through big.Float so
+// 1.50 and 1.5 agree and a 16-digit integer stays exact; anything that is
+// not a scalar is rendered opaquely and never matches a resolved value.
+func canonicalScalar(v interface{}) string {
+	switch x := v.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "b:" + strconv.FormatBool(x)
+	case string:
+		return "s:" + x
+	case int:
+		return "n:" + strconv.FormatInt(int64(x), 10)
+	case int64:
+		return "n:" + strconv.FormatInt(x, 10)
+	case uint64:
+		return "n:" + strconv.FormatUint(x, 10)
+	case float64:
+		return "n:" + strconv.FormatFloat(x, 'g', -1, 64)
+	case json.Number:
+		if f, ok := new(big.Float).SetPrec(256).SetString(x.String()); ok {
+			return "n:" + f.Text('g', -1)
 		}
+		return "s:" + x.String()
+	default:
+		return fmt.Sprintf("other:%T", v)
 	}
-	return plain, nil
 }
 
 // sopsFormat maps a file extension to the SOPS input format.

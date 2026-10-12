@@ -391,7 +391,7 @@ func TestRunValidate_RequireEncryptedSecrets(t *testing.T) {
 	// A SOPS source that lacks a placeholder does not fall back to the
 	// environment, and the message says only the file was searched.
 	restore := sopsDecrypt
-	sopsDecrypt = func(string, string) ([]byte, error) { return []byte("NEXUS_PROVIDER_GITHUB_CLIENT_ID: id\n"), nil }
+	sopsDecrypt = func([]byte, string) ([]byte, error) { return []byte("NEXUS_PROVIDER_GITHUB_CLIENT_ID: id\n"), nil }
 	t.Cleanup(func() { sopsDecrypt = restore })
 	stored := writeCiphertextFile(t, "s.enc.yaml", []string{"NEXUS_PROVIDER_GITHUB_CLIENT_ID"}, nil)
 	t.Setenv("NEXUS_PROVIDER_GITHUB_CLIENT_SECRET", "from-the-shell")

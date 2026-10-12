@@ -362,7 +362,7 @@ func TestPlan_RequireEncryptedSecretsStopsBeforeBroker(t *testing.T) {
 	// An encrypted source, but the manifest carries salesforce's secret
 	// literally: refused before any secret is resolved, value not echoed.
 	restore := sopsDecrypt
-	sopsDecrypt = func(string, string) ([]byte, error) {
+	sopsDecrypt = func([]byte, string) ([]byte, error) {
 		return []byte("GH_ID: gh-id\nGH_SECRET: gh-secret\nWH_SECRET: new-hook-secret\n"), nil
 	}
 	t.Cleanup(func() { sopsDecrypt = restore })
@@ -391,7 +391,7 @@ func TestPlan_RequireEncryptedSecretsStopsBeforeBroker(t *testing.T) {
 	t.Setenv("GH_SECRET", "shell-value-that-must-be-ignored")
 	fixed := strings.Replace(planManifest, "client_secret: sf-secret", "client_secret: ${SF_SECRET}", 1)
 	dir := writeFiles(t, map[string]string{"m.yaml": fixed})
-	sopsDecrypt = func(string, string) ([]byte, error) {
+	sopsDecrypt = func([]byte, string) ([]byte, error) {
 		return []byte("GH_ID: gh-id\nGH_SECRET: gh-secret\nSF_SECRET: sf-secret\nWH_SECRET: new-hook-secret\n"), nil
 	}
 	out.Reset()
