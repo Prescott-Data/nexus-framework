@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -124,9 +125,22 @@ func validateManifest(l loaded) []issue {
 // ${NAME}, as validate sees them.
 func isPlaceholder(v string) bool { return strings.Contains(v, "${") }
 
-// exactPlaceholder matches a value that is one placeholder and nothing
-// else: ${NAME} or $NAME, as os.Expand reads them.
-var exactPlaceholder = regexp.MustCompile(`^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)$`)
+// isExactPlaceholder reports whether v is one placeholder and nothing
+// else, by the same grammar the manifest is expanded with: os.Expand is
+// run over v with a mapping that records its calls, and v qualifies only
+// when the mapping fired exactly once and the result is that one
+// substitution with no text around it. So ${CLIENT-SECRET} qualifies (any
+// non-empty braced name does), while "hunter2-${X}", " ${X} " and
+// "${A}${B}" do not. No trimming: surrounding whitespace is literal text.
+func isExactPlaceholder(v string) bool {
+	const mark = "\x00placeholder\x00"
+	calls := 0
+	out := os.Expand(v, func(name string) string {
+		calls++
+		return mark
+	})
+	return calls == 1 && out == mark
+}
 
 // literalSecretIssues is the -require-encrypted-secrets rule on the
 // manifest as written (placeholders kept): a client_secret must be exactly
@@ -140,7 +154,9 @@ var exactPlaceholder = regexp.MustCompile(`^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-
 func literalSecretIssues(l loaded) []issue {
 	var issues []issue
 	for i, p := range l.Manifest.Providers {
-		if v := strings.TrimSpace(p.ClientSecret); v != "" && !exactPlaceholder.MatchString(v) {
+		// The empty case is the ordinary required-field rule's; the policy
+		// looks at the value as written, whitespace included.
+		if strings.TrimSpace(p.ClientSecret) != "" && !isExactPlaceholder(p.ClientSecret) {
 			issues = append(issues, issue{Source: l.Sources[i], Provider: p.Name, Message: "client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest"})
 		}
 	}
