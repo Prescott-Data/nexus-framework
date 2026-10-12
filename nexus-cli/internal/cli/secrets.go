@@ -205,8 +205,16 @@ func plaintextKeys(raw []byte, format string, names []string) ([]string, error) 
 			return nil, fmt.Errorf("parse stored content: %w", err)
 		}
 		for k, v := range doc {
-			if s, ok := v.(string); ok && k != "sops" {
+			if k == "sops" {
+				continue
+			}
+			// A number, boolean or null is accepted by the decrypted parser
+			// as a value, so stored that way it is plaintext: record it as
+			// a non-ciphertext string.
+			if s, ok := v.(string); ok {
 				stored[k] = s
+			} else {
+				stored[k] = ""
 			}
 		}
 	case "dotenv":

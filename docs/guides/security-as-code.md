@@ -253,18 +253,14 @@ Run `nexus validate` on every pull request that touches the provider directory; 
 Automatic apply on merge is not recommended. `apply -auto-approve` exists for scripted applies from a trusted environment, such as a seed script run by an operator; it is not an invitation to apply from a merge hook. Provider configuration is live operational data that affects all agents in the workspace. A plan review step before apply prevents accidental provider deletions or misconfigurations from reaching production silently.
 
 ```yaml
-# Example GitHub Actions snippet
+# Every pull request: no secrets, no cloud identity, nothing to exfiltrate
 - name: Install nexus
   run: go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@latest
 
 - name: Validate providers
   run: nexus validate -file infra/providers -require-encrypted-secrets
-
-- name: Nexus plan
-  env:
-    BROKER_BASE_URL: ${{ secrets.BROKER_BASE_URL }}
-    API_KEY: ${{ secrets.BROKER_API_KEY }}
-  run: nexus plan -file infra/providers -secrets sops:infra/providers.enc.yaml -require-encrypted-secrets
 ```
+
+Do not give a `pull_request` job the identity that decrypts the secrets file: a pull request can rewrite the workflow it runs under, so that identity would belong to anyone who can open one. Run `plan` in a separate job on a trusted ref after merge, under a protected environment, with the cloud-side trust pinned to that repository and ref. The full two-job workflow and the Workload Identity Federation condition are in [Provider Secrets with SOPS](provider-secrets-with-sops.md#ci).
 
 Every `apply` run generates audit log entries on the Broker, giving you a record of which providers were created, updated, or deleted and at what time. Combined with the git history of your manifest files, you have two independent audit trails for every provider change.

@@ -259,12 +259,16 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "✗ %v\n", err)
 				return 1
 			}
-			fmt.Fprintf(stdout, "-require-encrypted-secrets: %s is encrypted at rest; the environment is not consulted\n", src)
 		}
 		lookup, err := lookupWith(context.Background(), src, l.Placeholders, !mf.requireEncrypted)
 		if err != nil {
 			fmt.Fprintf(stderr, "✗ %v\n", err)
 			return 1
+		}
+		if mf.requireEncrypted {
+			// Only now is it true: Resolve has decrypted the file and, for
+			// SOPS, checked every requested value is ciphertext as stored.
+			fmt.Fprintf(stdout, "-require-encrypted-secrets: %s is encrypted at rest; the environment is not consulted\n", src)
 		}
 		if checked, err = readManifest(mf.file, lookup); err != nil {
 			fmt.Fprintf(stderr, "✗ %v\n", err)

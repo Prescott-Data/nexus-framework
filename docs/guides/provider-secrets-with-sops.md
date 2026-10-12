@@ -348,29 +348,47 @@ Where to turn it on:
 
 ## CI
 
-`validate` needs no secrets and runs on every pull request. `plan` needs the Broker and the key; run it where the pipeline can reach both, as an informational check that shows reviewers the diff. Apply from a trusted environment, by hand, after reading the plan. On GitHub Actions with Google Cloud and Workload Identity Federation, so that no key file is stored as an Actions secret:
+Two jobs with two levels of trust, never one. A pull request can change the workflow file it runs under, so a job that runs on `pull_request` and holds a cloud identity able to decrypt the file hands that identity to anyone who can open a pull request: they edit the steps, the job decrypts, and the plaintext goes wherever they point it. The pull-request job therefore gets **no** cloud identity; it runs `validate`, which needs no key and no Broker and still enforces the no-literal-secret rule. Decryption happens only in a job that runs on a trusted ref after merge, under a protected environment, and the cloud side is pinned to exactly that.
 
 ```yaml
-on: [pull_request]
-permissions:
-  contents: read
-  id-token: write          # for Workload Identity Federation
+# .github/workflows/providers.yml
+on:
+  pull_request:
+    paths: [infra/providers/**, infra/secrets.enc.yaml, .sops.yaml]
+  push:
+    branches: [main]
+    paths: [infra/providers/**, infra/secrets.enc.yaml, .sops.yaml]
+
+env:
+  NEXUS_REQUIRE_ENCRYPTED_SECRETS: "true"
 
 jobs:
-  providers:
+  # Every pull request. No secrets, no cloud identity: nothing to exfiltrate.
+  validate:
     runs-on: ubuntu-latest
-    env:
-      NEXUS_REQUIRE_ENCRYPTED_SECRETS: "true"
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: "1.22" }
       - run: go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@v0.6.6
+      - run: nexus validate -file infra/providers      # shape, duplicates, no literal secrets
 
-      # Needs no key, no Broker: shape, duplicates, and no literal secrets.
-      - run: nexus validate -file infra/providers
-
-      # The rest only where the pipeline is allowed to decrypt.
+  # Only on push to main, only in a protected environment. The one job that can decrypt.
+  plan:
+    if: github.event_name == 'push'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: nexus-plan        # required reviewers + deployment branch rule "main" in the repo settings
+    permissions:
+      contents: read
+      id-token: write              # for Workload Identity Federation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22" }
+      - run: go install github.com/Prescott-Data/nexus-framework/nexus-cli/cmd/nexus@v0.6.6
       - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/123456789/locations/global/workloadIdentityPools/github/providers/github
@@ -383,7 +401,17 @@ jobs:
           GOOGLE_CLOUD_QUOTA_PROJECT: my-project
 ```
 
-The service account needs only `roles/cloudkms.cryptoKeyDecrypter` on the key: `plan` decrypts and never encrypts, so CI should not be able to re-encrypt the file. People who edit it get `roles/cloudkms.cryptoKeyEncrypterDecrypter`. The only Actions secrets are the Broker's URL and API key; the provider secrets never leave the file.
+The workflow alone is not the control; the cloud side must refuse a token from anywhere else. On the Workload Identity Federation provider, set an attribute condition that pins the repository **and** the ref or environment, so that a token minted by a pull request, a fork, or a copy of this workflow on another branch cannot impersonate the service account even if the YAML is identical:
+
+```
+assertion.repository == "my-org/my-repo" && assertion.ref == "refs/heads/main"
+# or, binding to the protected environment instead of the branch:
+assertion.repository == "my-org/my-repo" && assertion.environment == "nexus-plan"
+```
+
+Map `attribute.repository` and `attribute.ref` (or `attribute.environment`) from the token's claims when you create the provider, and bind the service account to the pool with a principalSet that names the repository. The service account itself needs only `roles/cloudkms.cryptoKeyDecrypter` on the key: `plan` decrypts and never encrypts, so CI should not be able to re-encrypt the file. People who edit it get `roles/cloudkms.cryptoKeyEncrypterDecrypter`. The only Actions secrets are the Broker's URL and API key; the provider secrets never leave the file.
+
+If reviewers want to see the plan before merging rather than after, run it from an operator's machine and paste the masked output into the pull request. A `pull_request` job that can decrypt is not a safe shortcut to that, and `pull_request_target` with a checkout of the PR head is worse.
 
 ---
 
@@ -471,6 +499,6 @@ What the CLI cannot do is protect a machine that is already compromised while `p
 | The editor opens and shows `ENC[...]` strings | You opened the file directly, not through `sops edit` | `sops edit infra/secrets.enc.yaml` |
 | `sops edit` returns at once and nothing changed | A GUI editor that does not block | `EDITOR="code --wait"` (or the editor's equivalent) |
 | `-require-encrypted-secrets: -secrets is "env"` on `plan` | `NEXUS_SECRETS` is unset and no `-secrets` was passed, so the default `env` source was selected | Pass `-secrets sops:…` or export `NEXUS_SECRETS` |
-| `-require-encrypted-secrets: N value(s) are stored in plaintext in …: KEY` | A SOPS `unencrypted_suffix` / `unencrypted_regex` / `encrypted_regex` rule left that key in plaintext in the file | Remove the rule for that key (or rename the key) and `sops updatekeys` / re-encrypt; the value must be `ENC[...]` in the stored file |
+| `-require-encrypted-secrets: N value(s) are stored in plaintext in …: KEY` | A SOPS `unencrypted_suffix` / `unencrypted_regex` / `encrypted_regex` rule left that key in plaintext in the file | Remove the rule (or rename the key so it no longer matches), then decrypt and re-encrypt: `sops decrypt infra/secrets.enc.yaml > "$TMP/secrets.yaml"` in a private temp dir, `sops encrypt --filename-override infra/secrets.enc.yaml --output infra/secrets.enc.yaml "$TMP/secrets.yaml"`, remove the temp dir. `sops updatekeys` is not enough: it changes recipients, not which values are encrypted |
 | `plan` shows `client_secret: *** → ***` for a provider you did not rotate | The Broker's stored secret differs from the file (someone rotated through the API, or the file is stale) | Decide which is right; `apply` sends the file's value, so update the file first if the Broker is right |
 | `plan` is silent after a rotation for an old provider | The provider has no fingerprint yet (registered before 0.6.4) | Rotate once with `PATCH /providers/{id}`, or wait for the Broker to use the secret; from then on `plan` compares it |

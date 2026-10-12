@@ -287,9 +287,13 @@ func TestSopsSource_RequireCiphertextRefusesPlaintextValues(t *testing.T) {
 		t.Fatalf("got %v, %v", got, err)
 	}
 	// Same rule for the other formats.
-	jsonPath := filepath.Join(writeFiles(t, map[string]string{"s.enc.json": `{"ID":"ENC[AES256_GCM,data:a,type:str]","SECRET":"plain","sops":{"version":"3.13.3"}}`}), "s.enc.json")
-	js := &sopsSource{path: jsonPath, decryptFile: func(string, string) ([]byte, error) { return []byte(`{"ID":"id","SECRET":"plain"}`), nil }, requireCiphertext: true}
-	if _, err := js.Resolve(context.Background(), []string{"ID", "SECRET"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET") {
+	jsonPath := filepath.Join(writeFiles(t, map[string]string{"s.enc.json": `{"ID":"ENC[AES256_GCM,data:a,type:str]","SECRET":"plain","NUM":9007199254740993,"FLAG":true,"NONE":null,"sops":{"version":"3.13.3"}}`}), "s.enc.json")
+	js := &sopsSource{path: jsonPath, decryptFile: func(string, string) ([]byte, error) {
+		return []byte(`{"ID":"id","SECRET":"plain","NUM":9007199254740993,"FLAG":true,"NONE":null}`), nil
+	}, requireCiphertext: true}
+	// A number, boolean or null stored as such is plaintext too: the
+	// decrypted parser would accept each as a value.
+	if _, err := js.Resolve(context.Background(), []string{"ID", "SECRET", "NUM", "FLAG", "NONE"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET, NUM, FLAG, NONE") {
 		t.Fatalf("json: %v", err)
 	}
 	envPath := filepath.Join(writeFiles(t, map[string]string{"s.env": "ID=ENC[AES256_GCM,data:a,type:str]\nSECRET=plain\nsops_version=3.13.3\n"}), "s.env")
