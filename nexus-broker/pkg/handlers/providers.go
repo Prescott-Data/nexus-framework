@@ -127,7 +127,9 @@ func (h *ProvidersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var updates map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.UseNumber() // a large integer in params must reach the row as written, not rounded through float64
+	if err := dec.Decode(&updates); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "invalid_json", "Invalid JSON")
 		return
 	}

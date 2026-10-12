@@ -171,3 +171,44 @@ func TestReadManifest_MissingPathIsAnError(t *testing.T) {
 		t.Fatal("want an error for a missing manifest")
 	}
 }
+
+func TestReadManifest_AliasesCarrySensitivityAndExpandOnce(t *testing.T) {
+	dir := writeFiles(t, map[string]string{"m.yaml": `providers:
+  - name: a
+    auth_type: oauth2
+    client_id: x
+    client_secret: &cred "${SECRET}"
+    description: *cred
+    auth_url: u
+    token_url: v
+    params:
+      again: *cred
+`})
+	l, err := readManifest(filepath.Join(dir, "m.yaml"), func(n string) (string, bool) { return "resolved-$once", true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := l.Manifest.Providers[0]
+	if *p.Description != "resolved-$once" || p.Params["again"] != "resolved-$once" {
+		t.Fatalf("aliased values must expand exactly once: %+v", p)
+	}
+	for _, f := range []string{"client_secret", "description", "params"} {
+		if !l.Sensitive[0][f] {
+			t.Errorf("%s must be sensitive via the alias; got %v", f, l.Sensitive[0])
+		}
+	}
+	if l.Resolved["resolved-$once"] != "${SECRET}" {
+		t.Fatalf("Resolved = %v", l.Resolved)
+	}
+}
+
+func TestReadManifest_DecodeErrorDoesNotEchoResolvedValue(t *testing.T) {
+	dir := writeFiles(t, map[string]string{"m.yaml": "providers:\n  - name: a\n    enable_discovery: ${FLAG}\n"})
+	_, err := readManifest(filepath.Join(dir, "m.yaml"), func(string) (string, bool) { return "s3cret-token", true })
+	if err == nil {
+		t.Fatal("want a decode error for a non-boolean enable_discovery")
+	}
+	if strings.Contains(err.Error(), "s3cret-token") || !strings.Contains(err.Error(), "${FLAG}") {
+		t.Fatalf("error must name the placeholder, not the value: %v", err)
+	}
+}

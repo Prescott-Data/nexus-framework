@@ -191,6 +191,18 @@ func TestValidate_URLErrorDoesNotEchoTheValue(t *testing.T) {
 	}
 }
 
+func TestValidate_FindingsDoNotEchoResolvedValues(t *testing.T) {
+	dir := writeFiles(t, map[string]string{"m.yaml": "providers:\n  - name: a\n    auth_type: ${AT}\n"})
+	l, err := readManifest(filepath.Join(dir, "m.yaml"), func(string) (string, bool) { return "ldap-s3cret", true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(messages(validateManifest(l)), "\n")
+	if !strings.Contains(got, `auth_type: unsupported value "${AT}"`) || strings.Contains(got, "ldap-s3cret") {
+		t.Fatalf("finding must show the placeholder, not the value:\n%s", got)
+	}
+}
+
 func TestRunValidate_IgnoresNexusSecretsEnv(t *testing.T) {
 	// $NEXUS_SECRETS must not make validate decrypt or contact anything.
 	dir := writeFiles(t, map[string]string{"github.yaml": githubFile})

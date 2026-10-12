@@ -44,8 +44,10 @@ func (i issue) String() string {
 // check is about shape, and whether a secret resolves is a separate concern.
 func validateManifest(l loaded) []issue {
 	var issues []issue
+	// Every message passes through redact: a finding may quote a value
+	// (an unsupported auth_type, an invalid name) that came from a secret.
 	add := func(i int, msg string) {
-		issues = append(issues, issue{Source: l.Sources[i], Provider: l.Manifest.Providers[i].Name, Message: msg})
+		issues = append(issues, issue{Source: l.Sources[i], Provider: l.redact(l.Manifest.Providers[i].Name), Message: l.redact(msg)})
 	}
 	definedIn := map[string]int{}
 	for i, p := range l.Manifest.Providers {

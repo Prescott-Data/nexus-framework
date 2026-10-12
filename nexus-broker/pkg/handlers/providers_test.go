@@ -318,6 +318,30 @@ func TestPatchProvider_AuditRedactsSecrets(t *testing.T) {
 	}), mock.AnythingOfType("*http.Request"))
 }
 
+func TestPatchProvider_KeepsLargeNumbersExact(t *testing.T) {
+	mockStore := new(MockStore)
+	handler := NewProvidersHandler(mockStore, nil)
+	testID := uuid.New()
+	mockStore.On("PatchProfile", testID, mock.MatchedBy(func(updates map[string]interface{}) bool {
+		params, ok := updates["params"].(map[string]interface{})
+		if !ok {
+			return false
+		}
+		n, ok := params["account_id"].(json.Number)
+		return ok && n.String() == "9007199254740993"
+	})).Return(nil)
+
+	req, _ := http.NewRequest("PATCH", "/providers/"+testID.String(), bytes.NewReader([]byte(`{"params":{"account_id":9007199254740993}}`)))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", testID.String())
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rr := httptest.NewRecorder()
+	handler.Patch(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	mockStore.AssertExpectations(t)
+}
+
 func TestHealth_Success(t *testing.T) {
 	mockStore := new(MockStore)
 	handler := NewProvidersHandler(mockStore, nil)

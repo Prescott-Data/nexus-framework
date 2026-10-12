@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -60,7 +61,42 @@ type loaded struct {
 	// placeholder anywhere in its subtree, so plan output masks it: a
 	// resolved value is a secret even when the field is params.
 	Sensitive []map[string]bool
+	// Resolved maps each non-empty value a placeholder expanded to back to
+	// its ${NAME}, so a message that would echo a resolved value (a YAML
+	// type error, a validation finding) can be redacted first.
+	Resolved map[string]string
 }
+
+// redact replaces every resolved value in msg with its placeholder, longest
+// value first so a value that contains another is replaced whole.
+func (l loaded) redact(msg string) string {
+	if len(l.Resolved) == 0 {
+		return msg
+	}
+	values := make([]string, 0, len(l.Resolved))
+	for v := range l.Resolved {
+		values = append(values, v)
+	}
+	sort.Slice(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
+	for _, v := range values {
+		msg = strings.ReplaceAll(msg, v, l.Resolved[v])
+	}
+	// yaml.v3 quotes a long scalar as `prefix...`; a prefix of a secret is
+	// still a leak, so a truncated quote that starts a resolved value is
+	// replaced as well.
+	return truncatedQuote.ReplaceAllStringFunc(msg, func(q string) string {
+		prefix := strings.TrimSuffix(strings.Trim(q, "`"), "...")
+		for _, v := range values {
+			if strings.HasPrefix(v, prefix) {
+				return "`" + l.Resolved[v] + "`"
+			}
+		}
+		return q
+	})
+}
+
+// truncatedQuote matches yaml.v3's abbreviated scalar quote, `abc...`.
+var truncatedQuote = regexp.MustCompile("`[^`]*\\.\\.\\.`")
 
 // lookupFunc resolves a placeholder name; ok=false means unresolved.
 type lookupFunc func(name string) (string, bool)
@@ -337,6 +373,8 @@ func placeholderFields(doc *yaml.Node) []map[string]bool {
 		}
 		for j := 0; j+1 < len(item.Content); j += 2 {
 			key, value := item.Content[j].Value, item.Content[j+1]
+			// A fresh walk per field: a scalar aliased into several fields
+			// must mark each of them.
 			walkValues(value, func(n *yaml.Node) {
 				if len(placeholdersIn(&yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{n}})) > 0 {
 					out[i][key] = true
@@ -347,19 +385,35 @@ func placeholderFields(doc *yaml.Node) []map[string]bool {
 	return out
 }
 
-// walkValues calls fn on every value scalar in the tree: sequence items and
-// mapping values, never mapping keys.
+// walkValues calls fn once on every value scalar reachable from n: sequence
+// items and mapping values, never mapping keys. Aliases (*anchor) are
+// followed to their target, so a secret anchored on one field and aliased
+// into another is seen under both; a scalar is visited once however many
+// aliases point at it, and a self-referencing alias terminates.
 func walkValues(n *yaml.Node, fn func(*yaml.Node)) {
+	walkValuesSeen(n, fn, map[*yaml.Node]bool{})
+}
+
+func walkValuesSeen(n *yaml.Node, fn func(*yaml.Node), seen map[*yaml.Node]bool) {
+	if n == nil || seen[n] {
+		return
+	}
 	switch n.Kind {
 	case yaml.DocumentNode, yaml.SequenceNode:
+		seen[n] = true
 		for _, c := range n.Content {
-			walkValues(c, fn)
+			walkValuesSeen(c, fn, seen)
 		}
 	case yaml.MappingNode:
+		seen[n] = true
 		for i := 1; i < len(n.Content); i += 2 { // values only; even indexes are keys
-			walkValues(n.Content[i], fn)
+			walkValuesSeen(n.Content[i], fn, seen)
 		}
+	case yaml.AliasNode:
+		seen[n] = true
+		walkValuesSeen(n.Alias, fn, seen)
 	case yaml.ScalarNode:
+		seen[n] = true
 		fn(n)
 	}
 }
@@ -369,7 +423,7 @@ func walkValues(n *yaml.Node, fn func(*yaml.Node)) {
 // so `skip_scope_on_exchange: ${SKIP}` with SKIP=true still decodes to a
 // boolean; a quoted or tagged scalar stays a string.
 func decodeDocument(doc *yaml.Node, lookup lookupFunc) (loaded, error) {
-	l := loaded{Placeholders: placeholdersIn(doc), Sensitive: placeholderFields(doc)}
+	l := loaded{Placeholders: placeholdersIn(doc), Sensitive: placeholderFields(doc), Resolved: map[string]string{}}
 	seen := map[string]bool{}
 	walkValues(doc, func(n *yaml.Node) {
 		if !strings.Contains(n.Value, "$") {
@@ -380,6 +434,9 @@ func decodeDocument(doc *yaml.Node, lookup lookupFunc) (loaded, error) {
 			if !ok && !seen[name] {
 				seen[name] = true
 				l.Missing = append(l.Missing, name)
+			}
+			if ok && val != "" && val != "${"+name+"}" {
+				l.Resolved[val] = "${" + name + "}"
 			}
 			return val
 		})
@@ -392,7 +449,9 @@ func decodeDocument(doc *yaml.Node, lookup lookupFunc) (loaded, error) {
 	})
 	if len(doc.Content) > 0 {
 		if err := doc.Decode(&l.Manifest); err != nil {
-			return loaded{}, err
+			// A type error quotes the offending scalar, which may be a
+			// resolved secret: put the placeholder back in the message.
+			return loaded{}, errors.New(l.redact(err.Error()))
 		}
 	}
 	return l, nil
