@@ -46,6 +46,12 @@ Secrets referenced as ${PLACEHOLDER} in the manifest are resolved from
   gcp-secret-manager:<project> Google Secret Manager, one secret per placeholder
 A placeholder the source does not hold falls back to the environment.
 
+With -require-encrypted-secrets (or NEXUS_REQUIRE_ENCRYPTED_SECRETS=true)
+plaintext is refused: -secrets must be sops:<path> or
+gcp-secret-manager:<project>, the environment is never consulted for a
+placeholder, and every client_secret in the manifest must be a
+${PLACEHOLDER} rather than a literal value.
+
 Run "nexus <command> -h" for the flags of a command.
 `
 
@@ -83,12 +89,27 @@ type manifestFlags struct {
 	file         string
 	secrets      string
 	secretPrefix string
+	// requireEncrypted refuses every plaintext path for a secret: the
+	// source must be encrypted at rest, the environment is not consulted,
+	// and a client_secret written literally in a manifest is an error.
+	requireEncrypted bool
 }
 
 func addManifestFlags(fs *flag.FlagSet, mf *manifestFlags) {
 	fs.StringVar(&mf.file, "file", "nexus-providers.yaml", "Manifest file, or a directory of one provider per <name>.yaml")
 	fs.StringVar(&mf.secrets, "secrets", os.Getenv("NEXUS_SECRETS"), "Secret source for ${PLACEHOLDER} values: env, sops:<path> or gcp-secret-manager:<project> (default $NEXUS_SECRETS, else env)")
 	fs.StringVar(&mf.secretPrefix, "secret-prefix", os.Getenv("NEXUS_SECRET_PREFIX"), "gcp-secret-manager: prefix for derived secret ids (default $NEXUS_SECRET_PREFIX)")
+	fs.BoolVar(&mf.requireEncrypted, "require-encrypted-secrets", envBool("NEXUS_REQUIRE_ENCRYPTED_SECRETS"), "Refuse plaintext secrets: -secrets must be sops:<path> or gcp-secret-manager:<project>, placeholders never fall back to the environment, and client_secret must be a ${PLACEHOLDER} in the manifest (default $NEXUS_REQUIRE_ENCRYPTED_SECRETS)")
+}
+
+// envBool reads a boolean switch from the environment: true, 1, yes and on
+// (any case) enable it; anything else, including unset, is off.
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 // parseFlags parses with ContinueOnError so a bad flag returns an exit code

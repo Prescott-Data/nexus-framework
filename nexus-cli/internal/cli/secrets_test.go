@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,7 +56,7 @@ func TestEnvSourceAndFallback(t *testing.T) {
 	src := &sopsSource{path: "s.yaml", decryptFile: func(string, string) ([]byte, error) {
 		return []byte("IN_SOPS: from-sops\n"), nil
 	}}
-	lookup, err := lookupWith(context.Background(), src, []string{"IN_SOPS", "ONLY_IN_ENV", "NOWHERE"})
+	lookup, err := lookupWith(context.Background(), src, []string{"IN_SOPS", "ONLY_IN_ENV", "NOWHERE"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,17 +227,119 @@ func TestGCPSource_NoPlaceholdersOpensNoClient(t *testing.T) {
 
 func TestUnresolvedMessage_NamesWhatWasLookedFor(t *testing.T) {
 	gcp := &gcpSource{project: "proj", prefix: "oauth-"}
-	got := unresolvedMessage(gcp, []string{"NEXUS_PROVIDER_TWITTER_CLIENT_ID"})
+	got := unresolvedMessage(gcp, []string{"NEXUS_PROVIDER_TWITTER_CLIENT_ID"}, true)
 	want := "1 placeholder(s) could not be resolved from gcp-secret-manager:proj:\n" +
 		"  ${NEXUS_PROVIDER_TWITTER_CLIENT_ID}: not found (looked for secret oauth-twitter-client-id in project proj, then environment variable NEXUS_PROVIDER_TWITTER_CLIENT_ID)"
 	if got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
 	sops := &sopsSource{path: "s.enc.yaml"}
-	if got := unresolvedMessage(sops, []string{"A"}); !strings.Contains(got, "looked for key A in s.enc.yaml, then environment variable A") {
+	if got := unresolvedMessage(sops, []string{"A"}, true); !strings.Contains(got, "looked for key A in s.enc.yaml, then environment variable A") {
 		t.Fatalf("sops: %s", got)
 	}
-	if got := unresolvedMessage(envSource{}, []string{"A"}); !strings.Contains(got, "looked for environment variable A)") || strings.Contains(got, "then") {
+	if got := unresolvedMessage(envSource{}, []string{"A"}, true); !strings.Contains(got, "looked for environment variable A)") || strings.Contains(got, "then") {
 		t.Fatalf("env: %s", got)
+	}
+}
+
+// writeCiphertextFile writes a file shaped like a SOPS-encrypted one: every
+// listed key holds an ENC[...] value except those in plain, plus a sops
+// metadata block. Decryption is faked by the tests that use it.
+func writeCiphertextFile(t *testing.T, name string, enc []string, plain map[string]string) string {
+	t.Helper()
+	var b strings.Builder
+	for _, k := range enc {
+		fmt.Fprintf(&b, "%s: ENC[AES256_GCM,data:abc,iv:def,tag:ghi,type:str]\n", k)
+	}
+	for k, v := range plain {
+		fmt.Fprintf(&b, "%s: %s\n", k, v)
+	}
+	b.WriteString("sops:\n    version: 3.13.3\n    lastmodified: \"2026-10-12T00:00:00Z\"\n")
+	dir := writeFiles(t, map[string]string{name: b.String()})
+	return filepath.Join(dir, name)
+}
+
+func TestSopsSource_RequireCiphertextRefusesPlaintextValues(t *testing.T) {
+	// A file whose client secret was left in plaintext by an
+	// unencrypted_suffix rule still decrypts; the policy must catch it.
+	path := writeCiphertextFile(t, "s.enc.yaml", []string{"ID"}, map[string]string{"SECRET_unencrypted": "hunter2", "OTHER_unencrypted": "x"})
+	decrypted := func(string, string) ([]byte, error) {
+		return []byte("ID: id\nSECRET_unencrypted: hunter2\nOTHER_unencrypted: x\n"), nil
+	}
+	src := &sopsSource{path: path, decryptFile: decrypted}
+	if _, err := src.Resolve(context.Background(), []string{"ID", "SECRET_unencrypted"}); err != nil {
+		t.Fatalf("without the policy a plaintext value is the user's choice: %v", err)
+	}
+	if err := requireEncryptedSource(src); err != nil || !src.requireCiphertext {
+		t.Fatalf("policy not armed: %v", err)
+	}
+	_, err := src.Resolve(context.Background(), []string{"ID", "SECRET_unencrypted"})
+	if err == nil {
+		t.Fatal("plaintext value accepted under -require-encrypted-secrets")
+	}
+	want := "-require-encrypted-secrets: 1 value(s) are stored in plaintext in " + path + " (left unencrypted by a SOPS unencrypted_suffix, unencrypted_regex or encrypted_regex rule): SECRET_unencrypted"
+	if err.Error() != want || strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("error = %q\nwant   %q", err.Error(), want)
+	}
+	// Only requested names count, and a name absent from the file is not
+	// "plaintext": it is unresolved, reported later with the others.
+	if got, err := src.Resolve(context.Background(), []string{"ID", "NOWHERE"}); err != nil || got["ID"] != "id" {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	// Same rule for the other formats.
+	jsonPath := filepath.Join(writeFiles(t, map[string]string{"s.enc.json": `{"ID":"ENC[AES256_GCM,data:a,type:str]","SECRET":"plain","NUM":9007199254740993,"FLAG":true,"NONE":null,"sops":{"version":"3.13.3"}}`}), "s.enc.json")
+	js := &sopsSource{path: jsonPath, decryptFile: func(string, string) ([]byte, error) {
+		return []byte(`{"ID":"id","SECRET":"plain","NUM":9007199254740993,"FLAG":true,"NONE":null}`), nil
+	}, requireCiphertext: true}
+	// A number, boolean or null stored as such is plaintext too: the
+	// decrypted parser would accept each as a value.
+	if _, err := js.Resolve(context.Background(), []string{"ID", "SECRET", "NUM", "FLAG", "NONE"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET, NUM, FLAG, NONE") {
+		t.Fatalf("json: %v", err)
+	}
+	envPath := filepath.Join(writeFiles(t, map[string]string{"s.env": "ID=ENC[AES256_GCM,data:a,type:str]\nSECRET=plain\nsops_version=3.13.3\n"}), "s.env")
+	de := &sopsSource{path: envPath, decryptFile: func(string, string) ([]byte, error) { return []byte("ID=id\nSECRET=plain\n"), nil }, requireCiphertext: true}
+	if _, err := de.Resolve(context.Background(), []string{"ID", "SECRET"}); err == nil || !strings.HasSuffix(err.Error(), ": SECRET") {
+		t.Fatalf("dotenv: %v", err)
+	}
+}
+
+func TestEncryptedSources_PolicyAndNoEnvFallback(t *testing.T) {
+	for _, c := range []struct {
+		src  secretSource
+		want bool
+	}{
+		{envSource{}, false},
+		{&sopsSource{path: "s.enc.yaml"}, true},
+		{&gcpSource{project: "p"}, true},
+	} {
+		if got := c.src.Encrypted(); got != c.want {
+			t.Errorf("%s: Encrypted() = %v, want %v", c.src, got, c.want)
+		}
+	}
+	err := requireEncryptedSource(envSource{})
+	if err == nil || !strings.Contains(err.Error(), `-secrets is "env", which is not encrypted at rest; use sops:<path> or gcp-secret-manager:<project>`) {
+		t.Fatalf("env source error = %v", err)
+	}
+	if err := requireEncryptedSource(&sopsSource{path: "s.enc.yaml"}); err != nil {
+		t.Fatalf("sops source rejected: %v", err)
+	}
+
+	// Without env fallback a value the source lacks stays unresolved even
+	// when the environment has it, and the message does not claim the
+	// environment was tried.
+	t.Setenv("ONLY_IN_ENV", "from-env")
+	src := &sopsSource{path: "s.yaml", decryptFile: func(string, string) ([]byte, error) { return []byte("IN_SOPS: a\n"), nil }}
+	lookup, err := lookupWith(context.Background(), src, []string{"IN_SOPS", "ONLY_IN_ENV"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := lookup("IN_SOPS"); !ok || v != "a" {
+		t.Fatalf("IN_SOPS = %q, %v", v, ok)
+	}
+	if _, ok := lookup("ONLY_IN_ENV"); ok {
+		t.Fatal("environment consulted although fallback is off")
+	}
+	if got := unresolvedMessage(src, []string{"ONLY_IN_ENV"}, false); strings.Contains(got, "then environment variable") || !strings.Contains(got, "looked for key ONLY_IN_ENV in s.yaml)") {
+		t.Fatalf("message:\n%s", got)
 	}
 }

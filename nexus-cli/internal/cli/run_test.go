@@ -346,3 +346,63 @@ func TestDrift_ExplicitEmptyClearsOmittedLeavesAlone(t *testing.T) {
 		t.Fatalf("omitted description/category must be left as the Broker has them: drifted=%v updates=%v err=%v", drifted, updates, err)
 	}
 }
+
+func TestPlan_RequireEncryptedSecretsStopsBeforeBroker(t *testing.T) {
+	b, manifest := setupBroker(t)
+	var out, errOut bytes.Buffer
+
+	// The default source is the environment: refused outright.
+	if code := run([]string{"plan", "-file", manifest, "-require-encrypted-secrets"}, strings.NewReader(""), &out, &errOut); code != 1 {
+		t.Fatalf("exit = %d, want 1; out=%s", code, out.String())
+	}
+	if !strings.Contains(errOut.String(), `-secrets is "env", which is not encrypted at rest; use sops:<path> or gcp-secret-manager:<project>`) {
+		t.Fatalf("stderr:\n%s", errOut.String())
+	}
+
+	// An encrypted source, but the manifest carries salesforce's secret
+	// literally: refused before any secret is resolved, value not echoed.
+	restore := sopsDecrypt
+	sopsDecrypt = func(string, string) ([]byte, error) {
+		return []byte("GH_ID: gh-id\nGH_SECRET: gh-secret\nWH_SECRET: new-hook-secret\n"), nil
+	}
+	t.Cleanup(func() { sopsDecrypt = restore })
+	stored := writeCiphertextFile(t, "s.enc.yaml", []string{"GH_ID", "GH_SECRET", "SF_SECRET", "WH_SECRET"}, nil)
+	errOut.Reset()
+	if code := run([]string{"plan", "-file", manifest, "-require-encrypted-secrets", "-secrets", "sops:" + stored}, strings.NewReader(""), &out, &errOut); code != 1 {
+		t.Fatalf("exit = %d, want 1; out=%s", code, out.String())
+	}
+	for _, want := range []string{
+		manifest + ": salesforce: client_secret: not exactly one ${PLACEHOLDER}",
+		"1 provider(s) carry a literal or partly literal client_secret; move the whole value into sops:" + stored + " and reference it as exactly one ${PLACEHOLDER}.",
+	} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Fatalf("missing %q in stderr:\n%s", want, errOut.String())
+		}
+	}
+	if strings.Contains(errOut.String(), "sf-secret") {
+		t.Fatalf("literal secret echoed:\n%s", errOut.String())
+	}
+	if len(b.agents) != 0 {
+		t.Fatal("the Broker must not be contacted when the policy fails")
+	}
+
+	// With the literal moved into the source, the plan runs and the
+	// environment is ignored: GH_SECRET from the shell is not used.
+	t.Setenv("GH_SECRET", "shell-value-that-must-be-ignored")
+	fixed := strings.Replace(planManifest, "client_secret: sf-secret", "client_secret: ${SF_SECRET}", 1)
+	dir := writeFiles(t, map[string]string{"m.yaml": fixed})
+	sopsDecrypt = func(string, string) ([]byte, error) {
+		return []byte("GH_ID: gh-id\nGH_SECRET: gh-secret\nSF_SECRET: sf-secret\nWH_SECRET: new-hook-secret\n"), nil
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"plan", "-file", filepath.Join(dir, "m.yaml"), "-require-encrypted-secrets", "-secrets", "sops:" + stored}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("exit = %d, want 0; out=%s err=%s", code, out.String(), errOut.String())
+	}
+	if !strings.Contains(out.String(), "= OK     : github (no changes)") {
+		t.Fatalf("github should match with the SOPS value, not the shell's:\n%s", out.String())
+	}
+	if len(b.mutations) != 0 {
+		t.Fatalf("plan mutated: %v", b.mutations)
+	}
+}

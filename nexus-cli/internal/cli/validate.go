@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -124,6 +125,44 @@ func validateManifest(l loaded) []issue {
 // ${NAME}, as validate sees them.
 func isPlaceholder(v string) bool { return strings.Contains(v, "${") }
 
+// isExactPlaceholder reports whether v is one placeholder and nothing
+// else, by the same grammar the manifest is expanded with: os.Expand is
+// run over v with a mapping that records its calls, and v qualifies only
+// when the mapping fired exactly once and the result is that one
+// substitution with no text around it. So ${CLIENT-SECRET} qualifies (any
+// non-empty braced name does), while "hunter2-${X}", " ${X} " and
+// "${A}${B}" do not. No trimming: surrounding whitespace is literal text.
+func isExactPlaceholder(v string) bool {
+	const mark = "\x00placeholder\x00"
+	calls := 0
+	out := os.Expand(v, func(name string) string {
+		calls++
+		return mark
+	})
+	return calls == 1 && out == mark
+}
+
+// literalSecretIssues is the -require-encrypted-secrets rule on the
+// manifest as written (placeholders kept): a client_secret must be exactly
+// one placeholder. A literal value is plaintext at rest in the repository
+// however the other secrets are stored, and so is a literal with a
+// placeholder mixed in ("hunter2-${X}"), which would survive a
+// contains-"${" check and still be the whole secret once X resolves to
+// nothing. The value itself is never part of the message. params is not
+// policed: whether a key under it is a credential is provider-specific,
+// and plan masks it anyway.
+func literalSecretIssues(l loaded) []issue {
+	var issues []issue
+	for i, p := range l.Manifest.Providers {
+		// The empty case is the ordinary required-field rule's; the policy
+		// looks at the value as written, whitespace included.
+		if strings.TrimSpace(p.ClientSecret) != "" && !isExactPlaceholder(p.ClientSecret) {
+			issues = append(issues, issue{Source: l.Sources[i], Provider: p.Name, Message: "client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest"})
+		}
+	}
+	return issues
+}
+
 // checkHTTPURL mirrors samlutil.parseHTTPSURL.
 func checkHTTPURL(name, raw string) string {
 	u, err := url.Parse(strings.TrimSpace(raw))
@@ -192,6 +231,17 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, readSummary(l, mf.file))
 
+	// -require-encrypted-secrets on the manifest alone: no literal
+	// client_secret. This part needs no source, so it runs in a pull
+	// request; the source itself is checked below when -secrets is given.
+	var literal []issue
+	if mf.requireEncrypted {
+		literal = literalSecretIssues(l)
+		if mf.secrets == "" {
+			fmt.Fprintln(stdout, "-require-encrypted-secrets: manifest checked for literal secrets (pass -secrets to also check the source)")
+		}
+	}
+
 	// With -secrets the rules run on the expanded manifest, exactly what
 	// plan and apply would send, so a secret that resolves to an empty
 	// string or a SAML certificate that resolves to junk fails here too.
@@ -204,24 +254,35 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "✗ %v\n", err)
 			return 1
 		}
-		lookup, err := lookupWith(context.Background(), src, l.Placeholders)
+		if mf.requireEncrypted {
+			if err := requireEncryptedSource(src); err != nil {
+				fmt.Fprintf(stderr, "✗ %v\n", err)
+				return 1
+			}
+		}
+		lookup, err := lookupWith(context.Background(), src, l.Placeholders, !mf.requireEncrypted)
 		if err != nil {
 			fmt.Fprintf(stderr, "✗ %v\n", err)
 			return 1
+		}
+		if mf.requireEncrypted {
+			// Only now is it true: Resolve has decrypted the file and, for
+			// SOPS, checked every requested value is ciphertext as stored.
+			fmt.Fprintf(stdout, "-require-encrypted-secrets: %s is encrypted at rest; the environment is not consulted\n", src)
 		}
 		if checked, err = readManifest(mf.file, lookup); err != nil {
 			fmt.Fprintf(stderr, "✗ %v\n", err)
 			return 1
 		}
 		if unresolved = len(checked.Missing); unresolved > 0 {
-			fmt.Fprintf(stdout, "✗ %s\n", unresolvedMessage(src, checked.Missing))
+			fmt.Fprintf(stdout, "✗ %s\n", unresolvedMessage(src, checked.Missing, !mf.requireEncrypted))
 		}
 		fmt.Fprintf(stdout, "%d placeholders, %d resolved from %s\n", len(l.Placeholders), len(l.Placeholders)-unresolved, src)
 	} else if len(l.Placeholders) > 0 {
 		fmt.Fprintf(stdout, "%d placeholders used (not resolved; pass -secrets to check them)\n", len(l.Placeholders))
 	}
 
-	issues := validateManifest(checked)
+	issues := append(literal, validateManifest(checked)...)
 	for _, i := range issues {
 		fmt.Fprintf(stdout, "✗ %s\n", i)
 	}

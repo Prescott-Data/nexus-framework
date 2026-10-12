@@ -283,3 +283,138 @@ func TestRun_UsageAndVersion(t *testing.T) {
 		t.Fatalf("version: code=%d out=%s", code, out.String())
 	}
 }
+
+const literalSecretFile = `name: literal
+auth_type: oauth2
+client_id: ${NEXUS_PROVIDER_LITERAL_CLIENT_ID}
+client_secret: hunter2-literal
+auth_url: https://example.com/authorize
+token_url: https://example.com/token
+`
+
+// A placeholder mixed into a literal is still a literal secret: once DUMMY
+// resolves to nothing the whole value is "hunter2-".
+const mixedSecretFile = `name: mixed
+auth_type: oauth2
+client_id: ${NEXUS_PROVIDER_MIXED_CLIENT_ID}
+client_secret: hunter2-${DUMMY}
+auth_url: https://example.com/authorize
+token_url: https://example.com/token
+`
+
+// Surrounding whitespace is literal text; quoting keeps it.
+const paddedSecretFile = `name: padded
+auth_type: oauth2
+client_id: ${NEXUS_PROVIDER_PADDED_CLIENT_ID}
+client_secret: " ${NEXUS_PROVIDER_PADDED_CLIENT_SECRET} "
+auth_url: https://example.com/authorize
+token_url: https://example.com/token
+`
+
+// Any non-empty braced name the manifest expands is a placeholder.
+const hyphenSecretFile = `name: hyphen
+auth_type: oauth2
+client_id: ${NEXUS_PROVIDER_HYPHEN_CLIENT_ID}
+client_secret: ${client-secret.for/hyphen}
+auth_url: https://example.com/authorize
+token_url: https://example.com/token
+`
+
+func TestIsExactPlaceholder(t *testing.T) {
+	for v, want := range map[string]bool{
+		"${A}": true, "$A": true, "${CLIENT-SECRET}": true, "${a.b/c}": true,
+		"hunter2-${A}": false, " ${A}": false, "${A} ": false, "${A}${B}": false,
+		"${A}-${B}": false, "${}": false, "$": false, "literal": false, "": false,
+	} {
+		if got := isExactPlaceholder(v); got != want {
+			t.Errorf("isExactPlaceholder(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
+func TestRunValidate_RequireEncryptedSecrets(t *testing.T) {
+	dir := writeFiles(t, map[string]string{
+		"github.yaml": githubFile, "literal.yaml": literalSecretFile, "mixed.yaml": mixedSecretFile,
+		"padded.yaml": paddedSecretFile, "hyphen.yaml": hyphenSecretFile,
+	})
+	var out, errOut bytes.Buffer
+
+	// Without the flag a literal client_secret is accepted, as before.
+	if code := run([]string{"validate", "-file", dir}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("exit = %d, want 0; out=%s err=%s", code, out.String(), errOut.String())
+	}
+
+	// With it, and no -secrets, the manifest rule alone applies and the
+	// value is not echoed.
+	out.Reset()
+	code := run([]string{"validate", "-file", dir, "-require-encrypted-secrets"}, strings.NewReader(""), &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; out=%s err=%s", code, out.String(), errOut.String())
+	}
+	for _, want := range []string{
+		"-require-encrypted-secrets: manifest checked for literal secrets (pass -secrets to also check the source)",
+		filepath.Join(dir, "literal.yaml") + ": literal: client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest",
+		filepath.Join(dir, "mixed.yaml") + ": mixed: client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest",
+		filepath.Join(dir, "padded.yaml") + ": padded: client_secret: not exactly one ${PLACEHOLDER}; -require-encrypted-secrets refuses a literal or partly literal value in the manifest",
+		"✗ 3 problem(s)",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q in output:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "hunter2") {
+		t.Fatalf("the literal secret was echoed:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "hyphen:") {
+		t.Fatalf("a braced placeholder with a non-identifier name was rejected:\n%s", out.String())
+	}
+
+	// The environment variable is the flag's default.
+	t.Setenv("NEXUS_REQUIRE_ENCRYPTED_SECRETS", "true")
+	out.Reset()
+	if code := run([]string{"validate", "-file", dir}, strings.NewReader(""), &out, &errOut); code != 1 || !strings.Contains(out.String(), "not exactly one ${PLACEHOLDER}") {
+		t.Fatalf("env default: exit = %d; out=%s", code, out.String())
+	}
+	t.Setenv("NEXUS_REQUIRE_ENCRYPTED_SECRETS", "")
+
+	// The environment is not an encrypted source.
+	dir = writeFiles(t, map[string]string{"github.yaml": githubFile})
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"validate", "-file", dir, "-require-encrypted-secrets", "-secrets", "env"}, strings.NewReader(""), &out, &errOut); code != 1 {
+		t.Fatalf("exit = %d, want 1; out=%s err=%s", code, out.String(), errOut.String())
+	}
+	if !strings.Contains(errOut.String(), `-secrets is "env", which is not encrypted at rest`) {
+		t.Fatalf("stderr:\n%s", errOut.String())
+	}
+
+	// A SOPS source that lacks a placeholder does not fall back to the
+	// environment, and the message says only the file was searched.
+	restore := sopsDecrypt
+	sopsDecrypt = func(string, string) ([]byte, error) { return []byte("NEXUS_PROVIDER_GITHUB_CLIENT_ID: id\n"), nil }
+	t.Cleanup(func() { sopsDecrypt = restore })
+	stored := writeCiphertextFile(t, "s.enc.yaml", []string{"NEXUS_PROVIDER_GITHUB_CLIENT_ID"}, nil)
+	t.Setenv("NEXUS_PROVIDER_GITHUB_CLIENT_SECRET", "from-the-shell")
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"validate", "-file", dir, "-secrets", "sops:" + stored}, strings.NewReader(""), &out, &errOut); code != 0 {
+		t.Fatalf("fallback on: exit = %d, want 0; out=%s err=%s", code, out.String(), errOut.String())
+	}
+	out.Reset()
+	code = run([]string{"validate", "-file", dir, "-secrets", "sops:" + stored, "-require-encrypted-secrets"}, strings.NewReader(""), &out, &errOut)
+	if code != 1 {
+		t.Fatalf("fallback off: exit = %d, want 1; out=%s err=%s", code, out.String(), errOut.String())
+	}
+	for _, want := range []string{
+		"-require-encrypted-secrets: sops:" + stored + " is encrypted at rest; the environment is not consulted",
+		"${NEXUS_PROVIDER_GITHUB_CLIENT_SECRET}: not found (looked for key NEXUS_PROVIDER_GITHUB_CLIENT_SECRET in " + stored + ")",
+		"2 placeholders, 1 resolved from sops:" + stored,
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q in output:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "then environment variable") || strings.Contains(out.String(), "from-the-shell") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+}
