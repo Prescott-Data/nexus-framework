@@ -236,6 +236,25 @@ providers:
       validation: { skip: true }
 
   # ──────────────────────────────────────────────────────────────────
+  # Group B.1 — protocol-level file-storage (not HTTP APIs, so the
+  # credential can't be validated via a GET probe; validation.skip=true
+  # and the connector-worker/rclone backend validates at sync time).
+  # ──────────────────────────────────────────────────────────────────
+  - name: ftp
+    auth_type: api_key
+    scopes: []
+    params:
+      validation: { skip: true }
+      credential_schema:
+        type: object
+        required: [host, user]
+        properties:
+          host: { type: string, title: "Hostname or IP" }
+          port: { type: string, title: "Port", default: "21" }
+          user: { type: string, title: "Username" }
+          pass: { type: string, title: "Password", format: password }
+
+  # ──────────────────────────────────────────────────────────────────
   # Group C — self-hosted / instance-specific base URL.
   # No global api_base_url; the user supplies base_url at connect time
   # (credential_schema.base_url → stored in the credential blob → used
