@@ -102,8 +102,10 @@ class TokenResponse:
     id_token: Optional[str] = None
     """OIDC ID token, if present."""
 
+    # Deprecated since 0.6.8: the broker never returns the refresh token (it is the
+    # master secret and stays in its vault). Always None from current brokers.
     refresh_token: Optional[str] = None
-    """Refresh token, if present."""
+    """Refresh token, if present. Deprecated: always None from brokers 0.6.8 and later."""
 
     provider: Optional[str] = None
     """Provider name."""

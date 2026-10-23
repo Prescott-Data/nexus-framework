@@ -39,7 +39,9 @@ Nexus enforces a strict boundary between the **Control Plane** and the **Data Pl
 ### Protection Mechanism:
 1.  The Broker retrieves the Master Secret (Refresh Token) from the database.
 2.  It decrypts the secret and uses it to fetch a new Usage Secret (Access Token).
-3.  It returns ONLY the Usage Secret to the Gateway and Bridge.
+3.  It returns ONLY the Usage Secret to the Gateway and Bridge. Since 0.6.8 this holds on the
+    wire: the token, resolve and refresh routes remove `refresh_token` from their responses, at
+    the top level and inside `credentials`. Before that release the broker returned it.
 4.  If an Agent is compromised, the attacker only gains access to that single, short-lived Usage Secret. They cannot pivot to other connections or maintain long-term access.
 
 ## Network Hardening

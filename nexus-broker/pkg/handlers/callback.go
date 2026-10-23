@@ -259,7 +259,33 @@ func (h *CallbackHandler) ResolveToken(w http.ResponseWriter, r *http.Request) {
 	h.metricTokenGet.WithLabelValues(provName, hasID).Inc()
 
 	h.logAuditEvent(nil, "token_resolved", map[string]string{"workspace_id": workspaceID, "provider": providerName}, r)
-	httputil.WriteJSON(w, http.StatusOK, response)
+	httputil.WriteJSON(w, http.StatusOK, withoutRefreshToken(response))
+}
+
+// withoutRefreshToken returns a copy of a token response with the refresh token removed,
+// at the top level and inside "credentials". The refresh token is the master secret: the
+// broker keeps it in the vault and uses it to refresh, and callers only ever need the
+// access token (docs/reference/security-model.md, "Usage Secrets vs. Master Secrets").
+// Internal callers of the service's GetToken still see the full map; only what leaves the
+// broker over HTTP is trimmed.
+func withoutRefreshToken(tokens map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(tokens))
+	for k, v := range tokens {
+		if k == "refresh_token" {
+			continue
+		}
+		out[k] = v
+	}
+	if creds, ok := tokens["credentials"].(map[string]interface{}); ok {
+		trimmed := make(map[string]interface{}, len(creds))
+		for k, v := range creds {
+			if k != "refresh_token" {
+				trimmed[k] = v
+			}
+		}
+		out["credentials"] = trimmed
+	}
+	return out
 }
 
 // GetToken handles GET /connections/{connection_id}/token
@@ -302,7 +328,7 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	h.metricTokenGet.WithLabelValues(providerName, hasID).Inc()
 
 	h.logAuditEvent(&connectionID, "token_retrieved", map[string]string{}, r)
-	httputil.WriteJSON(w, http.StatusOK, response)
+	httputil.WriteJSON(w, http.StatusOK, withoutRefreshToken(response))
 }
 
 // Refresh handles POST /connections/{connection_id}/refresh
@@ -338,7 +364,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.metricRefreshSuccess.Inc()
-	httputil.WriteJSON(w, http.StatusOK, res.Tokens)
+	httputil.WriteJSON(w, http.StatusOK, withoutRefreshToken(res.Tokens))
 }
 
 // logAuditEvent logs an audit event
