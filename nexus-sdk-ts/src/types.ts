@@ -157,6 +157,10 @@ export interface TokenResponse {
 
   /**
    * Refresh token, if present.
+   *
+   * @deprecated Since 0.6.8 the broker never returns the refresh token: it is the master
+   * secret and stays in the broker's vault, which refreshes for you. Current brokers
+   * leave this undefined; it is kept only so older brokers still type-check.
    */
   refreshToken?: string | undefined;
 

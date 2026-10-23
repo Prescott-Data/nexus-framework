@@ -143,12 +143,14 @@ type RevokeResult struct {
 
 // TokenResponse is minimally typed; extra fields are retained in Raw.
 type TokenResponse struct {
-	AccessToken  string                 `json:"access_token"`
-	TokenType    *string                `json:"token_type,omitempty"`
-	ExpiresIn    *int64                 `json:"expires_in,omitempty"`
-	ExpiresAt    any                    `json:"expires_at,omitempty"`
-	Scope        *string                `json:"scope,omitempty"`
-	IDToken      *string                `json:"id_token,omitempty"`
+	AccessToken string  `json:"access_token"`
+	TokenType   *string `json:"token_type,omitempty"`
+	ExpiresIn   *int64  `json:"expires_in,omitempty"`
+	ExpiresAt   any     `json:"expires_at,omitempty"`
+	Scope       *string `json:"scope,omitempty"`
+	IDToken     *string `json:"id_token,omitempty"`
+	// Deprecated: since 0.6.8 the broker never returns the refresh token; it is the master
+	// secret and stays in the broker's vault. Always nil from current brokers.
 	RefreshToken *string                `json:"refresh_token,omitempty"`
 	Provider     *string                `json:"provider,omitempty"`
 	APIBaseURL   *string                `json:"api_base_url,omitempty"`

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Nexus Gateway API
-  version: 0.6.7
+  version: 0.6.8
   description: |
     Stable v1 contract for the Nexus Gateway. This spec freezes the agent-facing endpoints.
     Breaking changes require a new major version (e.g., /v2). Additive changes only in v1.
@@ -324,7 +324,7 @@ components:
         expires_at: { oneOf: [{ type: number }, { type: string }] }
         scope: { type: string }
         id_token: { type: string }
-        refresh_token: { type: string }
+        refresh_token: { type: string, deprecated: true, description: "Never returned since 0.6.8: the refresh token is the master secret and stays in the broker." }
         provider: { type: string }
       additionalProperties: true
     ErrorEnvelope:

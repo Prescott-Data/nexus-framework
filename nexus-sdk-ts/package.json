@@ -1,6 +1,6 @@
 {
   "name": "@dromos/nexus-sdk",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "description": "Nexus SDK for TypeScript — unified client for Nexus OAuth Gateway and MCP server integration",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

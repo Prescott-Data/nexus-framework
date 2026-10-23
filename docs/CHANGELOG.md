@@ -12,6 +12,24 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## 0.6.8 <span class="changelog-date">2026-10-23</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.6.8" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Security**
+
+- **The broker no longer returns the refresh token.** `GET /connections/{id}/token`, `GET /connections/resolve` and `POST /connections/{id}/refresh` (and the gateway routes in front of them) used to return the provider's stored token response verbatim, refresh token included, at the top level and again inside `credentials`. The security model has always said the broker returns only the usage secret; it now does. The refresh token stays in the vault, where the broker uses it to refresh, and revocation still reads it from there. Internal callers of the service's `GetToken` (agent sessions, the health worker) are unchanged.
+
+**Deprecated**
+
+- `refresh_token` in the token response: marked `deprecated` in both OpenAPI specs, and `refreshToken` / `refresh_token` / `RefreshToken` in the TypeScript, Python and Go SDKs. The fields stay so older brokers still parse; current brokers leave them empty. Code that read the refresh token from a token response should stop: the broker refreshes for you.
+
+</div>
+
+<div class="changelog-release" markdown>
+
 ## 0.6.7 <span class="changelog-date">2026-10-12</span>
 
 <div class="changelog-meta" markdown>
