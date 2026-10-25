@@ -25,7 +25,11 @@ All notable changes to Nexus are documented here. This project follows [Semantic
   requests that name nobody, so a `connection_id` alone releases nothing;
   `optional` (the default) keeps unnamed requests working as before; `off`
   disables the check. Every release and refusal is audited with subject, agent
-  and operation, and agent sessions record `acting_for` with `obo: true`. See
+  and operation (agent sessions included, issued or refused), and agent sessions
+  record `acting_for` with `obo: true`. Subjects are compared exactly. The
+  gateway's REST-to-gRPC listener carries the headers too. A new
+  `GET /connections/{id}/status` reports status without releasing a credential,
+  and `/v1/check-connection` uses it. See
   [Whose credential, for whom](concepts/security-model.md#whose-credential-for-whom).
 
 </div>

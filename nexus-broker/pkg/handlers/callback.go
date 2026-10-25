@@ -24,6 +24,7 @@ type CallbackHandler struct {
 	audit                 *audit.Service
 	subjectBinding        string
 	connectionOwner       ConnectionOwner
+	connectionStatus      func(ctx context.Context, connectionID uuid.UUID) (string, error)
 	metricExchangeSuccess prometheus.Counter
 	metricExchangeError   prometheus.Counter
 	histogramExchangeDur  prometheus.Histogram
@@ -42,6 +43,8 @@ type CallbackHandlerConfig struct {
 	Audit   *audit.Service
 	// SubjectBinding is "off", "optional" (default) or "required" (see Subject).
 	SubjectBinding string
+	// ConnectionStatus reports a connection's status without releasing anything.
+	ConnectionStatus func(ctx context.Context, connectionID uuid.UUID) (string, error)
 	// ConnectionOwner names the workspace a connection belongs to. Required for
 	// subject binding on routes addressed by connection id; without it, a request
 	// that names a subject is refused rather than trusted.
@@ -99,7 +102,8 @@ func (h *CallbackHandler) refuseForSubject(w http.ResponseWriter, r *http.Reques
 		return refuse(http.StatusForbidden, "subject_unverifiable",
 			"The connection's owner could not be established, so its credential is not released.")
 	}
-	if !strings.EqualFold(subject, strings.TrimSpace(owner)) {
+	// Exact: workspace ids are case-sensitive where they are stored, so "ACME" is not "acme".
+	if subject != owner {
 		return refuse(http.StatusForbidden, "subject_mismatch",
 			"This connection does not belong to the subject the request acts for.")
 	}
@@ -186,6 +190,7 @@ func NewCallbackHandler(cfg CallbackHandlerConfig) *CallbackHandler {
 	return &CallbackHandler{
 		subjectBinding:        bindingMode(cfg.SubjectBinding),
 		connectionOwner:       cfg.ConnectionOwner,
+		connectionStatus:      cfg.ConnectionStatus,
 		svc:                   cfg.Service,
 		audit:                 cfg.Audit,
 		metricExchangeSuccess: success,
@@ -428,6 +433,27 @@ func bindingMode(mode string) string {
 		return "required"
 	}
 	return "optional"
+}
+
+// Status handles GET /connections/{connection_id}/status: whether a connection is
+// usable, with no credential in the answer, so polling it needs no subject.
+func (h *CallbackHandler) Status(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 3 || h.connectionStatus == nil {
+		httputil.WriteError(w, http.StatusNotFound, "not_found", "Connection status is not available")
+		return
+	}
+	connectionID, err := uuid.Parse(parts[len(parts)-2])
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_connection_id", "Invalid connection ID")
+		return
+	}
+	status, err := h.connectionStatus(r.Context(), connectionID)
+	if err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "connection_not_found", "Connection not found")
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"connection_id": connectionID.String(), "status": status})
 }
 
 // Refresh handles POST /connections/{connection_id}/refresh

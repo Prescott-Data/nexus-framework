@@ -72,6 +72,7 @@ type Handler struct {
 	providerCache map[string]providerCacheEntry
 	cacheMu       sync.RWMutex
 	brokerAPIKey  string
+	httpClient    *http.Client
 }
 
 type providerCacheEntry struct {
@@ -109,6 +110,7 @@ func NewHandler(brokerBaseURL string, stateKey []byte, httpClient *http.Client) 
 		brokerBaseURL: baseURL,
 		stateKey:      stateKey,
 		brokerClient:  client,
+		httpClient:    httpClient,
 		providerCache: make(map[string]providerCacheEntry),
 		brokerAPIKey:  apiKey,
 	}
@@ -320,9 +322,13 @@ func (h *Handler) resolveProviderID(ctx context.Context, providerName string) (s
 	return matchedID, nil
 }
 
-// CheckConnectionCore probes broker token endpoint to infer status.
+// CheckConnectionCore reports a connection's status. It asks the broker's status
+// route, which releases no credential and so needs no subject; a broker from
+// before 0.7 has none, and its token route is probed instead.
 func (h *Handler) CheckConnectionCore(ctx context.Context, connectionID string) (string, error) {
-	// We use the GetToken endpoint to check existence
+	if status, ok := h.connectionStatus(ctx, connectionID); ok {
+		return status, nil
+	}
 	resp, err := h.brokerClient.GetConnectionsConnectionIDTokenWithResponse(ctx, connectionID)
 	if err != nil {
 		return "", fmt.Errorf("broker request failed: %w", err)
@@ -335,6 +341,43 @@ func (h *Handler) CheckConnectionCore(ctx context.Context, connectionID string) 
 		status = "failed"
 	}
 	return status, nil
+}
+
+func (h *Handler) connectionStatus(ctx context.Context, connectionID string) (string, bool) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		h.brokerBaseURL+"/connections/"+url.PathEscape(connectionID)+"/status", nil)
+	if err != nil {
+		return "", false
+	}
+	if h.brokerAPIKey != "" {
+		req.Header.Set("X-API-Key", h.brokerAPIKey)
+	}
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var body struct {
+			Status string `json:"status"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&body) != nil || body.Status == "" {
+			return "", false
+		}
+		if body.Status == "active" {
+			return "active", true
+		}
+		return "failed", true
+	case http.StatusNotFound:
+		var body struct {
+			Error string `json:"error"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&body) == nil && body.Error == "connection_not_found" {
+			return "failed", true
+		}
+	}
+	return "", false
 }
 
 func (h *Handler) RequestConnection(w http.ResponseWriter, r *http.Request) {

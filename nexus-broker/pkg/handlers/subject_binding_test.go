@@ -138,3 +138,36 @@ func TestSubjectBinding_AnAgentSessionActsForTheSubjectThatAsked(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, rr.Code)
 	svc.AssertExpectations(t)
 }
+
+func TestSubjectBinding_IsExactNotCaseFolded(t *testing.T) {
+	connID := uuid.New()
+	svc := new(MockConnectionService)
+	handler := NewCallbackHandler(CallbackHandlerConfig{Service: svc, ConnectionOwner: ownedBy("ACME")})
+	rr := httptest.NewRecorder()
+	handler.GetToken(rr, tokenRequest(connID, "acme"))
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+
+	req, _ := http.NewRequest("GET", "/connections/resolve?workspace_id=ACME&provider_name=github", nil)
+	req.Header.Set(HeaderSubject, "acme")
+	rr = httptest.NewRecorder()
+	handler.ResolveToken(rr, req)
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+	svc.AssertNotCalled(t, "GetTokenByWorkspaceAndProvider", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestStatus_ReportsAConnectionWithoutReleasingAnything(t *testing.T) {
+	connID := uuid.New()
+	svc := new(MockConnectionService)
+	handler := NewCallbackHandler(CallbackHandlerConfig{
+		Service: svc, SubjectBinding: "required",
+		ConnectionStatus: func(context.Context, uuid.UUID) (string, error) { return "active", nil },
+	})
+	req, _ := http.NewRequest("GET", "/connections/"+connID.String()+"/status", nil)
+	rr := httptest.NewRecorder()
+	handler.Status(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), `"status":"active"`)
+	assert.NotContains(t, rr.Body.String(), "token")
+	svc.AssertNotCalled(t, "GetToken", mock.Anything, mock.Anything)
+}

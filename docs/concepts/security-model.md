@@ -76,6 +76,11 @@ The gateway forwards the three headers (and their gRPC metadata) unchanged.
 | `required` | Released | Refused, `403 subject_mismatch` | Refused, `403 subject_required` |
 | `off` | Released | Released | Released |
 
+Subjects are compared exactly, as workspace ids are stored: `ACME` is not
+`acme`. `GET /connections/{id}/status` (and the gateway's
+`/v1/check-connection/{id}`) report a connection's status without releasing a
+credential, so they need no subject.
+
 Use `required` where agents act for people: then a `connection_id` alone
 releases nothing. A connection whose owner cannot be established is refused, not
 trusted (`subject_unverifiable`). Every release and refusal is in `audit_events`

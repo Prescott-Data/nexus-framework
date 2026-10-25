@@ -161,7 +161,7 @@ func (s *agentService) RequestAgentSession(ctx context.Context, req AgentSession
 		return nil, err
 	}
 	actingFor := strings.TrimSpace(req.ActingFor)
-	if actingFor != "" && !strings.EqualFold(actingFor, strings.TrimSpace(conn.WorkspaceID)) {
+	if actingFor != "" && actingFor != conn.WorkspaceID {
 		return nil, ErrForbidden("subject_mismatch", "This connection does not belong to the subject the agent acts for.")
 	}
 	if conn.AuthType != "" && conn.AuthType != "oauth2" {

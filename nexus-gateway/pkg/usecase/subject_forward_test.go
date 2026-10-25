@@ -48,3 +48,23 @@ func TestSubjectHeadersReachTheBroker(t *testing.T) {
 		t.Errorf("gRPC subject not forwarded: %v", got)
 	}
 }
+
+// A status check asks the broker's status route, never its token route.
+func TestCheckConnectionUsesTheStatusRoute(t *testing.T) {
+	var paths []string
+	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"connection_id":"x","status":"active"}`))
+	}))
+	defer broker.Close()
+	h := NewHandler(broker.URL, make([]byte, 32), nil)
+
+	status, err := h.CheckConnectionCore(context.Background(), "33333333-3333-3333-3333-333333333333")
+	if err != nil || status != "active" {
+		t.Fatalf("status %q err %v", status, err)
+	}
+	if len(paths) != 1 || paths[0] != "/connections/33333333-3333-3333-3333-333333333333/status" {
+		t.Fatalf("called %v", paths)
+	}
+}

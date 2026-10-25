@@ -213,6 +213,12 @@ func (s *Server) Start(ctx context.Context) error {
 		if strings.EqualFold(key, gwmiddleware.APIKeyHeader) {
 			return "x-api-key", true
 		}
+		// Whom a credential is for must reach the broker on this path too.
+		for _, name := range gwmiddleware.SubjectHeaders {
+			if strings.EqualFold(key, name) {
+				return strings.ToLower(name), true
+			}
+		}
 		return runtime.DefaultHeaderMatcher(key)
 	}))
 	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}

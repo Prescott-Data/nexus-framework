@@ -2,6 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
+	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
+	"github.com/google/uuid"
+	"log"
 	"net/http"
 	"strings"
 
@@ -14,6 +18,31 @@ import (
 type AgentsHandler struct {
 	svc            service.AgentService
 	subjectBinding string
+	audit          *audit.Service
+}
+
+// WithAgentsAudit records every session issued or refused, with its subject,
+// agent and operation: a session carries an access token, so it is a release.
+func WithAgentsAudit(svc *audit.Service) AgentsHandlerOption {
+	return func(h *AgentsHandler) { h.audit = svc }
+}
+
+func (h *AgentsHandler) record(r *http.Request, event string, connectionID *uuid.UUID, data map[string]string) {
+	if h.audit == nil {
+		return
+	}
+	payload := map[string]interface{}{}
+	for k, v := range releaseRecord(r, data) {
+		payload[k] = v
+	}
+	if err := h.audit.Log(event, connectionID, payload, r); err != nil {
+		log.Printf("audit: failed to log %s: %v", event, err)
+	}
+}
+
+func (h *AgentsHandler) refuse(w http.ResponseWriter, r *http.Request, status int, code, message string, req service.AgentSessionRequest) {
+	h.record(r, "agent_session_refused", nil, map[string]string{"reason": code, "agent_id": req.AgentID, "acting_for": req.ActingFor})
+	httputil.WriteError(w, status, code, message)
 }
 
 // AgentsHandlerOption configures an AgentsHandler.
@@ -69,8 +98,8 @@ func (h *AgentsHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if subject := Subject(r); subject != "" && h.subjectBinding != "off" {
-		if req.ActingFor != "" && !strings.EqualFold(req.ActingFor, subject) {
-			httputil.WriteError(w, http.StatusBadRequest, "subject_conflict", "acting_for and "+HeaderSubject+" name different subjects.")
+		if req.ActingFor != "" && req.ActingFor != subject {
+			h.refuse(w, r, http.StatusBadRequest, "subject_conflict", "acting_for and "+HeaderSubject+" name different subjects.", req)
 			return
 		}
 		req.ActingFor = subject
@@ -78,15 +107,23 @@ func (h *AgentsHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	if h.subjectBinding == "off" {
 		req.ActingFor = ""
 	} else if h.subjectBinding == "required" && strings.TrimSpace(req.ActingFor) == "" {
-		httputil.WriteError(w, http.StatusForbidden, "subject_required", "An agent session must name the subject it acts for.")
+		h.refuse(w, r, http.StatusForbidden, "subject_required", "An agent session must name the subject it acts for.", req)
 		return
 	}
 
 	resp, err := h.svc.RequestAgentSession(r.Context(), req)
 	if err != nil {
+		var svcErr *service.ServiceError
+		if errors.As(err, &svcErr) && svcErr.Code == "subject_mismatch" {
+			h.record(r, "agent_session_refused", nil, map[string]string{"reason": svcErr.Code, "agent_id": req.AgentID, "acting_for": req.ActingFor})
+		}
 		writeServiceError(w, err)
 		return
 	}
+	connectionID := resp.ConnectionID
+	h.record(r, "agent_session_issued", &connectionID, map[string]string{
+		"agent_id": resp.AgentID, "session_id": resp.SessionID, "acting_for": resp.ActingFor,
+	})
 
 	httputil.WriteJSON(w, http.StatusCreated, resp)
 }
