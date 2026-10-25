@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	gwmiddleware "github.com/Prescott-Data/nexus-framework/nexus-gateway/pkg/middleware"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -93,6 +94,8 @@ func NewHandler(brokerBaseURL string, stateKey []byte, httpClient *http.Client) 
 			if apiKey != "" {
 				req.Header.Set("X-API-Key", apiKey)
 			}
+			// Whose credential this is for travels to the broker, which decides.
+			gwmiddleware.ForwardSubject(ctx, req)
 			return nil
 		}),
 	)

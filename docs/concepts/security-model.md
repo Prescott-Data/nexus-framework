@@ -58,8 +58,36 @@ Every significant event is written to `audit_events`: consents created, tokens i
 
 The audit log has no TTL. Implement a scheduled archival job to move rows older than your retention window to cold storage. Without archival, the table grows without bound.
 
+## Whose credential, for whom
+
+A connection belongs to the workspace that consented to it. A caller names the
+subject it acts for with `X-Nexus-Subject` (the subject's workspace id), and may
+name the agent (`X-Nexus-Agent`) and the operation (`X-Nexus-Operation`). The
+broker releases a credential only for the subject that owns the connection, on
+every route that hands one out: `GET /connections/{id}/token`,
+`GET /connections/resolve`, `POST /connections/{id}/refresh` and agent sessions.
+The gateway forwards the three headers (and their gRPC metadata) unchanged.
+
+`SUBJECT_BINDING` sets how strictly:
+
+| Value | A request naming the owner | Naming someone else | Naming nobody |
+|---|---|---|---|
+| `optional` (default) | Released | Refused, `403 subject_mismatch` | Released, as before 0.7 |
+| `required` | Released | Refused, `403 subject_mismatch` | Refused, `403 subject_required` |
+| `off` | Released | Released | Released |
+
+Use `required` where agents act for people: then a `connection_id` alone
+releases nothing. A connection whose owner cannot be established is refused, not
+trusted (`subject_unverifiable`). Every release and refusal is in `audit_events`
+with the subject, agent and operation; an agent session records the subject it
+acts for (`acting_for`, `obo: true`).
+
 ## What Nexus does not enforce
 
-Nexus does not control which agents may request tokens for which connections. If your agent has a `connection_id`, it can call `GET /v1/token/{connection_id}`. Access control over which agents may use which connections belongs to your application layer.
+The subject is asserted by the caller that holds the gateway or broker API key,
+which is your runtime. Nexus binds a credential to the subject that caller names;
+it does not authenticate the person behind it. A caller that holds the key can
+name any subject, so keep the key to the runtime, and see the roadmap for
+workload identity (DPoP or mTLS) and token exchange.
 
 Mutual TLS between internal services is not yet implemented. Rely on network isolation and TLS termination at the load balancer for current deployments.

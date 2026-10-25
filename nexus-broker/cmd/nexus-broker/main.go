@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/google/uuid"
 	"log"
 	"os"
 	"os/signal"
@@ -139,12 +140,24 @@ func main() {
 		Service: connSvc,
 	})
 	callbackHandler := handlers.NewCallbackHandler(handlers.CallbackHandlerConfig{
-		Service: connSvc,
-		Audit:   auditSvc,
+		Service:        connSvc,
+		Audit:          auditSvc,
+		SubjectBinding: cfg.SubjectBinding,
+		ConnectionOwner: func(ctx context.Context, id uuid.UUID) (string, error) {
+			conn, err := connRepo.GetWithProvider(ctx, id)
+			if err != nil {
+				return "", err
+			}
+			return conn.WorkspaceID, nil
+		},
 	})
+	log.Printf("Subject binding: %s", cfg.SubjectBinding)
 	auditHandler := handlers.NewAuditHandler(db)
 	connectionsHandler := handlers.NewConnectionsHandler(connSvc, handlers.WithConnectionsAudit(auditSvc))
-	agentsHandler := handlers.NewAgentsHandler(service.NewAgentService(agentRepo, connRepo, connSvc))
+	agentsHandler := handlers.NewAgentsHandler(
+		service.NewAgentService(agentRepo, connRepo, connSvc),
+		handlers.WithAgentSubjectBinding(cfg.SubjectBinding),
+	)
 	samlHandler := handlers.NewSAMLHandler(connSvc)
 	apiKeySource, err := server.NewReloadingAPIKeySource(cfg.APIKeys, cfg.APIKeyFiles, cfg.APIKeyReloadInterval)
 	if err != nil {

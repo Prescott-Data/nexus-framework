@@ -73,6 +73,7 @@ func New(port, brokerBaseURL string, stateKey []byte, httpClient *http.Client, r
 		o(s)
 	}
 	mux.Use(gwmiddleware.APIKey(s.requireAPIKey, s.apiKeys, PublicPaths...))
+	mux.Use(gwmiddleware.Subject)
 	s.routes()
 	return s
 }

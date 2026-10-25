@@ -12,6 +12,26 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## Unreleased
+
+**Security**
+
+- **A credential is released only for the subject that owns it.** Callers name
+  whom they act for with `X-Nexus-Subject` (plus `X-Nexus-Agent` and
+  `X-Nexus-Operation`), which the gateway forwards over HTTP and gRPC. The token,
+  resolve and refresh routes and agent sessions refuse a connection belonging to
+  anyone else (`403 subject_mismatch`), and a connection whose owner cannot be
+  established (`subject_unverifiable`). `SUBJECT_BINDING=required` also refuses
+  requests that name nobody, so a `connection_id` alone releases nothing;
+  `optional` (the default) keeps unnamed requests working as before; `off`
+  disables the check. Every release and refusal is audited with subject, agent
+  and operation, and agent sessions record `acting_for` with `obo: true`. See
+  [Whose credential, for whom](concepts/security-model.md#whose-credential-for-whom).
+
+</div>
+
+<div class="changelog-release" markdown>
+
 ## 0.6.8 <span class="changelog-date">2026-10-23</span>
 
 <div class="changelog-meta" markdown>

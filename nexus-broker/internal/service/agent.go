@@ -50,6 +50,9 @@ type AgentSessionRequest struct {
 	ConnectionID string   `json:"connection_id,omitempty"`
 	Scopes       []string `json:"scopes"`
 	TTLSeconds   int      `json:"ttl_seconds,omitempty"`
+	// ActingFor is the subject (workspace) the agent acts for. When set, the
+	// session binds only a connection that subject owns, and records it.
+	ActingFor string `json:"acting_for,omitempty"`
 }
 
 type AgentSessionResponse struct {
@@ -157,6 +160,10 @@ func (s *agentService) RequestAgentSession(ctx context.Context, req AgentSession
 	if err != nil {
 		return nil, err
 	}
+	actingFor := strings.TrimSpace(req.ActingFor)
+	if actingFor != "" && !strings.EqualFold(actingFor, strings.TrimSpace(conn.WorkspaceID)) {
+		return nil, ErrForbidden("subject_mismatch", "This connection does not belong to the subject the agent acts for.")
+	}
 	if conn.AuthType != "" && conn.AuthType != "oauth2" {
 		return nil, ErrBadRequest("unsupported_agent_session_provider", "agent sessions currently require an OAuth2 connection")
 	}
@@ -180,7 +187,8 @@ func (s *agentService) RequestAgentSession(ctx context.Context, req AgentSession
 		ConnectionID:   conn.ID,
 		ScopesGranted:  scopes,
 		ExpiresAt:      now.Add(ttl),
-		OBO:            false,
+		OBO:            actingFor != "",
+		ActingFor:      actingFor,
 		ClearanceLevel: 1,
 	}
 	if err := s.agentRepo.CreateSession(ctx, session); err != nil {

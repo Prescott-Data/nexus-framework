@@ -166,6 +166,7 @@ func NewServer(opts Options) (*Server, error) {
 	service := NewService(opts.Handler)
 	grpcSrv := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		gwmiddleware.APIKeyUnaryInterceptor(opts.RequireAPIKey, opts.APIKeys),
+		gwmiddleware.SubjectUnaryInterceptor(),
 		usecaseErrorInterceptor,
 	))
 	nexuspb.RegisterNexusServiceServer(grpcSrv, service)
