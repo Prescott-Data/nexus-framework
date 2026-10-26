@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,9 @@ import (
 type CallbackHandler struct {
 	svc                   service.ConnectionService
 	audit                 *audit.Service
+	subjectBinding        string
+	connectionOwner       ConnectionOwner
+	connectionStatus      func(ctx context.Context, connectionID uuid.UUID) (string, error)
 	metricExchangeSuccess prometheus.Counter
 	metricExchangeError   prometheus.Counter
 	histogramExchangeDur  prometheus.Histogram
@@ -37,6 +41,84 @@ type CallbackHandler struct {
 type CallbackHandlerConfig struct {
 	Service service.ConnectionService
 	Audit   *audit.Service
+	// SubjectBinding is "off", "optional" (default) or "required" (see Subject).
+	SubjectBinding string
+	// ConnectionStatus reports a connection's status without releasing anything.
+	ConnectionStatus func(ctx context.Context, connectionID uuid.UUID) (string, error)
+	// ConnectionOwner names the workspace a connection belongs to. Required for
+	// subject binding on routes addressed by connection id; without it, a request
+	// that names a subject is refused rather than trusted.
+	ConnectionOwner ConnectionOwner
+}
+
+// ConnectionOwner returns the workspace (subject) a connection belongs to.
+type ConnectionOwner func(ctx context.Context, connectionID uuid.UUID) (string, error)
+
+// Headers a caller sends to say on whose behalf, by which agent and for which
+// operation a credential is released. They are recorded with every release.
+const (
+	HeaderSubject   = "X-Nexus-Subject"
+	HeaderAgent     = "X-Nexus-Agent"
+	HeaderOperation = "X-Nexus-Operation"
+)
+
+// Subject is who a request acts for: the workspace whose credential it may use.
+func Subject(r *http.Request) string { return strings.TrimSpace(r.Header.Get(HeaderSubject)) }
+
+// releaseRecord is what every credential release (or refusal) records about the caller.
+func releaseRecord(r *http.Request, data map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range data {
+		out[k] = v
+	}
+	for key, header := range map[string]string{"subject": HeaderSubject, "agent": HeaderAgent, "operation": HeaderOperation} {
+		if v := strings.TrimSpace(r.Header.Get(header)); v != "" {
+			out[key] = v
+		}
+	}
+	return out
+}
+
+// refuseForSubject writes a refusal and returns true when the credential owned by
+// “owner“ may not be released for the subject the request acts for.
+func (h *CallbackHandler) refuseForSubject(w http.ResponseWriter, r *http.Request, connectionID *uuid.UUID, owner string, ownerErr error) bool {
+	if h.subjectBinding == "off" {
+		return false
+	}
+	subject := Subject(r)
+	refuse := func(status int, code, message string) bool {
+		h.logAuditEvent(connectionID, "token_refused_subject", releaseRecord(r, map[string]string{"reason": code}), r)
+		httputil.WriteError(w, status, code, message)
+		return true
+	}
+	if subject == "" {
+		if h.subjectBinding == "required" {
+			return refuse(http.StatusForbidden, "subject_required",
+				"This broker releases a credential only for a named subject: send "+HeaderSubject+".")
+		}
+		return false
+	}
+	if ownerErr != nil {
+		return refuse(http.StatusForbidden, "subject_unverifiable",
+			"The connection's owner could not be established, so its credential is not released.")
+	}
+	// Exact: workspace ids are case-sensitive where they are stored, so "ACME" is not "acme".
+	if subject != owner {
+		return refuse(http.StatusForbidden, "subject_mismatch",
+			"This connection does not belong to the subject the request acts for.")
+	}
+	return false
+}
+
+// ownerOf is the connection's owner, or an error when it cannot be established.
+func (h *CallbackHandler) ownerOf(r *http.Request, connectionID uuid.UUID) (string, error) {
+	if h.subjectBinding == "off" || (Subject(r) == "" && h.subjectBinding != "required") {
+		return "", nil
+	}
+	if h.connectionOwner == nil {
+		return "", errors.New("no connection owner lookup configured")
+	}
+	return h.connectionOwner(r.Context(), connectionID)
 }
 
 // NewCallbackHandler creates a new callback handler
@@ -106,6 +188,9 @@ func NewCallbackHandler(cfg CallbackHandlerConfig) *CallbackHandler {
 	}
 
 	return &CallbackHandler{
+		subjectBinding:        bindingMode(cfg.SubjectBinding),
+		connectionOwner:       cfg.ConnectionOwner,
+		connectionStatus:      cfg.ConnectionStatus,
 		svc:                   cfg.Service,
 		audit:                 cfg.Audit,
 		metricExchangeSuccess: success,
@@ -233,6 +318,10 @@ func (h *CallbackHandler) ResolveToken(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "missing_params", "Missing workspace_id or provider_name parameter")
 		return
 	}
+	// The workspace asked for is the connection's owner: it must be the subject acted for.
+	if h.refuseForSubject(w, r, nil, workspaceID, nil) {
+		return
+	}
 
 	response, provName, err := h.svc.GetTokenByWorkspaceAndProvider(r.Context(), workspaceID, providerName)
 	if err != nil {
@@ -258,7 +347,7 @@ func (h *CallbackHandler) ResolveToken(w http.ResponseWriter, r *http.Request) {
 	}
 	h.metricTokenGet.WithLabelValues(provName, hasID).Inc()
 
-	h.logAuditEvent(nil, "token_resolved", map[string]string{"workspace_id": workspaceID, "provider": providerName}, r)
+	h.logAuditEvent(nil, "token_resolved", releaseRecord(r, map[string]string{"workspace_id": workspaceID, "provider": providerName}), r)
 	httputil.WriteJSON(w, http.StatusOK, withoutRefreshToken(response))
 }
 
@@ -304,6 +393,11 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	owner, ownerErr := h.ownerOf(r, connectionID)
+	if h.refuseForSubject(w, r, &connectionID, owner, ownerErr) {
+		return
+	}
+
 	response, providerName, err := h.svc.GetToken(r.Context(), connectionID)
 	if err != nil {
 		var svcErr *service.ServiceError
@@ -327,8 +421,39 @@ func (h *CallbackHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	}
 	h.metricTokenGet.WithLabelValues(providerName, hasID).Inc()
 
-	h.logAuditEvent(&connectionID, "token_retrieved", map[string]string{}, r)
+	h.logAuditEvent(&connectionID, "token_retrieved", releaseRecord(r, nil), r)
 	httputil.WriteJSON(w, http.StatusOK, withoutRefreshToken(response))
+}
+
+func bindingMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "off":
+		return "off"
+	case "required":
+		return "required"
+	}
+	return "optional"
+}
+
+// Status handles GET /connections/{connection_id}/status: whether a connection is
+// usable, with no credential in the answer, so polling it needs no subject.
+func (h *CallbackHandler) Status(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 3 || h.connectionStatus == nil {
+		httputil.WriteError(w, http.StatusNotFound, "not_found", "Connection status is not available")
+		return
+	}
+	connectionID, err := uuid.Parse(parts[len(parts)-2])
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_connection_id", "Invalid connection ID")
+		return
+	}
+	status, err := h.connectionStatus(r.Context(), connectionID)
+	if err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "connection_not_found", "Connection not found")
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"connection_id": connectionID.String(), "status": status})
 }
 
 // Refresh handles POST /connections/{connection_id}/refresh
@@ -342,6 +467,11 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	connectionID, err := uuid.Parse(idStr)
 	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "invalid_connection_id", "Invalid connection ID")
+		return
+	}
+	// A refresh hands back a fresh credential: it is released only as a token is.
+	owner, ownerErr := h.ownerOf(r, connectionID)
+	if h.refuseForSubject(w, r, &connectionID, owner, ownerErr) {
 		return
 	}
 
@@ -364,6 +494,7 @@ func (h *CallbackHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.metricRefreshSuccess.Inc()
+	h.logAuditEvent(&connectionID, "token_refreshed", releaseRecord(r, nil), r)
 	httputil.WriteJSON(w, http.StatusOK, withoutRefreshToken(res.Tokens))
 }
 

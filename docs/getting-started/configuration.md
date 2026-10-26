@@ -36,6 +36,7 @@ Both the Broker and the Gateway must receive the same value for `STATE_KEY`. If 
 | `ALLOWED_CIDRS` | No | Comma-separated list of IP ranges allowed to reach the Broker. In production, restrict this to the Gateway's IP. Example: `10.0.0.0/8` |
 | `ALLOWED_RETURN_DOMAINS` | No | Comma-separated list of allowed domains for the `return_url` parameter in connection requests. Prevents open redirect abuse. |
 | `REQUIRE_API_KEY` | No | When `true`, the Broker rejects requests without a valid `X-API-Key` header. Default: `true` |
+| `SUBJECT_BINDING` | No | Whom a credential may be released for. `optional` (default): a request naming a subject (`X-Nexus-Subject`) gets only that subject's connections; `required`: a request must name one, so a `connection_id` alone releases nothing; `off`: no check. See [Whose credential, for whom](../concepts/security-model.md#whose-credential-for-whom). |
 | `REQUIRE_ALLOWLIST` | No | When `true`, the Broker enforces `ALLOWED_CIDRS` for all requests. Default: `false` |
 | `PORT` | No | Port the Broker listens on. Default: `8080` |
 | `SECRET_BACKEND` | No | Where OAuth2 provider client secrets are stored. `internal` (default) keeps them in Postgres; `gcp-secret-manager` stores them in Google Cloud Secret Manager. See [Provider Secret Backends](../guides/provider-secret-backends.md). |

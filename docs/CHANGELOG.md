@@ -12,6 +12,30 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## 0.7.0 <span class="changelog-date">2026-10-26</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.7.0" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Security**
+
+- **A credential is released only for the subject that owns it.** Callers name
+  whom they act for with `X-Nexus-Subject` (and `X-Nexus-Agent`,
+  `X-Nexus-Operation`), forwarded by the gateway over HTTP and gRPC. The token,
+  resolve and refresh routes and agent sessions refuse anyone else's connection
+  (`403 subject_mismatch`). `SUBJECT_BINDING=required` also refuses requests that
+  name nobody; `optional` (the default) keeps them working; `off` disables the
+  check. Every release and refusal is audited with subject, agent and operation.
+  See [Whose credential, for whom](concepts/security-model.md#whose-credential-for-whom).
+- **Connection status without a credential.** `GET /connections/{id}/status`
+  reports a connection's status without releasing anything; the gateway's
+  `/v1/check-connection` uses it.
+
+</div>
+
+<div class="changelog-release" markdown>
+
 ## 0.6.8 <span class="changelog-date">2026-10-23</span>
 
 <div class="changelog-meta" markdown>

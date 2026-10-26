@@ -330,3 +330,33 @@ func TestAgentService_GetAgentSession_InactiveWhenExpiredOrClosed(t *testing.T) 
 func stringsHasPrefix(value, prefix string) bool {
 	return len(value) >= len(prefix) && value[:len(prefix)] == prefix
 }
+
+func TestAgentService_RequestAgentSession_BindsOnlyTheSubjectsOwnConnection(t *testing.T) {
+	agentRepo, connRepo, connSvc, svc := setupAgentService()
+	connID := uuid.New()
+	agentRepo.On("GetAgent", mock.Anything, "crm-agent").Return(&domain.Agent{
+		ID: "crm-agent", AllowedScopes: []string{"crm:read"}, Active: true,
+	}, nil)
+	connRepo.On("GetWithProvider", mock.Anything, connID).Return(&domain.ConnectionWithProvider{
+		Connection:   domain.Connection{ID: connID, WorkspaceID: "ws-ada", Status: "active", Scopes: []string{"crm:read"}},
+		ProviderName: "salesforce", AuthType: "oauth2",
+	}, nil)
+	request := service.AgentSessionRequest{AgentID: "crm-agent", ConnectionID: connID.String(), Scopes: []string{"crm:read"}}
+
+	request.ActingFor = "ws-bob"
+	_, err := svc.RequestAgentSession(context.Background(), request)
+	var svcErr *service.ServiceError
+	assert.True(t, errors.As(err, &svcErr))
+	assert.Equal(t, "subject_mismatch", svcErr.Code)
+	connSvc.AssertNotCalled(t, "GetToken", mock.Anything, mock.Anything)
+
+	connSvc.On("GetToken", mock.Anything, connID).Return(map[string]interface{}{"access_token": "at"}, "salesforce", nil).Once()
+	agentRepo.On("CreateSession", mock.Anything, mock.MatchedBy(func(s *domain.AgentSession) bool {
+		return s.OBO && s.ActingFor == "ws-ada"
+	})).Return(nil).Once()
+	request.ActingFor = "ws-ada"
+	resp, err := svc.RequestAgentSession(context.Background(), request)
+	assert.NoError(t, err)
+	assert.True(t, resp.OBO)
+	assert.Equal(t, "ws-ada", resp.ActingFor)
+}

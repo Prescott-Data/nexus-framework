@@ -88,7 +88,13 @@ Response:
 
 ## Using the OBO context
 
-The `acting_for`, `tenant_id`, and `clearance_level` fields are for your application to use — they are not enforced downstream by Nexus. Use them to scope data access in your internal services:
+An agent session binds only a connection its subject owns: send the subject as
+`acting_for` in the request or as `X-Nexus-Subject`, and a connection belonging to
+anyone else is refused (`403 subject_mismatch`); with `SUBJECT_BINDING=required`
+a session that names nobody is refused too. See
+[Whose credential, for whom](../concepts/security-model.md#whose-credential-for-whom).
+`tenant_id` and `clearance_level` are for your application to use; Nexus does not
+enforce them downstream. Use them to scope data access in your internal services:
 
 ```python
 obo = nexus.request_obo_session(

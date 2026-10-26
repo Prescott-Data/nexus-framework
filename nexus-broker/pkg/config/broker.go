@@ -32,6 +32,12 @@ type BrokerConfig struct {
 	RequireAllowlist bool
 	AllowedCIDRs     string
 
+	// Subject binding: whom a credential may be released for. "optional" (the
+	// default) refuses a request that names a subject the connection does not
+	// belong to; "required" also refuses one that names nobody; "off" ignores
+	// the subject. See docs/reference/security-model.md.
+	SubjectBinding string
+
 	// Return URL enforcement
 	EnforceReturnURL     bool
 	AllowedReturnDomains []string
@@ -73,6 +79,7 @@ func Load() (*BrokerConfig, error) {
 		APIKeyReloadInterval: 30 * time.Second,
 
 		EnforceReturnURL: envBool("ENFORCE_RETURN_URL"),
+		SubjectBinding:   strings.ToLower(envOr("SUBJECT_BINDING", "optional")),
 
 		EnforceDBSSL:  envBool("ENFORCE_DB_SSL"),
 		DBSSLMode:     envOr("DB_SSLMODE", "require"),
@@ -163,6 +170,11 @@ func Load() (*BrokerConfig, error) {
 	// Enforce DB SSL if configured
 	cfg.DatabaseURL = enforceDBSSL(cfg.DatabaseURL, cfg.EnforceDBSSL, cfg.DBSSLMode, cfg.DBSSLRootCert)
 
+	switch cfg.SubjectBinding {
+	case "off", "optional", "required":
+	default:
+		return nil, fmt.Errorf("SUBJECT_BINDING must be off, optional or required, not %q", cfg.SubjectBinding)
+	}
 	return cfg, nil
 }
 
