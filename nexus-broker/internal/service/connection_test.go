@@ -274,6 +274,36 @@ func TestConnectionService_CreateConsentSpec_OAuth2(t *testing.T) {
 	connRepo.AssertExpectations(t)
 }
 
+// A consent that names no scopes asks for the ones the provider was registered with:
+// an empty scope parameter is refused by many providers, or grants nothing.
+func TestConnectionService_CreateConsentSpec_OAuth2_DefaultsToRegisteredScopes(t *testing.T) {
+	connRepo, _, providerStore, svc := setupTestService(t)
+
+	req := service.CreateConsentRequest{
+		WorkspaceID: "ws-123",
+		ProviderID:  uuid.New().String(),
+		ReturnURL:   "http://app.example.com/callback",
+	}
+	providerID := uuid.MustParse(req.ProviderID)
+	providerStore.On("GetProfile", providerID).Return(&provider.Profile{
+		ID:       providerID,
+		Name:     "claimshub",
+		AuthType: "oauth2",
+		AuthURL:  ptr("https://claims.example.com/oauth/authorize"),
+		ClientID: ptr("client-123"),
+		Scopes:   []string{"claims:read", "claims:write"},
+	}, nil)
+	connRepo.On("Create", mock.Anything, mock.MatchedBy(func(c *domain.Connection) bool {
+		return len(c.Scopes) == 2 && c.Scopes[0] == "claims:read"
+	})).Return(nil)
+
+	resp, err := svc.CreateConsentSpec(context.Background(), req)
+
+	assert.NoError(t, err)
+	assert.Contains(t, resp.AuthURL, "scope=claims%3Aread+claims%3Awrite")
+	connRepo.AssertExpectations(t)
+}
+
 // TestConnectionService_CreateConsentSpec_OAuth2_TokenRequestFormatNotLeaked
 // guards against params.token_request_format (a broker-internal,
 // token-endpoint-only setting) leaking into the provider's authorization

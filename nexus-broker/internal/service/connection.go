@@ -154,6 +154,11 @@ func (s *connectionService) CreateConsentSpec(ctx context.Context, req CreateCon
 		return nil, ErrNotFoundWithErr(err, "provider_not_found", "Provider not found")
 	}
 
+	if len(req.Scopes) == 0 {
+		// Nothing asked for: ask for what the provider was registered with, not an empty scope.
+		req.Scopes = p.Scopes
+	}
+
 	switch p.AuthType {
 	case "oauth2", "":
 		codeVerifier, codeChallenge, err := auth.GeneratePKCE()
