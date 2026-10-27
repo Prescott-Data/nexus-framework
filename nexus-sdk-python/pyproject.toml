@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nexus-sdk"
-version = "0.7.0"
+version = "0.7.1"
 description = "Nexus SDK for Python — unified client for the Nexus OAuth Gateway and MCP server integration"
 readme = "README.md"
 license = {text = "ISC"}

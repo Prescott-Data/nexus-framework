@@ -12,7 +12,11 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
-## Unreleased
+## 0.7.1 <span class="changelog-date">2026-10-27</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.7.1" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
 
 **Fixed**
 
