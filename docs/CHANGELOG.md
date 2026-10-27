@@ -12,6 +12,26 @@ All notable changes to Nexus are documented here. This project follows [Semantic
 
 <div class="changelog-release" markdown>
 
+## 0.7.1 <span class="changelog-date">2026-10-27</span>
+
+<div class="changelog-meta" markdown>
+<a class="changelog-release-link" href="https://github.com/Prescott-Data/nexus-framework/releases/tag/v0.7.1" target="_blank" rel="noopener noreferrer">View release on GitHub →</a>
+</div>
+
+**Fixed**
+
+- **Token responses keep every field the broker sends.** The gateway's
+  `/v1/token` and `/v1/resolve` dropped `api_base_url`, `expires_at`,
+  `expires_in` and `scope`. Clients that bind a credential to the provider's
+  registered host (JarvisCore 3.0.1+) need `api_base_url` to call your own
+  systems.
+- **A connection that names no scopes asks for the provider's registered ones**,
+  not an empty `scope`, which many providers refuse.
+
+</div>
+
+<div class="changelog-release" markdown>
+
 ## 0.7.0 <span class="changelog-date">2026-10-26</span>
 
 <div class="changelog-meta" markdown>

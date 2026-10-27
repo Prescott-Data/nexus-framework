@@ -41,6 +41,20 @@ func (e *BrokerStatusError) Error() string { return fmt.Sprintf("broker status %
 // writeJSON marshals v to JSON and writes it to w with the given status code.
 // Marshalling happens before any bytes are written to w, so a 500 can still be
 // sent if encoding fails.
+// brokerToken is a token response as the broker sent it. The broker's response is the
+// contract (TokenResponse allows additional properties): re-encoding it through the
+// generated struct dropped api_base_url, expires_at, expires_in and scope. The typed
+// value is only a fallback for a body that is not a JSON object.
+func brokerToken(body []byte, typed any) map[string]any {
+	var token map[string]any
+	if err := json.Unmarshal(body, &token); err == nil && token != nil {
+		return token
+	}
+	data, _ := json.Marshal(typed)
+	_ = json.Unmarshal(data, &token)
+	return token
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -480,7 +494,7 @@ func (h *Handler) ResolveToken(w http.ResponseWriter, r *http.Request) {
 
 	if resp.StatusCode() == http.StatusOK && resp.JSON200 != nil {
 		logging.Info(r.Context(), "resolve_token.success", map[string]any{"workspace_id": workspaceID, "provider_name": providerName})
-		writeJSON(w, http.StatusOK, resp.JSON200)
+		writeJSON(w, http.StatusOK, brokerToken(resp.Body, resp.JSON200))
 		return
 	}
 
@@ -517,7 +531,7 @@ func (h *Handler) GetToken(w http.ResponseWriter, r *http.Request) {
 	logging.Info(r.Context(), "get_token.proxy", map[string]any{"connection_id": connectionID, "status": resp.StatusCode()})
 
 	if resp.StatusCode() == http.StatusOK && resp.JSON200 != nil {
-		writeJSON(w, http.StatusOK, resp.JSON200)
+		writeJSON(w, http.StatusOK, brokerToken(resp.Body, resp.JSON200))
 		return
 	}
 
@@ -544,7 +558,6 @@ func writeBrokerError(w http.ResponseWriter, status int, body []byte) {
 }
 
 // GetTokenCore fetches the decrypted token JSON from the broker and returns it as a generic map.
-// Refactored to use generated client and convert struct back to map for backwards compat or generic usage.
 func (h *Handler) GetTokenCore(ctx context.Context, connectionID string) (map[string]any, int, error) {
 	result, status, _, err := h.getTokenRaw(ctx, connectionID)
 	return result, status, err
@@ -566,12 +579,7 @@ func (h *Handler) getTokenRaw(ctx context.Context, connectionID string) (map[str
 		return nil, resp.StatusCode(), resp.Body, fmt.Errorf("empty response")
 	}
 
-	// Convert TokenResponse struct back to map[string]any
-	data, _ := json.Marshal(resp.JSON200)
-	var tokenMap map[string]any
-	_ = json.Unmarshal(data, &tokenMap)
-
-	return tokenMap, http.StatusOK, resp.Body, nil
+	return brokerToken(resp.Body, resp.JSON200), http.StatusOK, resp.Body, nil
 }
 
 // RefreshConnectionCore forces a token refresh via the broker.
@@ -596,12 +604,7 @@ func (h *Handler) refreshConnectionRaw(ctx context.Context, connectionID string)
 		return nil, resp.StatusCode(), resp.Body, fmt.Errorf("empty response")
 	}
 
-	// Convert TokenResponse struct back to map[string]any
-	data, _ := json.Marshal(resp.JSON200)
-	var tokenMap map[string]any
-	_ = json.Unmarshal(data, &tokenMap)
-
-	return tokenMap, http.StatusOK, resp.Body, nil
+	return brokerToken(resp.Body, resp.JSON200), http.StatusOK, resp.Body, nil
 }
 
 func (h *Handler) RefreshConnection(w http.ResponseWriter, r *http.Request) {

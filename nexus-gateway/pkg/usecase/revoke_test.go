@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -183,5 +184,47 @@ func TestRefreshConnection_ForwardsBrokerRevokedBody(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"connection_revoked"`) {
 		t.Fatalf("broker error code was dropped; body was %q", rec.Body.String())
+	}
+}
+
+// The broker returns the provider's api_base_url, the expiry and the granted scope with a
+// token. They are part of the response (TokenResponse allows additional properties) and a
+// client binds where it sends the credential to api_base_url, so the gateway forwards them.
+func TestTokenResponses_KeepWhatTheBrokerSent(t *testing.T) {
+	const connID = "3f1b0f4e-0b3a-4e5e-9d61-2b8a5f4c1d77"
+	const token = `{"access_token":"tok","token_type":"Bearer","api_base_url":"https://claims.internal.example",` +
+		`"expires_at":"2099-01-01T00:00:00Z","expires_in":3600,"scope":"claims:read","strategy":{"type":"oauth2"}}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(token))
+	}))
+	defer srv.Close()
+	h := NewHandler(srv.URL, []byte("test-key"), srv.Client())
+
+	for name, call := range map[string]func(*httptest.ResponseRecorder){
+		"token": func(rec *httptest.ResponseRecorder) {
+			h.GetToken(rec, httptest.NewRequest(http.MethodGet, "/v1/token/"+connID, nil))
+		},
+		"resolve": func(rec *httptest.ResponseRecorder) {
+			h.ResolveToken(rec, httptest.NewRequest(http.MethodGet, "/v1/resolve?workspace_id=ws&provider_name=claimshub", nil))
+		},
+	} {
+		rec := httptest.NewRecorder()
+		call(rec)
+		var got map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("%s: want 200 JSON, got %d %q", name, rec.Code, rec.Body.String())
+		}
+		for _, field := range []string{"api_base_url", "expires_at", "expires_in", "scope", "strategy"} {
+			if _, ok := got[field]; !ok {
+				t.Errorf("%s: %s was dropped; body was %s", name, field, rec.Body.String())
+			}
+		}
+	}
+
+	core, status, err := h.GetTokenCore(t.Context(), connID)
+	if err != nil || status != http.StatusOK || core["api_base_url"] != "https://claims.internal.example" {
+		t.Fatalf("GetTokenCore dropped api_base_url: %v %d %v", core, status, err)
 	}
 }
