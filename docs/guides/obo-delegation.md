@@ -4,6 +4,23 @@ icon: material/account-arrow-right-outline
 
 # OBO Delegation
 
+The broker endpoint `POST /v1/agent-sessions/obo` verifies delegation with
+`BACKEND_AUTH_URL`. With that setting absent it returns `503 obo_disabled`.
+The URL must use HTTPS; HTTP is accepted only on loopback for development.
+Verification times out after 10 seconds and never follows redirects.
+
+This endpoint currently supports OAuth2 connections, not custom internal-operation
+tokens (tracked in issue #62). Supply `connection_id`, or `provider_name` to resolve
+the verified user's workspace. Verified `user_id` must equal the connection's
+`workspace_id`. An explicit workspace, `acting_for`, or `X-Nexus-Subject` must agree
+with that identity, even when `SUBJECT_BINDING=off`.
+
+**Credential limitation:** authorization is checked at session issuance. The
+returned provider access token is not downscoped by Nexus. Session expiry or
+closure changes broker session state but does not revoke that provider token.
+Applications must not treat `scopes_granted` as proof of reduced provider-token
+capabilities. This change does not implement provider token exchange.
+
 On Behalf Of (OBO) delegation is a session pattern for multi-agent systems where an agent needs to act with a specific user's authorization rather than with system-level access. OBO sessions tie the agent's credentials to the identity and permission tier of the user who initiated the operation.
 
 This matters in multi-tenant systems where agents serve multiple users and where the data a user can access varies by their role or clearance level.
@@ -59,13 +76,13 @@ Your backend must implement `POST /auth/verify-agent-token` and return the respo
 ## Creating an OBO session
 
 ```bash
-curl -X POST https://your-gateway.example.com/v1/agent-sessions/obo \
+curl -X POST https://your-broker.example.com/v1/agent-sessions/obo \
   -H "X-API-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "ops-agent",
-    "provider_name": "internal-ops",
-    "scopes": ["acme:gliding"],
+    "provider_name": "salesforce",
+    "scopes": ["crm:contacts:read"],
     "user_context_token": "<token from your IdP>",
     "ttl_seconds": 900
   }'
@@ -75,9 +92,9 @@ Response:
 
 ```json
 {
-  "session_id": "obo_x9y8z7",
+  "session_id": "sess_x9y8z7",
   "access_token": "eyJ...",
-  "scopes_granted": ["acme:gliding"],
+  "scopes_granted": ["crm:contacts:read"],
   "expires_at": "2026-05-12T21:00:00Z",
   "obo": true,
   "acting_for": "sarah@acme.com",
@@ -125,13 +142,21 @@ The clearance level cannot be changed after a session is issued. An agent that r
 
 ## Audit trail
 
-Every OBO session is written to `audit_events` with the full delegation chain: the agent ID, the user the agent is acting for, the tenant, the scopes granted, the clearance level, and the session timestamps. This gives your compliance team a complete record of every user-triggered agent operation without requiring agent-level instrumentation.
+Issued OBO sessions are recorded in `audit_events` with the agent, session,
+verified subject and tenant. Scopes, clearance and expiry are stored in
+`agent_sessions`. User context tokens and provider tokens are not included in
+these audit events. Refusals are also recorded.
 
 ## Error cases
 
 | Error | Cause |
 |---|---|
-| `403 scope_not_permitted_for_agent` | Requested scope is not in `ops-agent.allowed_scopes` |
-| `403 user_not_authorized_for_scope` | User's permissions do not include the requested scope |
-| `503 backend_auth_unavailable` | `BACKEND_AUTH_URL` is unreachable or returned a non-200 response |
-| `401 invalid_user_context_token` | Your backend returned an error for the provided token |
+| `403 scope_not_allowed` | Requested scope is not allowed for the agent |
+| `403 user_scope_not_allowed` | User permissions do not include every requested scope |
+| `403 scope_not_granted` | Connection scopes are missing or insufficient |
+| `403 subject_mismatch` | Connection owner or supplied subject conflicts with verified identity |
+| `503 obo_disabled` | `BACKEND_AUTH_URL` is not configured |
+| `502 identity_backend_unavailable` | Verification could not reach the backend |
+| `502 identity_backend_failed` | Backend returned an unexpected status |
+| `502 invalid_user_context` | Backend response was malformed, oversized or missing identity |
+| `403 invalid_user_context_token` | Backend rejected the token with 401 or 403 |

@@ -6,6 +6,13 @@ hide:
 
 # Changelog
 
+## 0.8.0
+
+- Add broker OBO session issuance with backend-verified identity, user and agent
+  permission checks, subject ownership validation, and persisted tenant context.
+- Add optional validated `BACKEND_AUTH_URL`; OBO is disabled when unset.
+- Provider tokens are not downscoped or revoked by broker session closure.
+
 All notable changes to Nexus are documented here. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---

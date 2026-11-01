@@ -161,8 +161,12 @@ func main() {
 	log.Printf("Subject binding: %s", cfg.SubjectBinding)
 	auditHandler := handlers.NewAuditHandler(db)
 	connectionsHandler := handlers.NewConnectionsHandler(connSvc, handlers.WithConnectionsAudit(auditSvc))
+	var agentOptions []service.AgentServiceOption
+	if cfg.BackendAuthURL != "" {
+		agentOptions = append(agentOptions, service.WithUserContextVerifier(service.NewBackendUserContextVerifier(cfg.BackendAuthURL)))
+	}
 	agentsHandler := handlers.NewAgentsHandler(
-		service.NewAgentService(agentRepo, connRepo, connSvc),
+		service.NewAgentService(agentRepo, connRepo, connSvc, agentOptions...),
 		handlers.WithAgentSubjectBinding(cfg.SubjectBinding),
 		handlers.WithAgentsAudit(auditSvc),
 	)
@@ -190,6 +194,7 @@ func main() {
 	})
 	protected.Route("/v1/agent-sessions", func(r chi.Router) {
 		r.Post("/", agentsHandler.CreateSession)
+		r.Post("/obo", agentsHandler.CreateOBOSession)
 		r.Get("/{sessionID}", agentsHandler.GetSession)
 		r.Delete("/{sessionID}", agentsHandler.CloseSession)
 	})

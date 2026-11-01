@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/Prescott-Data/nexus-framework/nexus-broker/internal/audit"
 	"github.com/google/uuid"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -125,6 +126,43 @@ func (h *AgentsHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 		"agent_id": resp.AgentID, "session_id": resp.SessionID, "acting_for": resp.ActingFor,
 	})
 
+	httputil.WriteJSON(w, http.StatusCreated, resp)
+}
+
+// CreateOBOSession verifies human delegation independently of subject-binding mode.
+func (h *AgentsHandler) CreateOBOSession(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	var req service.OBOSessionRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_json", "Invalid JSON")
+		return
+	}
+	if err := decoder.Decode(new(interface{})); err != io.EOF {
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_json", "Expected one JSON object")
+		return
+	}
+	if subject := Subject(r); subject != "" {
+		if req.ActingFor != "" && req.ActingFor != subject {
+			h.refuse(w, r, http.StatusBadRequest, "subject_conflict", "Conflicting subjects", req.AgentSessionRequest)
+			return
+		}
+		req.ActingFor = subject
+	}
+	svc, ok := h.svc.(service.OBOSessionService)
+	if !ok {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "obo_disabled", "OBO is not configured")
+		return
+	}
+	resp, err := svc.RequestOBOSession(r.Context(), req)
+	if err != nil {
+		h.record(r, "agent_session_refused", nil, map[string]string{"agent_id": req.AgentID, "reason": "obo_verification_failed"})
+		writeServiceError(w, err)
+		return
+	}
+	id := resp.ConnectionID
+	h.record(r, "agent_session_issued", &id, map[string]string{"agent_id": resp.AgentID, "session_id": resp.SessionID, "acting_for": resp.ActingFor, "tenant_id": resp.TenantID})
 	httputil.WriteJSON(w, http.StatusCreated, resp)
 }
 

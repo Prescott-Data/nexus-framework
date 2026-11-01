@@ -31,10 +31,11 @@ type AgentService interface {
 }
 
 type agentService struct {
-	agentRepo repository.AgentRepository
-	connRepo  repository.ConnectionRepository
-	connSvc   ConnectionService
-	now       func() time.Time
+	agentRepo   repository.AgentRepository
+	connRepo    repository.ConnectionRepository
+	connSvc     ConnectionService
+	now         func() time.Time
+	oboVerifier UserContextVerifier
 }
 
 type RegisterAgentRequest struct {
@@ -70,11 +71,15 @@ type AgentSessionResponse struct {
 	ClearanceLevel int       `json:"clearance_level"`
 }
 
-func NewAgentService(agentRepo repository.AgentRepository, connRepo repository.ConnectionRepository, connSvc ConnectionService) AgentService {
-	return newAgentService(agentRepo, connRepo, connSvc, time.Now)
+func NewAgentService(agentRepo repository.AgentRepository, connRepo repository.ConnectionRepository, connSvc ConnectionService, opts ...AgentServiceOption) AgentService {
+	s := newAgentService(agentRepo, connRepo, connSvc, time.Now)
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
-func newAgentService(agentRepo repository.AgentRepository, connRepo repository.ConnectionRepository, connSvc ConnectionService, now func() time.Time) AgentService {
+func newAgentService(agentRepo repository.AgentRepository, connRepo repository.ConnectionRepository, connSvc ConnectionService, now func() time.Time) *agentService {
 	return &agentService{
 		agentRepo: agentRepo,
 		connRepo:  connRepo,
@@ -124,6 +129,10 @@ func (s *agentService) ListAgents(ctx context.Context) ([]domain.Agent, error) {
 }
 
 func (s *agentService) RequestAgentSession(ctx context.Context, req AgentSessionRequest) (*AgentSessionResponse, error) {
+	return s.requestAgentSession(ctx, req, nil)
+}
+
+func (s *agentService) requestAgentSession(ctx context.Context, req AgentSessionRequest, user *VerifiedUserContext) (*AgentSessionResponse, error) {
 	agentID := strings.TrimSpace(req.AgentID)
 	if agentID == "" {
 		return nil, ErrBadRequest("missing_agent_id", "agent_id is required")
@@ -170,6 +179,9 @@ func (s *agentService) RequestAgentSession(ctx context.Context, req AgentSession
 	if missing := firstConnectionMissingScope(scopes, conn.Scopes); missing != "" {
 		return nil, ErrForbidden("scope_not_granted", fmt.Sprintf("scope %q was not granted on the underlying connection", missing))
 	}
+	if user != nil && len(conn.Scopes) == 0 {
+		return nil, ErrForbidden("scope_not_granted", "Connection scopes are unknown")
+	}
 
 	tokenResponse, _, err := s.connSvc.GetToken(ctx, conn.ID)
 	if err != nil {
@@ -190,6 +202,12 @@ func (s *agentService) RequestAgentSession(ctx context.Context, req AgentSession
 		OBO:            actingFor != "",
 		ActingFor:      actingFor,
 		ClearanceLevel: 1,
+	}
+	if user != nil {
+		session.OBO = true
+		session.ActingFor = user.UserID
+		session.TenantID = user.TenantID
+		session.ClearanceLevel = user.ClearanceLevel
 	}
 	if err := s.agentRepo.CreateSession(ctx, session); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

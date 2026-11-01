@@ -12,10 +12,11 @@ import (
 // Populated once at startup from environment variables, then passed to all
 // subsystems. No other package should read os.Getenv directly.
 type BrokerConfig struct {
-	Port        string
-	DatabaseURL string
-	BaseURL     string
-	RedisURL    string
+	Port           string
+	DatabaseURL    string
+	BaseURL        string
+	RedisURL       string
+	BackendAuthURL string
 
 	EncryptionKey []byte
 	StateKey      []byte
@@ -91,6 +92,15 @@ func Load() (*BrokerConfig, error) {
 		SecretBackend:   strings.ToLower(strings.TrimSpace(envOr("SECRET_BACKEND", "internal"))),
 		GCPProjectID:    strings.TrimSpace(os.Getenv("GCP_PROJECT_ID")),
 		GCPSecretPrefix: envOr("GCP_SECRET_PREFIX", "nexus-providers"),
+	}
+
+	cfg.BackendAuthURL = strings.TrimSpace(os.Getenv("BACKEND_AUTH_URL"))
+	if cfg.BackendAuthURL != "" {
+		u, err := url.Parse(cfg.BackendAuthURL)
+		if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
+			(u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"))) {
+			return nil, fmt.Errorf("BACKEND_AUTH_URL must be an HTTPS URL (HTTP is allowed only for loopback development), without credentials, query or fragment")
+		}
 	}
 
 	switch cfg.SecretBackend {
