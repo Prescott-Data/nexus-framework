@@ -54,6 +54,7 @@ services:
       # Core Configuration
       PORT: ${PORT_BROKER}
       BASE_URL: ${BASE_URL}
+      BACKEND_AUTH_URL: ${BACKEND_AUTH_URL:-}
       REDIRECT_PATH: ${REDIRECT_PATH}
       
       # Security
